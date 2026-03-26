@@ -1,0 +1,10 @@
+.zig-cache/
+zig-out/
+imgui.ini
+deps/
+*.txt
+*.pth
+*.k
+*.k.meta
+*.pt
+*.mp4
