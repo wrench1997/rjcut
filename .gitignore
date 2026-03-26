@@ -8,3 +8,6 @@ deps/
 *.k.meta
 *.pt
 *.mp4
+*.ttf
+*.otf
+*.json
