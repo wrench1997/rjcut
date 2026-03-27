@@ -1,0 +1,10 @@
+output_file: selected_code.txt
+include:
+  # - src/editor/*.zig
+  - transitions.py
+  - video_utils.py
+  - whisper_parser.py
+  - subtitle_effects.py
+  - process_transcription.py
+  - cut_transition.py
+  - merge_videos.py

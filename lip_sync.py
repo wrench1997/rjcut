@@ -1,0 +1,636 @@
+#!/usr/bin/env python3
+"""
+嘴型同步模块 (lip_sync.py)
+===========================
+解决数字人视频切割/合并后，字幕与嘴型不同步的问题。
+
+原理:
+  对处理后的视频重新运行 whisper_timestamped 语音识别，
+  获取与当前视频帧精确对应的逐字时间戳，
+  从而生成完全同步的字幕。
+
+用法:
+  # 独立使用: 重新识别 + 生成字幕
+  python lip_sync.py cleaned_video.mp4 -o final.mp4
+
+  # 使用大模型 + GPU
+  python lip_sync.py cleaned_video.mp4 -o final.mp4 -m large-v3 --device cuda
+
+  # 指定特效
+  python lip_sync.py cleaned_video.mp4 -o final.mp4 --effect highlight --color cyan
+
+  # 仅重新识别，不烧录字幕 (只输出 JSON)
+  python lip_sync.py cleaned_video.mp4 --json-only
+
+  # 对比新旧 JSON 时间戳偏移
+  python lip_sync.py --compare old.json new.json
+
+典型工作流:
+  1. python cut_transition.py input.mp4                     # 切除"转场"
+  2. python lip_sync.py input_cleaned.mp4 -o final.mp4      # 嘴型同步字幕
+
+  或一步到位:
+  python merge_videos.py input_cleaned.mp4 --resync --sub-effect karaoke
+"""
+
+import json
+import os
+import sys
+import argparse
+import tempfile
+import shutil
+from typing import Optional, List, Dict, Any
+
+DOWNLOAD_ROOT = "./model"
+
+
+# ═══════════════════════════════════════════════
+#  1. 重新语音识别
+# ═══════════════════════════════════════════════
+
+def resync_transcribe(
+    video_path: str,
+    model_size: str = "medium",
+    device: str = "cpu",
+    language: str = "zh",
+    output_json: Optional[str] = None,
+) -> dict:
+    """
+    对视频重新进行语音识别，获取精准的逐字时间戳。
+
+    参数:
+        video_path  : 视频文件路径（应为处理后的最终视频）
+        model_size  : Whisper 模型大小
+        device      : 推理设备 (cpu/cuda)
+        language    : 语言代码
+        output_json : 保存 JSON 的路径 (可选)
+
+    返回:
+        Whisper 识别结果 dict (含 segments → words 逐字时间戳)
+    """
+    import whisper_timestamped as whisper
+
+    print(f"\n{'='*60}")
+    print(f"  👄 嘴型同步 — 重新语音识别")
+    print(f"{'='*60}")
+    print(f"  视频: {os.path.basename(video_path)}")
+    print(f"  模型: {model_size}  |  设备: {device}  |  语言: {language}")
+    print(f"{'─'*60}")
+
+    print(f"  ⏳ 加载模型 {model_size} ...")
+    model = whisper.load_model(
+        model_size, device=device, download_root=DOWNLOAD_ROOT
+    )
+
+    print(f"  ⏳ 识别语音中（获取精准嘴型时间戳）...")
+    audio = whisper.load_audio(video_path)
+    result = whisper.transcribe(
+        model, audio,
+        language=language,
+        detect_disfluencies=False,
+        vad=True,
+    )
+
+    # ── 统计 ──
+    seg_count = len(result.get("segments", []))
+    word_count = sum(
+        len(seg.get("words", []))
+        for seg in result.get("segments", [])
+    )
+    total_dur = 0.0
+    if result.get("segments"):
+        total_dur = result["segments"][-1].get("end", 0)
+
+    print(f"  ✅ 识别完成")
+    print(f"     语句段: {seg_count}")
+    print(f"     逐字数: {word_count}")
+    print(f"     时间跨度: 0.00s ~ {total_dur:.2f}s")
+
+    # ── 打印识别结果预览 ──
+    print(f"\n  {'─'*56}")
+    print(f"  📝 识别文本预览:")
+    print(f"  {'─'*56}")
+    for i, seg in enumerate(result.get("segments", [])[:15], 1):
+        text = seg.get("text", "").strip()
+        w_count = len(seg.get("words", []))
+        print(f"  {i:02d}. [{seg['start']:6.2f}s → {seg['end']:6.2f}s] "
+              f"({w_count}字) {text}")
+    if seg_count > 15:
+        print(f"  ... 共 {seg_count} 段，仅显示前 15 段")
+    print(f"  {'─'*56}")
+
+    # ── 保存 JSON ──
+    if output_json:
+        with open(output_json, "w", encoding="utf-8") as f:
+            json.dump(result, f, ensure_ascii=False, indent=2)
+        print(f"\n  💾 时间戳 JSON 已保存: {output_json}")
+
+    return result
+
+
+# ═══════════════════════════════════════════════
+#  2. 重新识别 + 烧录字幕 (一步到位)
+# ═══════════════════════════════════════════════
+
+def resync_subtitle(
+    input_video: str,
+    output_video: str,
+    model_size: str = "medium",
+    device: str = "cpu",
+    language: str = "zh",
+    effect: str = "karaoke",
+    font_file: Optional[str] = None,
+    font_size: int = 52,
+    highlight_color: str = "gold",
+    filter_transition: bool = True,
+    max_chars_per_line: int = 18,
+    save_json: bool = True,
+) -> str:
+    """
+    完整嘴型同步流水线:
+      1. 对视频重新进行 whisper_timestamped 语音识别
+      2. 用全新的时间戳生成逐字 ASS 字幕
+      3. 烧录到视频
+
+    参数:
+        input_video      : 输入视频（已处理过的，如 _cleaned.mp4）
+        output_video     : 输出视频路径
+        model_size       : Whisper 模型大小
+        device           : 推理设备
+        language         : 语言代码
+        effect           : 字幕特效 (karaoke/highlight/typewriter/bounce)
+        font_file        : 字体文件路径
+        font_size        : 字号
+        highlight_color  : 高亮颜色名或 ASS 颜色码
+        filter_transition: 是否过滤文本中的 "转场" 标记
+        max_chars_per_line: 每行最大字符数
+        save_json        : 是否保存 JSON 文件
+
+    返回: 输出视频路径
+    """
+    from subtitle_effects import burn_whisper_subtitle
+
+    # ── 保存 JSON 路径 ──
+    json_path = None
+    if save_json:
+        base = os.path.splitext(output_video)[0]
+        json_path = f"{base}_resync.json"
+
+    # ── STEP 1: 重新识别 ──
+    result = resync_transcribe(
+        video_path=input_video,
+        model_size=model_size,
+        device=device,
+        language=language,
+        output_json=json_path,
+    )
+
+    # ── STEP 2: 写临时 JSON ──
+    tmp_json = tempfile.NamedTemporaryFile(
+        suffix=".json", delete=False, mode="w", encoding="utf-8"
+    )
+    json.dump(result, tmp_json, ensure_ascii=False, indent=2)
+    tmp_json.close()
+
+    try:
+        # ── STEP 3: 烧录字幕 ──
+        print(f"\n  🎬 烧录逐字字幕 (特效: {effect}) ...")
+        burn_whisper_subtitle(
+            input_video=input_video,
+            output_video=output_video,
+            json_path=tmp_json.name,
+            effect=effect,
+            font_file=font_file,
+            font_size=font_size,
+            highlight_color=highlight_color,
+            filter_transition=filter_transition,
+            max_chars_per_line=max_chars_per_line,
+        )
+    finally:
+        os.unlink(tmp_json.name)
+
+    return output_video
+
+
+# ═══════════════════════════════════════════════
+#  3. 从已有 JSON 重新对齐（可选辅助方法）
+# ═══════════════════════════════════════════════
+
+def resync_from_json(
+    old_json_path: str,
+    video_path: str,
+    model_size: str = "medium",
+    device: str = "cpu",
+    language: str = "zh",
+    output_json: Optional[str] = None,
+    similarity_threshold: float = 0.6,
+) -> dict:
+    """
+    对比旧 JSON 和重新识别的结果，生成对齐后的 JSON。
+    
+    如果旧 JSON 中某段文本在新识别中也存在，就用新的时间戳；
+    这样可以保留人工修正过的文本，同时获取精准时间戳。
+
+    参数:
+        old_json_path      : 旧的 Whisper JSON 文件
+        video_path          : 视频文件路径
+        model_size          : Whisper 模型
+        device              : 推理设备
+        language            : 语言
+        output_json         : 输出 JSON 路径
+        similarity_threshold: 文本相似度阈值
+
+    返回:
+        对齐后的 JSON dict
+    """
+    # ── 读取旧 JSON ──
+    with open(old_json_path, "r", encoding="utf-8") as f:
+        old_data = json.load(f)
+
+    # ── 重新识别 ──
+    new_data = resync_transcribe(
+        video_path=video_path,
+        model_size=model_size,
+        device=device,
+        language=language,
+    )
+
+    old_segs = old_data.get("segments", [])
+    new_segs = new_data.get("segments", [])
+
+    print(f"\n  🔄 对齐旧文本与新时间戳 ...")
+    print(f"     旧 JSON: {len(old_segs)} 段  |  新识别: {len(new_segs)} 段")
+
+    # ── 用新时间戳替换旧的 ──
+    aligned_segs = []
+    new_idx = 0
+
+    for old_seg in old_segs:
+        old_text = old_seg.get("text", "").replace(" ", "").strip()
+        if not old_text:
+            continue
+
+        # 在新结果中找最匹配的段
+        best_match = None
+        best_sim = 0.0
+        best_j = -1
+
+        search_range = range(
+            max(0, new_idx - 3),
+            min(len(new_segs), new_idx + 10)
+        )
+        for j in search_range:
+            new_text = new_segs[j].get("text", "").replace(" ", "").strip()
+            sim = _text_similarity(old_text, new_text)
+            if sim > best_sim:
+                best_sim = sim
+                best_match = new_segs[j]
+                best_j = j
+
+        if best_match and best_sim >= similarity_threshold:
+            # 用旧文本 + 新时间戳
+            aligned_seg = {
+                "text": old_seg.get("text", ""),
+                "start": best_match["start"],
+                "end": best_match["end"],
+                "words": best_match.get("words", old_seg.get("words", [])),
+            }
+            aligned_segs.append(aligned_seg)
+            new_idx = best_j + 1
+            print(f"     ✅ 匹配 (相似度 {best_sim:.0%}): "
+                  f"\"{old_text[:15]}\" → "
+                  f"[{best_match['start']:.2f}s~{best_match['end']:.2f}s]")
+        else:
+            # 未匹配，保留旧段但标记
+            aligned_segs.append(old_seg)
+            print(f"     ⚠️  未匹配: \"{old_text[:15]}\" "
+                  f"(最佳相似度 {best_sim:.0%})")
+
+    result = {
+        "text": " ".join(s.get("text", "").strip() for s in aligned_segs),
+        "segments": aligned_segs,
+        "language": language,
+    }
+
+    if output_json:
+        with open(output_json, "w", encoding="utf-8") as f:
+            json.dump(result, f, ensure_ascii=False, indent=2)
+        print(f"\n  💾 对齐 JSON 已保存: {output_json}")
+
+    return result
+
+
+def _text_similarity(a: str, b: str) -> float:
+    """简单的字符级 Jaccard 相似度"""
+    if not a and not b:
+        return 1.0
+    if not a or not b:
+        return 0.0
+    set_a = set(a)
+    set_b = set(b)
+    intersection = set_a & set_b
+    union = set_a | set_b
+    return len(intersection) / len(union) if union else 0.0
+
+
+# ═══════════════════════════════════════════════
+#  4. 时间戳对比诊断工具
+# ═══════════════════════════════════════════════
+
+def compare_timestamps(old_json_path: str, new_json_path: str):
+    """
+    对比两个 Whisper JSON 的时间戳差异，
+    帮助诊断嘴型不同步问题。
+    """
+    with open(old_json_path, "r", encoding="utf-8") as f:
+        old_data = json.load(f)
+    with open(new_json_path, "r", encoding="utf-8") as f:
+        new_data = json.load(f)
+
+    old_segs = old_data.get("segments", [])
+    new_segs = new_data.get("segments", [])
+
+    print(f"\n{'='*62}")
+    print(f"  📊 时间戳对比诊断")
+    print(f"{'='*62}")
+    print(f"  旧 JSON: {old_json_path}")
+    print(f"           {len(old_segs)} 段")
+    print(f"  新 JSON: {new_json_path}")
+    print(f"           {len(new_segs)} 段")
+    print(f"  {'─'*58}")
+
+    # ── 逐段对比 ──
+    max_show = min(20, len(old_segs), len(new_segs))
+    total_drift_start = 0.0
+    total_drift_end = 0.0
+    max_drift = 0.0
+    count = 0
+
+    for i in range(max_show):
+        old_s = old_segs[i]
+        new_s = new_segs[i]
+        old_text = old_s.get("text", "").strip()[:20]
+        new_text = new_s.get("text", "").strip()[:20]
+
+        drift_start = new_s["start"] - old_s["start"]
+        drift_end = new_s["end"] - old_s["end"]
+        avg_drift = (abs(drift_start) + abs(drift_end)) / 2
+        max_drift = max(max_drift, avg_drift)
+        total_drift_start += abs(drift_start)
+        total_drift_end += abs(drift_end)
+        count += 1
+
+        # 状态图标
+        if avg_drift < 0.1:
+            icon = "✅"
+        elif avg_drift < 0.3:
+            icon = "⚡"
+        elif avg_drift < 0.5:
+            icon = "⚠️ "
+        else:
+            icon = "❌"
+
+        print(f"  {icon} 段{i+1:02d}: "
+              f"旧[{old_s['start']:6.2f}s] → 新[{new_s['start']:6.2f}s] "
+              f"偏移 {drift_start:+.3f}s  \"{old_text}\"")
+
+    if count > 0:
+        avg_start = total_drift_start / count
+        avg_end = total_drift_end / count
+        print(f"\n  {'─'*58}")
+        print(f"  📈 统计:")
+        print(f"     平均起始偏移: {avg_start:.3f}s")
+        print(f"     平均结束偏移: {avg_end:.3f}s")
+        print(f"     最大偏移:     {max_drift:.3f}s")
+        print()
+
+        if max_drift > 0.5:
+            print(f"  ❌ 时间戳偏差较大！强烈建议使用 --resync 重新识别")
+        elif max_drift > 0.2:
+            print(f"  ⚠️  存在明显偏移，建议使用 --resync 重新识别")
+        else:
+            print(f"  ✅ 时间戳偏移较小，基本可用")
+
+    # ── 逐字级别对比（如果有的话） ──
+    old_words = []
+    for seg in old_segs:
+        old_words.extend(seg.get("words", []))
+    new_words = []
+    for seg in new_segs:
+        new_words.extend(seg.get("words", []))
+
+    if old_words and new_words:
+        print(f"\n  📝 逐字级别:")
+        print(f"     旧 JSON: {len(old_words)} 个字")
+        print(f"     新 JSON: {len(new_words)} 个字")
+
+        # 抽样对比前10个字
+        max_w = min(10, len(old_words), len(new_words))
+        word_drifts = []
+        for j in range(max_w):
+            ow = old_words[j]
+            nw = new_words[j]
+            drift = abs(nw["start"] - ow["start"])
+            word_drifts.append(drift)
+            print(f"     字'{ow.get('text','?')}': "
+                  f"旧{ow['start']:.3f}s → 新{nw['start']:.3f}s "
+                  f"(偏移 {drift:.3f}s)")
+
+        if word_drifts:
+            avg_w = sum(word_drifts) / len(word_drifts)
+            print(f"     平均逐字偏移: {avg_w:.3f}s")
+
+    print(f"{'='*62}\n")
+
+
+# ═══════════════════════════════════════════════
+#  5. CLI
+# ═══════════════════════════════════════════════
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="👄 嘴型同步工具 — 重新识别视频语音获取精准字幕时间戳",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+典型工作流:
+
+  # 方式 A: 两步走
+  python cut_transition.py output/阳光百纳.mp4 --device cuda                  # 1. 切除转场
+  python lip_sync.py output/阳光百纳_cleaned.mp4 -o 阳光百纳_final.mp4  -m large-v3 --device cuda                   # 2. 嘴型同步字幕
+
+  # 方式 B: merge_videos 集成
+  python merge_videos.py input_cleaned.mp4 --resync --sub-effect karaoke
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+示例:
+
+  # 基本用法
+  python lip_sync.py video.mp4 -o video_synced.mp4
+
+  # GPU + 大模型 (更精准)
+  python lip_sync.py video.mp4 -o out.mp4 -m large-v3 --device cuda
+
+  # 指定字幕特效 + 颜色
+  python lip_sync.py video.mp4 -o out.mp4 --effect highlight --color cyan
+
+  # 仅重新识别, 输出 JSON (不烧录字幕)
+  python lip_sync.py video.mp4 --json-only -o transcript.json
+
+  # 对比新旧 JSON 时间戳偏移
+  python lip_sync.py --compare old_transcription.json new_resync.json
+
+  # 用旧文本 + 新时间戳对齐 (保留人工修正的文本)
+  python lip_sync.py video.mp4 --align-from old.json -o aligned.json
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        """,
+    )
+
+    parser.add_argument("input", nargs="?", help="输入视频文件")
+    parser.add_argument("-o", "--output", default=None,
+                        help="输出路径 (视频或 JSON)")
+    parser.add_argument("-m", "--model", default="medium",
+                        choices=["tiny", "base", "small", "medium",
+                                 "large", "large-v2", "large-v3"],
+                        help="Whisper 模型 (默认: medium, 推荐 large-v3)")
+    parser.add_argument("--device", default="cpu",
+                        choices=["cpu", "cuda"],
+                        help="推理设备 (默认: cpu, 有GPU选cuda)")
+    parser.add_argument("--language", default="zh",
+                        help="语言代码 (默认: zh)")
+
+    # ── 字幕设置 ──
+    sg = parser.add_argument_group("✨ 字幕设置")
+    sg.add_argument("--effect", default="karaoke",
+                    choices=["karaoke", "highlight", "typewriter", "bounce"],
+                    help="字幕特效 (默认: karaoke)")
+    sg.add_argument("--font", default=None,
+                    help="字体文件路径 (.ttf/.ttc)")
+    sg.add_argument("--font-size", type=int, default=52,
+                    help="字号 (默认: 52)")
+    sg.add_argument("--color", default="gold",
+                    help="高亮颜色: gold/yellow/cyan/red/pink/orange "
+                         "或 ASS 颜色码 (默认: gold)")
+    sg.add_argument("--max-chars", type=int, default=18,
+                    help="每行最大字符数 (默认: 18)")
+    sg.add_argument("--no-filter-transition", action="store_true",
+                    help="不过滤文本中的 '转场' 标记")
+
+    # ── 特殊模式 ──
+    mg = parser.add_argument_group("🔧 特殊模式")
+    mg.add_argument("--json-only", action="store_true",
+                    help="仅输出 JSON，不烧录字幕")
+    mg.add_argument("--compare", nargs=2, metavar=("OLD_JSON", "NEW_JSON"),
+                    help="对比两个 JSON 的时间戳差异")
+    mg.add_argument("--align-from", default=None, metavar="OLD_JSON",
+                    help="用旧 JSON 文本 + 新时间戳对齐")
+
+    args = parser.parse_args()
+
+    # ══════════════════════════════════
+    #  对比模式
+    # ══════════════════════════════════
+    if args.compare:
+        for jp in args.compare:
+            if not os.path.isfile(jp):
+                print(f"❌ 文件不存在: {jp}")
+                sys.exit(1)
+        compare_timestamps(args.compare[0], args.compare[1])
+        return
+
+    # ══════════════════════════════════
+    #  需要输入视频的模式
+    # ══════════════════════════════════
+    if not args.input:
+        parser.print_help()
+        print("\n  💡 提示: 请指定输入视频文件")
+        print("     例: python lip_sync.py video.mp4 -o output.mp4\n")
+        sys.exit(1)
+
+    if not os.path.isfile(args.input):
+        print(f"❌ 文件不存在: {args.input}")
+        sys.exit(1)
+
+    # ── 对齐模式 ──
+    if args.align_from:
+        if not os.path.isfile(args.align_from):
+            print(f"❌ 旧 JSON 不存在: {args.align_from}")
+            sys.exit(1)
+        base = os.path.splitext(args.input)[0]
+        out_json = args.output or f"{base}_aligned.json"
+        resync_from_json(
+            old_json_path=args.align_from,
+            video_path=args.input,
+            model_size=args.model,
+            device=args.device,
+            language=args.language,
+            output_json=out_json,
+        )
+        print(f"\n  🎉 对齐完成! JSON: {out_json}\n")
+        return
+
+    # ── 仅 JSON 模式 ──
+    if args.json_only:
+        base = os.path.splitext(args.input)[0]
+        json_out = args.output or f"{base}_resync.json"
+        resync_transcribe(
+            video_path=args.input,
+            model_size=args.model,
+            device=args.device,
+            language=args.language,
+            output_json=json_out,
+        )
+        print(f"\n  🎉 识别完成! JSON: {json_out}\n")
+        return
+
+    # ══════════════════════════════════
+    #  完整流水线: 识别 + 字幕 + 烧录
+    # ══════════════════════════════════
+    if args.output is None:
+        base = os.path.splitext(args.input)[0]
+        args.output = f"{base}_synced.mp4"
+
+    from video_utils import check_ffmpeg, get_duration
+    if not check_ffmpeg():
+        sys.exit(1)
+
+    in_dur = get_duration(args.input)
+    in_size = os.path.getsize(args.input) / 1024 / 1024
+
+    print(f"\n  📂 输入: {args.input}")
+    print(f"     大小: {in_size:.1f} MB  |  时长: {in_dur:.2f}s")
+
+    resync_subtitle(
+        input_video=args.input,
+        output_video=args.output,
+        model_size=args.model,
+        device=args.device,
+        language=args.language,
+        effect=args.effect,
+        font_file=args.font,
+        font_size=args.font_size,
+        highlight_color=args.color,
+        filter_transition=not args.no_filter_transition,
+        max_chars_per_line=args.max_chars,
+        save_json=True,
+    )
+
+    out_dur = get_duration(args.output)
+    out_size = os.path.getsize(args.output) / 1024 / 1024
+
+    print(f"\n{'='*62}")
+    print(f"  🎉 嘴型同步完成!")
+    print(f"{'='*62}")
+    print(f"  输入:  {args.input}")
+    print(f"         {in_size:.1f} MB  |  {in_dur:.2f}s")
+    print(f"  输出:  {args.output}")
+    print(f"         {out_size:.1f} MB  |  {out_dur:.2f}s")
+    print(f"  特效:  {args.effect}  |  颜色: {args.color}")
+    resync_json = os.path.splitext(args.output)[0] + "_resync.json"
+    if os.path.isfile(resync_json):
+        print(f"  JSON:  {resync_json}")
+    print(f"{'='*62}\n")
+
+
+if __name__ == "__main__":
+    main()

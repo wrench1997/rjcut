@@ -457,7 +457,7 @@ def main():
     parser.add_argument("input", help="输入视频文件路径")
     parser.add_argument("-k", "--keyword", default="转场",
                         help="要检测并切除的关键词 (默认: 转场)")
-    parser.add_argument("-m", "--model", default="medium",
+    parser.add_argument("-m", "--model", default="large-v3",
                         choices=["tiny", "base", "small", "medium",
                                  "large", "large-v2", "large-v3"],
                         help="Whisper 模型 (默认: medium, 推荐 medium/large-v3)")

@@ -11,3 +11,5 @@ deps/
 *.ttf
 *.otf
 *.json
+*.srt
+*.ass
