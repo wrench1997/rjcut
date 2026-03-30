@@ -1,90 +1,82 @@
-# 安装依赖
-pip install whisper-timestamped openai-whisper torch
 
-# 最简用法
-python cut_transition.py  鹿茸血视频.mp4
+# 视频处理工具使用说明
 
-# GPU加速 + 大模型（推荐）
-python cut_transition.py  鹿茸血视频.mp4  -m large-v3  --device cuda
+## 1. 准备工作
 
-# 加大边距，确保"转场"口型完全切干净
-python cut_transition.py  鹿茸血视频.mp4  --margin 0.25
+- 将完整代码文件替换现有的 `cut_transition.py` 和 `lip_sync.py`
+- 确保 `video_utils.py`, `transitions.py`, `subtitle_effects.py` 等依赖模块存在
 
-# 保留每个分段文件
-python cut_transition.py  鹿茸血视频.mp4  --keep-parts  -o ./output
+## 2. 示例脚本文件 `script.json`
 
-
-
-
-python cut_transition.py  鹿茸血视频.mp4 -m large-v3  --device cuda  --keep-parts  -o ./output
-
-
-
-
-
-
-
-
-
-
-
-
-
-# merge_videos 快速上手
-# 1. 基本合并（默认 fade 渐变转场）
-
-```Bash
-python merge_videos.py part1.mp4 part2.mp4 part3.mp4
+```json
+{
+  "segments": [
+    {
+      "text": "大家好今天给大家介绍这款产品",
+      "flag": "human"
+    },
+    {
+      "text": "先来看一下它的整体外观",
+      "flag": "scene",
+      "scene_file": "scene_product.mp4"
+    },
+    {
+      "text": "它采用了高密度材质",
+      "flag": "scene",
+      "scene_file": "scene_product.mp4"
+    },
+    {
+      "text": "而且在使用体验上也非常稳定",
+      "flag": "human"
+    }
+  ]
+}
 ```
 
-# 2. 选择转场特效
-```Bash
-python merge_videos.py *.mp4 -t dissolve --td 0.8
-```
-# 随机（每个连接点不同）
-```Bash
-python merge_videos.py *.mp4 -t random
-```
-# 每个连接点分别指定
-```Bash
-python merge_videos.py a.mp4 b.mp4 c.mp4 -t fadeblack,circleopen
-```
-# 无转场快速拼接
-```Bash
-python merge_videos.py *.mp4 -t none
-```
-# 3. 字幕 + 字体
-### 烧录 SRT 字幕，用指定中文字体
-```Bash
-python merge_videos.py *.mp4 --subtitle sub.srt --font ./SimHei.ttf --sub-font-size 28
+## 3. 工作流程
+
+### 第一步：切分视频段
+
+```bash
+python cut_transition.py avatar.mp4 --script script.json -o ./output
 ```
 
-# ASS 字幕（自带样式）
-```
-python merge_videos.py *.mp4 --subtitle sub.ass
-```
-# 4. 文字水印
+### 第二步：合成最终视频
 
-```Bash
-python merge_videos.py *.mp4 \
-  --text "精彩回顾" \
-  --font ./SimHei.ttf \
-  --font-size 48 \
-  --font-color yellow \
-  --text-pos top \
-  --show-from 0 --show-to 5
-```
-# 5. 背景音乐
-```Bash
-python merge_videos.py *.mp4 --bgm music.mp3 --bgm-volume 0.2
+```bash
+python lip_sync.py \
+  --timeline output/avatar_timeline.json \
+  --scene-dir ./scenes \
+  -o output/avatar_final.mp4 \
+  --effect karaoke \
+  --use-transitions \
+  --transition fade \
+  --transition-duration 0.4
 ```
 
-#  6. 查看全部 30+ 种转场特效
-```Bash
-python merge_videos.py --list-transitions
+## 4. 文件结构
+
+```
+./output/
+  ├── avatar_transcription.json
+  ├── avatar_timeline.json
+  ├── avatar_parts/
+  │   ├── part_001.mp4
+  │   ├── part_002.mp4
+  │   ├── ...
+  └── avatar_final.mp4
 ```
 
+## 注意事项
+
+- 场景素材文件需要放在 `--scene-dir` 指定的目录中
+- 脚本中的 `scene_file` 可以是相对路径（相对于 scene-dir）或绝对路径
+- 当前是"最小可用版"，只支持 human 和 scene 两种类型
+- 场景段会循环播放直到时长匹配
+- 字幕特效仍然支持卡拉OK、高亮、打字机等效果
+- 这个完整代码已经包含了新旧两种模式，可以平滑切换使用
 
 
-
+```bash
  python merge_videos.py output/鹿茸血视频_part01.mp4 output/鹿茸血视频_part02.mp4 -t wipeleft --td 2    --text "精彩回顾" --font fonts/SourceHanSerifCN-Light-5.otf    --font-size 48 --font-color yellow --text-pos center --show-from 0 --show-to 5
+```

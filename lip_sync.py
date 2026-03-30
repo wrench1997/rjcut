@@ -4,33 +4,28 @@
 ===========================
 解决数字人视频切割/合并后，字幕与嘴型不同步的问题。
 
-原理:
-  对处理后的视频重新运行 whisper_timestamped 语音识别，
-  获取与当前视频帧精确对应的逐字时间戳，
-  从而生成完全同步的字幕。
+新增功能：时间线智能合成器
+===========================
+读取 timeline.json，根据类型合成最终视频：
+  - human: 直接使用 part_file
+  - scene: 用 scene_file 替换画面，但保留 part 音频
+最后重新识别并烧录字幕，确保嘴型同步。
 
 用法:
-  # 独立使用: 重新识别 + 生成字幕
+  # 嘴型同步模式: 重新识别 + 生成字幕
   python lip_sync.py cleaned_video.mp4 -o final.mp4
 
+  # 时间线合成模式: 根据 timeline.json 合成
+  python lip_sync.py --timeline timeline.json --scene-dir ./scenes -o final.mp4
+
   # 使用大模型 + GPU
-  python lip_sync.py cleaned_video.mp4 -o final.mp4 -m large-v3 --device cuda
+  python lip_sync.py --timeline timeline.json -o final.mp4 -m large-v3 --device cuda
 
   # 指定特效
-  python lip_sync.py cleaned_video.mp4 -o final.mp4 --effect highlight --color cyan
-
-  # 仅重新识别，不烧录字幕 (只输出 JSON)
-  python lip_sync.py cleaned_video.mp4 --json-only
+  python lip_sync.py --timeline timeline.json -o final.mp4 --effect highlight --color cyan
 
   # 对比新旧 JSON 时间戳偏移
   python lip_sync.py --compare old.json new.json
-
-典型工作流:
-  1. python cut_transition.py input.mp4                     # 切除"转场"
-  2. python lip_sync.py input_cleaned.mp4 -o final.mp4      # 嘴型同步字幕
-
-  或一步到位:
-  python merge_videos.py input_cleaned.mp4 --resync --sub-effect karaoke
 """
 
 import json
@@ -444,35 +439,254 @@ def compare_timestamps(old_json_path: str, new_json_path: str):
 
 
 # ═══════════════════════════════════════════════
-#  5. CLI
+#  5. 时间线智能合成
+# ═══════════════════════════════════════════════
+
+def build_scene_clip(
+    scene_path: str,
+    audio_part_path: str,
+    output_path: str,
+    duration: float,
+    width: int,
+    height: int,
+    fps: float,
+):
+    """
+    用 scene 视频作为画面，audio_part 作为音频，生成一个固定时长片段
+    最小版策略:
+      - scene 不够长时循环
+      - 音频完全使用 audio_part
+    """
+    import subprocess
+
+    cmd = [
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "warning",
+        "-stream_loop", "-1", "-i", scene_path,
+        "-i", audio_part_path,
+        "-t", f"{duration:.4f}",
+        "-vf", (
+            f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
+            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,"
+            f"fps={fps},format=yuv420p"
+        ),
+        "-map", "0:v",
+        "-map", "1:a",
+        "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+        "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2",
+        "-shortest",
+        "-movflags", "+faststart",
+        output_path,
+    ]
+    subprocess.run(cmd, check=True)
+
+
+
+def prepare_timeline_render_clips(
+    timeline_path: str,
+    work_dir: str,
+    scene_dir: Optional[str] = None,
+) -> List[str]:
+    """
+    根据 timeline.json 生成最终用于拼接的片段列表
+    - human: 直接使用 part_file
+    - scene: 用 scene_file 替换画面，但保留对应 part 音频
+    返回: clip_paths
+    """
+    from video_utils import normalize_clip
+
+    # 获取时间线文件所在目录，用于解析相对路径
+    timeline_dir = os.path.dirname(os.path.abspath(timeline_path))
+    
+    with open(timeline_path, "r", encoding="utf-8") as f:
+        timeline = json.load(f)
+
+    parts_dir = timeline["parts_dir"]
+    
+    # 如果parts_dir是相对路径，则相对于时间线文件所在目录解析
+    if not os.path.isabs(parts_dir):
+        parts_dir = os.path.join(timeline_dir, parts_dir)
+        
+    info = timeline["video_info"]
+    width = info["width"]
+    height = info["height"]
+    fps = info["fps"]
+
+    segments = timeline.get("segments", [])
+    if not segments:
+        raise ValueError("timeline 中没有 segments")
+
+    render_clips = []
+    render_dir = os.path.join(work_dir, "render_segments")
+    os.makedirs(render_dir, exist_ok=True)
+
+    print(f"\n{'='*60}")
+    print(f"  🎞️  准备时间线片段")
+    print(f"{'='*60}")
+
+    for seg in segments:
+        seg_id = seg["id"]
+        seg_type = seg["type"]
+        duration = float(seg["duration"])
+        part_path = os.path.join(parts_dir, seg["part_file"])
+
+        if not os.path.isfile(part_path):
+            raise FileNotFoundError(f"part 文件不存在: {part_path}")
+
+        out_path = os.path.join(render_dir, f"render_{seg_id:03d}.mp4")
+
+        if seg_type == "human":
+            print(f"  #{seg_id:02d} [human] 直接使用 part")
+            normalize_clip(part_path, out_path, width, height, fps)
+
+        elif seg_type == "scene":
+            scene_file = seg.get("scene_file")
+            if not scene_file:
+                raise ValueError(f"scene 段缺少 scene_file: segment #{seg_id}")
+
+            scene_path = scene_file
+            if scene_dir and not os.path.isabs(scene_file):
+                scene_path = os.path.join(scene_dir, scene_file)
+
+            if not os.path.isfile(scene_path):
+                raise FileNotFoundError(f"scene 文件不存在: {scene_path}")
+
+            print(f"  #{seg_id:02d} [scene] {os.path.basename(scene_path)}")
+            build_scene_clip(
+                scene_path=scene_path,
+                audio_part_path=part_path,
+                output_path=out_path,
+                duration=duration,
+                width=width,
+                height=height,
+                fps=fps,
+            )
+        else:
+            raise ValueError(f"不支持的 segment type: {seg_type}")
+
+        render_clips.append(out_path)
+
+    return render_clips
+
+
+def compose_from_timeline(
+    timeline_path: str,
+    output_video: str,
+    scene_dir: Optional[str] = None,
+    use_transitions: bool = False,
+    transition_type: str = "fade",
+    transition_duration: float = 0.5,
+    resync: bool = True,
+    model_size: str = "medium",
+    device: str = "cpu",
+    language: str = "zh",
+    effect: str = "karaoke",
+    font_file: Optional[str] = None,
+    font_size: int = 52,
+    highlight_color: str = "gold",
+    max_chars_per_line: int = 18,
+):
+    """
+    从 timeline.json 进行最终合成
+    """
+    from video_utils import check_ffmpeg
+    from transitions import merge_with_xfade
+    from video_utils import concat_simple
+
+    if not check_ffmpeg():
+        sys.exit(1)
+
+    with open(timeline_path, "r", encoding="utf-8") as f:
+        timeline = json.load(f)
+
+    work_dir = tempfile.mkdtemp(prefix="timeline_compose_")
+    tmp_merged = os.path.join(work_dir, "merged.mp4")
+
+    try:
+        clips = prepare_timeline_render_clips(
+            timeline_path=timeline_path,
+            work_dir=work_dir,
+            scene_dir=scene_dir,
+        )
+
+        if not clips:
+            raise ValueError("没有可合成的视频片段")
+
+        print(f"\n{'='*60}")
+        print(f"  🔗 合并最终视频")
+        print(f"{'='*60}")
+
+        if use_transitions and len(clips) > 1:
+            transitions = [transition_type] * (len(clips) - 1)
+            merge_with_xfade(
+                clip_paths=clips,
+                output_path=tmp_merged,
+                transitions=transitions,
+                td=transition_duration,
+            )
+        else:
+            concat_simple(clips, tmp_merged)
+
+        if resync:
+            print(f"\n{'='*60}")
+            print(f"  👄 重新识别并烧录字幕")
+            print(f"{'='*60}")
+            resync_subtitle(
+                input_video=tmp_merged,
+                output_video=output_video,
+                model_size=model_size,
+                device=device,
+                language=language,
+                effect=effect,
+                font_file=font_file,
+                font_size=font_size,
+                highlight_color=highlight_color,
+                filter_transition=False,
+                max_chars_per_line=max_chars_per_line,
+                save_json=True,
+            )
+        else:
+            shutil.copy2(tmp_merged, output_video)
+
+    finally:
+        shutil.rmtree(work_dir, ignore_errors=True)
+
+    return output_video
+
+
+# ═══════════════════════════════════════════════
+#  6. CLI
 # ═══════════════════════════════════════════════
 
 def main():
     parser = argparse.ArgumentParser(
-        description="👄 嘴型同步工具 — 重新识别视频语音获取精准字幕时间戳",
+        description="👄 嘴型同步与时间线合成工具",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 典型工作流:
 
-  # 方式 A: 两步走
-  python cut_transition.py output/阳光百纳.mp4 --device cuda                  # 1. 切除转场
-  python lip_sync.py output/阳光百纳_cleaned.mp4 -o 阳光百纳_final.mp4  -m large-v3 --device cuda                   # 2. 嘴型同步字幕
+  # 方式 A: 嘴型同步模式 (针对单个视频)
+  python cut_transition.py output/阳光百纳.mp4 --device cuda
+  python lip_sync.py output/阳光百纳_cleaned.mp4 -o 阳光百纳_final.mp4
 
-  # 方式 B: merge_videos 集成
-  python merge_videos.py input_cleaned.mp4 --resync --sub-effect karaoke
+  # 方式 B: 时间线合成模式 (用于多段+场景)
+  python cut_transition.py avatar.mp4 --script script.json -o ./output
+  python lip_sync.py --timeline output/avatar_timeline.json -o final.mp4
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 示例:
 
-  # 基本用法
-  python lip_sync.py video.mp4 -o video_synced.mp4
+  # 时间线合成模式
+  python lip_sync.py --timeline timeline.json -o final.mp4 --scene-dir ./scenes
 
-  # GPU + 大模型 (更精准)
-  python lip_sync.py video.mp4 -o out.mp4 -m large-v3 --device cuda
+  # 时间线合成 + 转场特效
+  python lip_sync.py --timeline timeline.json -o final.mp4 --use-transitions
 
-  # 指定字幕特效 + 颜色
-  python lip_sync.py video.mp4 -o out.mp4 --effect highlight --color cyan
+  # 嘴型同步模式 (单个视频)
+  python lip_sync.py video.mp4 -o video_synced.mp4 --effect karaoke
+
+  # GPU + 大模型
+  python lip_sync.py --timeline timeline.json -o final.mp4 -m large-v3 --device cuda
 
   # 仅重新识别, 输出 JSON (不烧录字幕)
   python lip_sync.py video.mp4 --json-only -o transcript.json
@@ -489,13 +703,13 @@ def main():
     parser.add_argument("input", nargs="?", help="输入视频文件")
     parser.add_argument("-o", "--output", default=None,
                         help="输出路径 (视频或 JSON)")
-    parser.add_argument("-m", "--model", default="medium",
+    parser.add_argument("-m", "--model", default="large-v3",
                         choices=["tiny", "base", "small", "medium",
                                  "large", "large-v2", "large-v3"],
-                        help="Whisper 模型 (默认: medium, 推荐 large-v3)")
+                        help="Whisper 模型 (默认: medium)")
     parser.add_argument("--device", default="cpu",
                         choices=["cpu", "cuda"],
-                        help="推理设备 (默认: cpu, 有GPU选cuda)")
+                        help="推理设备 (默认: cpu)")
     parser.add_argument("--language", default="zh",
                         help="语言代码 (默认: zh)")
 
@@ -515,6 +729,21 @@ def main():
                     help="每行最大字符数 (默认: 18)")
     sg.add_argument("--no-filter-transition", action="store_true",
                     help="不过滤文本中的 '转场' 标记")
+
+    # ── 时间线合成设置 ──
+    tg = parser.add_argument_group("🎬 时间线合成")
+    tg.add_argument("--timeline", default=None,
+                    help="timeline.json 路径，用于按时间线合成多段视频")
+    tg.add_argument("--scene-dir", default=None,
+                    help="场景素材目录")
+    tg.add_argument("--no-resync", action="store_true",
+                    help="合成后不重新识别字幕")
+    tg.add_argument("--use-transitions", action="store_true",
+                    help="合并片段时使用 xfade 转场")
+    tg.add_argument("--transition", default="fade",
+                    help="转场类型 (默认: fade)")
+    tg.add_argument("--transition-duration", type=float, default=0.5,
+                    help="转场时长秒 (默认: 0.5)")
 
     # ── 特殊模式 ──
     mg = parser.add_argument_group("🔧 特殊模式")
@@ -539,12 +768,51 @@ def main():
         return
 
     # ══════════════════════════════════
+    #  时间线合成模式
+    # ══════════════════════════════════
+    if args.timeline:
+        if not os.path.isfile(args.timeline):
+            print(f"❌ timeline 文件不存在: {args.timeline}")
+            sys.exit(1)
+
+        if args.output is None:
+            base = os.path.splitext(args.timeline)[0]
+            args.output = f"{base}_composed.mp4"
+
+        compose_from_timeline(
+            timeline_path=args.timeline,
+            output_video=args.output,
+            scene_dir=args.scene_dir,
+            use_transitions=args.use_transitions,
+            transition_type=args.transition,
+            transition_duration=args.transition_duration,
+            resync=not args.no_resync,
+            model_size=args.model,
+            device=args.device,
+            language=args.language,
+            effect=args.effect,
+            font_file=args.font,
+            font_size=args.font_size,
+            highlight_color=args.color,
+            max_chars_per_line=args.max_chars,
+        )
+
+        print(f"\n{'='*62}")
+        print(f"  🎉 时间线合成完成!")
+        print(f"{'='*62}")
+        print(f"  timeline: {args.timeline}")
+        print(f"  输出:     {args.output}")
+        print(f"{'='*62}\n")
+        return
+
+    # ══════════════════════════════════
     #  需要输入视频的模式
     # ══════════════════════════════════
     if not args.input:
         parser.print_help()
-        print("\n  💡 提示: 请指定输入视频文件")
-        print("     例: python lip_sync.py video.mp4 -o output.mp4\n")
+        print("\n  💡 提示: 请指定输入视频文件或 timeline.json")
+        print("     例: python lip_sync.py video.mp4 -o output.mp4")
+        print("     例: python lip_sync.py --timeline timeline.json -o output.mp4\n")
         sys.exit(1)
 
     if not os.path.isfile(args.input):
@@ -584,7 +852,7 @@ def main():
         return
 
     # ══════════════════════════════════
-    #  完整流水线: 识别 + 字幕 + 烧录
+    #  嘴型同步模式: 识别 + 字幕 + 烧录
     # ══════════════════════════════════
     if args.output is None:
         base = os.path.splitext(args.input)[0]

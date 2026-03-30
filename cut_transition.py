@@ -7,10 +7,12 @@
   2. 定位所有 "转场" 的精确时间段
   3. ffmpeg 切除全部转场片段
   4. 自动合并为干净的完整视频
+  5. 可选生成 timeline.json 用于 lip_sync.py
 
 用法:
   python cut_transition.py input.mp4
   python cut_transition.py input.mp4 -k 转场 -m large-v3 --margin 0.15
+  python cut_transition.py input.mp4 --gen-timeline --lip-sync
 """
 
 import whisper_timestamped as whisper
@@ -22,11 +24,11 @@ import argparse
 import tempfile
 import shutil
 from dataclasses import dataclass, asdict
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
+# 修正拼写错误，与 lip_sync.py 保持一致
+DOWNLOAD_ROOT = "./model"
 
-
-DOWLOAD_ROOT = "./model"
 # ═══════════════════════════════════════════════
 #  数据结构
 # ═══════════════════════════════════════════════
@@ -62,8 +64,7 @@ def transcribe_video(video_path: str,
     print(f"{'='*60}")
 
     print(f"  ⏳ 加载模型 {model_size} ...")
-    MODEL_PATH = DOWLOAD_ROOT
-    model = whisper.load_model(model_size, device=device,download_root=MODEL_PATH)
+    model = whisper.load_model(model_size, device=device, download_root=DOWNLOAD_ROOT)
 
     print(f"  ⏳ 识别语音中（可能需要几分钟）...")
     audio = whisper.load_audio(video_path)
@@ -179,6 +180,31 @@ def get_duration(path: str) -> float:
     return float(r.stdout.strip())
 
 
+def get_video_info(path: str) -> Dict[str, Any]:
+    """获取视频信息: 宽度、高度、帧率等"""
+    cmd = [
+        "ffprobe", "-v", "error",
+        "-show_entries", "stream=width,height,r_frame_rate,codec_name",
+        "-select_streams", "v:0",
+        "-of", "json",
+        path,
+    ]
+    r = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    info = json.loads(r.stdout)
+    stream = info["streams"][0]
+    
+    # 解析帧率
+    fr_parts = stream.get("r_frame_rate", "").split("/")
+    fps = float(fr_parts[0]) / float(fr_parts[1]) if len(fr_parts) == 2 else 0
+    
+    return {
+        "width": int(stream.get("width", 0)),
+        "height": int(stream.get("height", 0)),
+        "fps": fps,
+        "codec": stream.get("codec_name", "")
+    }
+
+
 def ffmpeg_cut_segment(input_path: str, output_path: str,
                        ss: float, to: float):
     """精确截取 [ss, to) 段（重编码，帧级精确）"""
@@ -273,7 +299,65 @@ def compute_keep_segments(duration: float,
 
 
 # ═══════════════════════════════════════════════
-#  5. 主处理流程
+#  5. 生成时间线 JSON（用于 lip_sync.py）
+# ═══════════════════════════════════════════════
+
+def generate_timeline_json(
+    input_path: str,
+    parts_dir: str,
+    part_files: List[str],
+    output_json: str,
+    keeps: List[TimeSpan],
+) -> str:
+    """
+    生成时间线 JSON 文件，用于 lip_sync.py 时间线合成
+    
+    参数:
+        input_path: 原始视频路径
+        parts_dir: 分段文件目录
+        part_files: 分段文件路径列表
+        output_json: 输出 JSON 文件路径
+        keeps: 计算得到的保留段
+    
+    返回: 生成的 JSON 文件路径
+    """
+    # 获取视频信息
+    info = get_video_info(input_path)
+    duration = get_duration(input_path)
+    
+    # 构建时间线数据
+    segments = []
+    for i, (part_file, seg) in enumerate(zip(part_files, keeps), 1):
+        segments.append({
+            "id": i,
+            "type": "human",  # 默认为人类片段
+            "start": seg.start,
+            "end": seg.end,
+            "duration": seg.duration,
+            "part_file": os.path.basename(part_file)
+        })
+    
+    timeline = {
+        "video_info": {
+            "width": info["width"],
+            "height": info["height"],
+            "fps": info["fps"],
+            "duration": duration,
+            "original_file": os.path.basename(input_path)
+        },
+        "parts_dir": os.path.basename(parts_dir),
+        "segments": segments
+    }
+    
+    # 写入文件
+    with open(output_json, "w", encoding="utf-8") as f:
+        json.dump(timeline, f, ensure_ascii=False, indent=2)
+    
+    return output_json
+
+
+# ═══════════════════════════════════════════════
+#  6. 主处理流程
 # ═══════════════════════════════════════════════
 
 def process(input_path: str, *,
@@ -283,10 +367,13 @@ def process(input_path: str, *,
             output_dir: Optional[str] = None,
             margin: float = 0.15,
             keep_parts: bool = False,
-            min_seg_duration: float = 0.1):
+            min_seg_duration: float = 0.1,
+            gen_timeline: bool = False,
+            lip_sync: bool = False,
+            lip_sync_args: Optional[List[str]] = None):
     """
     端到端处理流程:
-      识别 → 定位关键词 → 切割 → 合并
+      识别 → 定位关键词 → 切割 → 合并 → [生成时间线] → [执行嘴型同步]
     """
 
     # ── 校验 ──
@@ -302,7 +389,10 @@ def process(input_path: str, *,
 
     base = os.path.splitext(os.path.basename(input_path))[0]
     tmp_dir = os.path.join(output_dir, f".{base}_tmp_parts")
+    parts_dir = os.path.join(output_dir, f"{base}_parts")
     os.makedirs(tmp_dir, exist_ok=True)
+    if keep_parts or gen_timeline:
+        os.makedirs(parts_dir, exist_ok=True)
 
     # ── STEP 1: 语音识别 ──
     result = transcribe_video(input_path, model_size=model_size,
@@ -362,34 +452,75 @@ def process(input_path: str, *,
 
     # ── STEP 4: 逐段切割 ──
     print(f"  ✂️  开始切割 ...")
-    part_paths: List[str] = []
+    tmp_parts: List[str] = []
+    final_parts: List[str] = []
+    
     for i, seg in enumerate(keeps, 1):
-        out_path = os.path.join(tmp_dir, f"part_{i:03d}.mp4")
+        tmp_path = os.path.join(tmp_dir, f"part_{i:03d}.mp4")
         print(f"     片段 {i:02d}/{len(keeps)}  "
               f"[{seg.start:.3f}s → {seg.end:.3f}s]  "
               f"({seg.duration:.2f}s)")
-        ffmpeg_cut_segment(input_path, out_path, seg.start, seg.end)
-        part_paths.append(out_path)
+        ffmpeg_cut_segment(input_path, tmp_path, seg.start, seg.end)
+        tmp_parts.append(tmp_path)
+        
+        # 如果需要保存分段或生成时间线
+        if keep_parts or gen_timeline:
+            final_part = os.path.join(parts_dir, f"{base}_part{i:02d}.mp4")
+            shutil.copy2(tmp_path, final_part)
+            final_parts.append(final_part)
 
     # ── STEP 5: 合并 ──
     cleaned_path = os.path.join(output_dir, f"{base}_cleaned.mp4")
 
-    if len(part_paths) == 1:
-        shutil.copy2(part_paths[0], cleaned_path)
+    if len(tmp_parts) == 1:
+        shutil.copy2(tmp_parts[0], cleaned_path)
     else:
-        print(f"\n  🔗 合并 {len(part_paths)} 段 ...")
-        ffmpeg_concat_segments(part_paths, cleaned_path)
+        print(f"\n  🔗 合并 {len(tmp_parts)} 段 ...")
+        ffmpeg_concat_segments(tmp_parts, cleaned_path)
+
+    # ── STEP 6: 生成时间线（可选）──
+    timeline_path = None
+    if gen_timeline:
+        print(f"\n  📜 生成时间线 JSON ...")
+        timeline_path = os.path.join(output_dir, f"{base}_timeline.json")
+        generate_timeline_json(
+            input_path=input_path,
+            parts_dir=parts_dir,
+            part_files=final_parts,
+            output_json=timeline_path,
+            keeps=keeps
+        )
+        print(f"  ✅ 时间线已保存: {timeline_path}")
+
+    # ── STEP 7: 执行嘴型同步（可选）──
+    if lip_sync:
+        print(f"\n{'='*60}")
+        print(f"  👄 执行嘴型同步")
+        print(f"{'='*60}")
+        
+        # 构建命令行
+        cmd = [sys.executable, "lip_sync.py"]
+        if timeline_path:
+            cmd.extend(["--timeline", timeline_path])
+        else:
+            cmd.append(cleaned_path)
+        
+        # 添加默认或自定义参数
+        if lip_sync_args:
+            cmd.extend(lip_sync_args)
+        else:
+            out_video = os.path.join(output_dir, f"{base}_final.mp4")
+            cmd.extend(["-o", out_video])
+            
+        # 执行命令
+        print(f"  执行命令: {' '.join(cmd)}")
+        subprocess.run(cmd, check=True)
 
     # ── 清理 ──
-    if keep_parts:
-        # 把分段移到输出目录
-        for i, pp in enumerate(part_paths, 1):
-            dst = os.path.join(output_dir, f"{base}_part{i:02d}.mp4")
-            shutil.move(pp, dst)
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-        print(f"  📂 分段文件已保存到: {output_dir}")
-    else:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
+    shutil.rmtree(tmp_dir, ignore_errors=True)
+    if not (keep_parts or gen_timeline):
+        if os.path.exists(parts_dir):
+            shutil.rmtree(parts_dir, ignore_errors=True)
 
     # ── 生成切割报告 ──
     report = {
@@ -422,11 +553,13 @@ def process(input_path: str, *,
     print(f"  切除时长:  {duration - kept_total:.2f}s")
     print(f"  识别报告:  {json_path}")
     print(f"  切割报告:  {report_path}")
+    if timeline_path:
+        print(f"  时间线:    {timeline_path}")
     print(f"{'='*60}\n")
 
 
 # ═══════════════════════════════════════════════
-#  6. CLI
+#  7. CLI
 # ═══════════════════════════════════════════════
 
 def main():
@@ -452,6 +585,12 @@ def main():
 
   # 指定输出目录
   python cut_transition.py video.mp4 -o ./output
+  
+  # 生成 timeline.json 用于 lip_sync.py
+  python cut_transition.py video.mp4 --gen-timeline
+  
+  # 切割完成后直接执行嘴型同步
+  python cut_transition.py video.mp4 --lip-sync
         """,
     )
     parser.add_argument("input", help="输入视频文件路径")
@@ -472,6 +611,14 @@ def main():
                         help="保留中间分段文件")
     parser.add_argument("--min-seg", type=float, default=0.1,
                         help="保留段最短时长/秒 (默认: 0.1)")
+                        
+    # 新增参数 - 时间线与嘴型同步
+    parser.add_argument("--gen-timeline", action="store_true",
+                        help="生成时间线 JSON (用于 lip_sync.py)")
+    parser.add_argument("--lip-sync", action="store_true",
+                        help="处理完成后执行嘴型同步")
+    parser.add_argument("--lip-sync-args", nargs=argparse.REMAINDER,
+                        help="传递给 lip_sync.py 的额外参数")
 
     args = parser.parse_args()
 
@@ -484,6 +631,9 @@ def main():
         margin=args.margin,
         keep_parts=args.keep_parts,
         min_seg_duration=args.min_seg,
+        gen_timeline=args.gen_timeline,
+        lip_sync=args.lip_sync,
+        lip_sync_args=args.lip_sync_args
     )
 
 

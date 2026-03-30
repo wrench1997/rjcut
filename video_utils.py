@@ -144,24 +144,34 @@ def normalize_clip(input_path: str, output_path: str,
 
 
 def concat_simple(clip_paths: List[str], output_path: str):
-    """简单拼接视频（无转场）"""
-    list_file = tempfile.NamedTemporaryFile(
-        mode="w", suffix=".txt", delete=False, encoding="utf-8",
-    )
-    try:
-        for p in clip_paths:
-            list_file.write(f"file '{os.path.abspath(p)}'\n")
-        list_file.close()
-        cmd = [
-            "ffmpeg", "-y", "-hide_banner", "-loglevel", "warning",
-            "-f", "concat", "-safe", "0",
-            "-i", list_file.name,
-            "-c", "copy", "-movflags", "+faststart",
-            output_path,
-        ]
-        subprocess.run(cmd, check=True)
-    finally:
-        os.unlink(list_file.name)
+    """稳健拼接视频（使用 filter_complex 确保音视频绝对同步，消除 DTS 错误）"""
+    n = len(clip_paths)
+    if n == 0:
+        return
+    if n == 1:
+        shutil.copy2(clip_paths[0], output_path)
+        return
+
+    cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "warning"]
+    for p in clip_paths:
+        cmd += ["-i", p]
+
+    # 构建滤镜链: [0:v:0][0:a:0][1:v:0][1:a:0]concat=n=X:v=1:a=1[vout][aout]
+    filter_parts = []
+    for i in range(n):
+        filter_parts.append(f"[{i}:v:0][{i}:a:0]")
+    filter_parts.append(f"concat=n={n}:v=1:a=1[vout][aout]")
+    filter_complex = "".join(filter_parts)
+
+    cmd += [
+        "-filter_complex", filter_complex,
+        "-map", "[vout]", "-map", "[aout]",
+        "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+        "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2",
+        "-movflags", "+faststart",
+        output_path,
+    ]
+    subprocess.run(cmd, check=True)
 
 
 def burn_subtitle(input_path: str, output_path: str,
