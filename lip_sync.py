@@ -140,6 +140,12 @@ def resync_subtitle(
     filter_transition: bool = True,
     max_chars_per_line: int = 18,
     save_json: bool = True,
+    alignment: int = 2,
+    margin_v: int = 50,
+    margin_l: int = 10,
+    margin_r: int = 10,
+    offset_x: int = 0,
+    offset_y: int = 0,
 ) -> str:
     """
     完整嘴型同步流水线:
@@ -190,6 +196,11 @@ def resync_subtitle(
     try:
         # ── STEP 3: 烧录字幕 ──
         print(f"\n  🎬 烧录逐字字幕 (特效: {effect}) ...")
+
+        # 计算实际的边距值，考虑偏移
+        actual_margin_l = margin_l + (offset_x if offset_x > 0 else 0)
+        actual_margin_r = margin_r + (abs(offset_x) if offset_x < 0 else 0)
+        
         burn_whisper_subtitle(
             input_video=input_video,
             output_video=output_video,
@@ -200,6 +211,8 @@ def resync_subtitle(
             highlight_color=highlight_color,
             filter_transition=filter_transition,
             max_chars_per_line=max_chars_per_line,
+            alignment=alignment,
+            margin_v=margin_v,
         )
     finally:
         os.unlink(tmp_json.name)
@@ -730,6 +743,21 @@ def main():
     sg.add_argument("--no-filter-transition", action="store_true",
                     help="不过滤文本中的 '转场' 标记")
 
+    # 字幕设置部分
+    sg.add_argument("--position", default="bottom", 
+                    choices=["bottom", "top", "middle"],
+                    help="字幕位置: bottom(底部)/top(顶部)/middle(中间) (默认: bottom)")
+    sg.add_argument("--margin-v", type=int, default=50,
+                    help="字幕垂直边距像素 (默认: 50)")
+    sg.add_argument("--margin-l", type=int, default=10,
+                    help="字幕左边距像素 (默认: 10)")
+    sg.add_argument("--margin-r", type=int, default=10,
+                    help="字幕右边距像素 (默认: 10)")
+    sg.add_argument("--offset-x", type=int, default=0,
+                    help="字幕水平偏移像素，正值向右偏移 (默认: 0)")
+    sg.add_argument("--offset-y", type=int, default=0,
+                    help="字幕垂直偏移像素，正值向下偏移 (默认: 0)")
+
     # ── 时间线合成设置 ──
     tg = parser.add_argument_group("🎬 时间线合成")
     tg.add_argument("--timeline", default=None,
@@ -754,8 +782,28 @@ def main():
     mg.add_argument("--align-from", default=None, metavar="OLD_JSON",
                     help="用旧 JSON 文本 + 新时间戳对齐")
 
+
+
     args = parser.parse_args()
 
+
+
+    # 位置映射到alignment值
+    alignment = 2  # 默认：底部中央
+    if args.position == "top":
+        alignment = 8  # 顶部中央
+    elif args.position == "middle":
+        alignment = 5  # 中间中央
+
+    # 使用X/Y偏移调整垂直边距
+    actual_margin_v = args.margin_v
+    if args.offset_y != 0:
+        if alignment in [7, 8, 9]:  # 顶部对齐
+            actual_margin_v = max(0, args.margin_v + args.offset_y)
+        elif alignment in [1, 2, 3]:  # 底部对齐
+            actual_margin_v = max(0, args.margin_v - args.offset_y)
+        # 对于中间对齐，Y偏移会在subtitle_effects.py中处理
+    
     # ══════════════════════════════════
     #  对比模式
     # ══════════════════════════════════

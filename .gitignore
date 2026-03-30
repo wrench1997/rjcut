@@ -13,3 +13,5 @@ deps/
 *.json
 *.srt
 *.ass
+*.MP4
+*.MOV

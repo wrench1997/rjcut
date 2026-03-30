@@ -37,10 +37,15 @@ def generate_word_ass(
     res_x: int = 1920,
     res_y: int = 1080,
     margin_v: int = 50,
-    highlight_color: str = "&H0000DDFF",   # 金黄 (高亮/填充色)
-    base_color: str = "&H00FFFFFF",        # 白色 (基础色)
-    outline_color: str = "&H00000000",     # 黑色描边
-    back_color: str = "&H80000000",        # 半透明阴影
+    margin_l: int = 10,
+    margin_r: int = 10,
+    offset_x: int = 0,
+    offset_y: int = 0,
+    alignment: int = 2,
+    highlight_color: str = "&H0000DDFF",
+    base_color: str = "&H00FFFFFF",
+    outline_color: str = "&H00000000",
+    back_color: str = "&H80000000",
     outline: int = 3,
     shadow: int = 2,
 ) -> str:
@@ -79,23 +84,23 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
         header += (
             f"Style: Default,{font_name},{font_size},"
             f"{highlight_color},{base_color},{outline_color},{back_color},"
-            f"-1,0,0,0,100,100,2,0,1,{outline},{shadow},"
-            f"2,10,10,{margin_v},1\n"
+            f"-1,0,0,0,100,100,2,0,1,{outline},{shadow},{alignment},10,10,{margin_v},1\n"
+            f"{margin_l},{margin_r},{margin_v},1\n"
         )
     elif effect in ("highlight", "bounce"):
         # 高亮/弹跳: 默认白色, 事件中用 override 变色
         header += (
             f"Style: Default,{font_name},{font_size},"
             f"{base_color},{base_color},{outline_color},{back_color},"
-            f"0,0,0,0,100,100,2,0,1,{outline},{shadow},"
-            f"2,10,10,{margin_v},1\n"
+            f"-1,0,0,0,100,100,2,0,1,{outline},{shadow},{alignment},10,10,{margin_v},1\n"
+            f"{margin_l},{margin_r},{margin_v},1\n"
         )
     elif effect == "typewriter":
         header += (
             f"Style: Default,{font_name},{font_size},"
             f"{base_color},{base_color},{outline_color},{back_color},"
-            f"-1,0,0,0,100,100,2,0,1,{outline},{shadow},"
-            f"2,10,10,{margin_v},1\n"
+            f"-1,0,0,0,100,100,2,0,1,{outline},{shadow},{alignment},10,10,{margin_v},1\n"
+            f"{margin_l},{margin_r},{margin_v},1\n"
         )
 
     header += f"""
@@ -363,6 +368,12 @@ def burn_whisper_subtitle(
     highlight_color: str = "&H0000DDFF",
     filter_transition: bool = True,
     max_chars_per_line: int = 18,
+    alignment: int = 2,
+    margin_v: int = 50,
+    margin_l: int = 10,  # 新增左边距参数
+    margin_r: int = 10,  # 新增右边距参数
+    offset_x: int = 0,   # 新增水平偏移参数
+    offset_y: int = 0,   # 新增垂直偏移参数
 ) -> str:
     """
     完整流水线: 读取 Whisper JSON → 生成 ASS → 烧录到视频
@@ -439,6 +450,12 @@ def burn_whisper_subtitle(
             res_x=res_x,
             res_y=res_y,
             highlight_color=hl_color,
+            alignment=alignment,
+            margin_v=margin_v,
+            margin_l=margin_l,
+            margin_r=margin_r,
+            offset_x=offset_x,
+            offset_y=offset_y,
         )
 
         # ── 烧录 ASS 到视频 ──

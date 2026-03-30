@@ -187,18 +187,23 @@ def process(input_files: List[str], *,
         if whisper_json:
             print(f"\n  📝  烧录逐字字幕 (特效: {sub_effect}) ...")
             sub_out = os.path.join(tmp_dir, "whisper_sub.mp4") \
-                if (subtitle or text or bgm) else output
-
+            if (subtitle or text or bgm) else output
             burn_whisper_subtitle(
-                input_video=current,
-                output_video=sub_out,
-                json_path=whisper_json,
-                effect=sub_effect,
-                font_file=font,
-                font_size=sub_word_size,
-                highlight_color=sub_highlight_color,
+                input_video=input_video,
+                output_video=output_video,
+                json_path=tmp_json.name,
+                effect=effect,
+                font_file=font_file,
+                font_size=font_size,
+                highlight_color=highlight_color,
                 filter_transition=filter_transition,
-                max_chars_per_line=max_chars_line,
+                max_chars_per_line=max_chars_per_line,
+                alignment=alignment,
+                margin_v=margin_v,
+                margin_l=actual_margin_l,  # 使用计算后的左边距
+                margin_r=actual_margin_r,  # 使用计算后的右边距
+                offset_x=offset_x,
+                offset_y=offset_y,
             )
             current = sub_out
             print(f"  ✅  逐字字幕烧录完成")
