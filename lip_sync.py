@@ -146,8 +146,9 @@ def resync_subtitle(
     margin_r: int = 10,
     offset_x: int = 0,
     offset_y: int = 0,
-    corrections: Optional[Dict[str, str]] = None,      # 新增
-    corrections_file: Optional[str] = None,             # 新增
+    corrections: Optional[Dict[str, str]] = None,
+    corrections_file: Optional[str] = None,
+    ad_keywords: Optional[List[str]] = None,
 ) -> str:
     """
     完整嘴型同步流水线:
@@ -219,6 +220,7 @@ def resync_subtitle(
             offset_y=offset_y,
             corrections=corrections,               # 新增
             corrections_file=corrections_file,      # 新增
+            ad_keywords=ad_keywords,
         )
     finally:
         os.unlink(tmp_json.name)
@@ -623,6 +625,8 @@ def compose_from_timeline(
 
     with open(timeline_path, "r", encoding="utf-8") as f:
         timeline = json.load(f)
+    ad_keywords = timeline.get("ad_keywords", [])
+
 
     work_dir = tempfile.mkdtemp(prefix="timeline_compose_")
     tmp_merged = os.path.join(work_dir, "merged.mp4")
@@ -676,7 +680,7 @@ def compose_from_timeline(
                 offset_x=offset_x,
                 offset_y=offset_y,
                 corrections_file=corrections_file,
-                
+                ad_keywords=ad_keywords,
             )
         else:
             shutil.copy2(tmp_merged, output_video)
@@ -749,13 +753,13 @@ def main():
 
     # ── 字幕设置 ──
     sg = parser.add_argument_group("✨ 字幕设置")
-    sg.add_argument("--effect", default="karaoke",
-                    choices=["karaoke", "highlight", "typewriter", "bounce"],
-                    help="字幕特效 (默认: karaoke)")
+    sg.add_argument("--effect", default="ad",
+                    choices=["karaoke", "highlight", "typewriter", "bounce", "ad"],
+                    help="字幕特效 (默认: ad)")
     sg.add_argument("--font", default=None,
                     help="字体文件路径 (.ttf/.ttc)")
-    sg.add_argument("--font-size", type=int, default=52,
-                    help="字号 (默认: 52)")
+    sg.add_argument("--font-size", type=int, default=88,
+                    help="字号 (默认: 88)")
     sg.add_argument("--color", default="gold",
                     help="高亮颜色: gold/yellow/cyan/red/pink/orange "
                          "或 ASS 颜色码 (默认: gold)")
@@ -948,25 +952,26 @@ def main():
     print(f"     大小: {in_size:.1f} MB  |  时长: {in_dur:.2f}s")
 
     resync_subtitle(
-        input_video=args.input,
-        output_video=args.output,
-        model_size=args.model,
-        device=args.device,
-        language=args.language,
-        effect=args.effect,
-        font_file=args.font,
-        font_size=args.font_size,
-        highlight_color=args.color,
-        filter_transition=not args.no_filter_transition,
-        max_chars_per_line=args.max_chars,
+        input_video=tmp_merged,
+        output_video=output_video,
+        model_size=model_size,
+        device=device,
+        language=language,
+        effect=effect,
+        font_file=font_file,
+        font_size=font_size,
+        highlight_color=highlight_color,
+        filter_transition=False,
+        max_chars_per_line=max_chars_per_line,
         save_json=True,
         alignment=alignment,
-        margin_v=actual_margin_v,
-        margin_l=args.margin_l,
-        margin_r=args.margin_r,
-        offset_x=args.offset_x,
-        offset_y=args.offset_y,
+        margin_v=margin_v,
+        margin_l=margin_l,
+        margin_r=margin_r,
+        offset_x=offset_x,
+        offset_y=offset_y,
         corrections_file=args.corrections,
+        ad_keywords=ad_keywords,
     )
 
     out_dur = get_duration(args.output)

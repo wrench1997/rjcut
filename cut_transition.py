@@ -283,10 +283,13 @@ def generate_timeline_json(
     duration = get_duration(input_path)
     
     script_segments = []
+    ad_keywords = []
+
     if script_path and os.path.isfile(script_path):
         with open(script_path, "r", encoding="utf-8") as f:
             script_data = json.load(f)
             script_segments = script_data.get("segments", [])
+            ad_keywords = script_data.get("ad_keywords", [])
             
         if len(script_segments) != len(keeps):
             print(f"  ⚠️  警告: 脚本中的段落数 ({len(script_segments)}) 与实际切割保留的段落数 ({len(keeps)}) 不一致！")
@@ -298,8 +301,8 @@ def generate_timeline_json(
         
         # 匹配对应 script.json 中的配置信息
         if script_segments and i <= len(script_segments):
-            script_seg = script_segments[i-1]
-            seg_type = script_seg.get("flag", "human")  # 映射 script 的 flag 作为 type
+            script_seg = script_segments[i - 1]
+            seg_type = script_seg.get("flag", "human")
             scene_file = script_seg.get("scene_file")
 
         segment_info = {
@@ -325,6 +328,7 @@ def generate_timeline_json(
             "original_file": os.path.basename(input_path)
         },
         "parts_dir": os.path.basename(parts_dir),
+        "ad_keywords": ad_keywords,
         "segments": segments
     }
     
@@ -332,7 +336,6 @@ def generate_timeline_json(
         json.dump(timeline, f, ensure_ascii=False, indent=2)
     
     return output_json
-
 
 # ═══════════════════════════════════════════════
 #  6. 主处理流程

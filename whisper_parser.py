@@ -245,27 +245,84 @@ def preprocess_segments(
 def _split_words_into_lines(
     words: List[dict], max_chars: int
 ) -> List[List[dict]]:
-    """按最大字符数将 words 拆分成多行"""
+    """
+    更适合广告口播的断句策略：
+      1. 优先按中文标点断句
+      2. 单句过长时再按最大字数切
+      3. 避免一行过短或过碎
+    """
+    if not words:
+        return []
+
+    major_breaks = set("。！？；!?;")
+    minor_breaks = set("，、：,.，:")
+    all_breaks = major_breaks | minor_breaks
+
+    # 先按强标点/弱标点切成 phrase
+    phrases: List[List[dict]] = []
+    cur_phrase: List[dict] = []
+
+    for w in words:
+        cur_phrase.append(w)
+        txt = w.get("text", "")
+        if txt and txt[-1] in all_breaks:
+            phrases.append(cur_phrase)
+            cur_phrase = []
+
+    if cur_phrase:
+        phrases.append(cur_phrase)
+
+    # 再将 phrase 合并成合适长度的行
     lines: List[List[dict]] = []
     cur_line: List[dict] = []
     cur_len = 0
 
-    break_chars = set("，。！？；：、,.")
+    def phrase_len(ws: List[dict]) -> int:
+        return sum(len(x.get("text", "")) for x in ws)
 
-    for w in words:
-        wlen = len(w["text"])
-        if cur_len + wlen > max_chars and cur_line:
+    for phrase in phrases:
+        p_len = phrase_len(phrase)
+
+        # 如果单个 phrase 本身就超长，则内部强制切分
+        if p_len > max_chars:
+            if cur_line:
+                lines.append(cur_line)
+                cur_line = []
+                cur_len = 0
+
+            tmp: List[dict] = []
+            tmp_len = 0
+            for w in phrase:
+                wlen = len(w.get("text", ""))
+                if tmp and tmp_len + wlen > max_chars:
+                    lines.append(tmp)
+                    tmp = []
+                    tmp_len = 0
+                tmp.append(w)
+                tmp_len += wlen
+            if tmp:
+                lines.append(tmp)
+            continue
+
+        # phrase 能放进当前行就放，否则换行
+        if cur_line and cur_len + p_len > max_chars:
             lines.append(cur_line)
             cur_line = []
             cur_len = 0
-        cur_line.append(w)
-        cur_len += wlen
 
-        if cur_len >= max_chars * 0.6 and w["text"][-1] in break_chars:
+        cur_line.extend(phrase)
+        cur_len += p_len
+
+        # 如果当前 phrase 以强标点结尾，优先收行
+        last_text = phrase[-1].get("text", "") if phrase else ""
+        if last_text and last_text[-1] in major_breaks:
             lines.append(cur_line)
             cur_line = []
             cur_len = 0
 
     if cur_line:
         lines.append(cur_line)
+
+    # 过滤空行
+    lines = [ln for ln in lines if ln and "".join(w.get("text", "") for w in ln).strip()]
     return lines
