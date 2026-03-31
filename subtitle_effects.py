@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """
 字幕特效生成模块
@@ -84,7 +85,7 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
         header += (
             f"Style: Default,{font_name},{font_size},"
             f"{highlight_color},{base_color},{outline_color},{back_color},"
-            f"-1,0,0,0,100,100,2,0,1,{outline},{shadow},{alignment},10,10,{margin_v},1\n"
+            f"-1,0,0,0,100,100,2,0,1,{outline},{shadow},{alignment},"
             f"{margin_l},{margin_r},{margin_v},1\n"
         )
     elif effect in ("highlight", "bounce"):
@@ -92,14 +93,14 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
         header += (
             f"Style: Default,{font_name},{font_size},"
             f"{base_color},{base_color},{outline_color},{back_color},"
-            f"-1,0,0,0,100,100,2,0,1,{outline},{shadow},{alignment},10,10,{margin_v},1\n"
+            f"-1,0,0,0,100,100,2,0,1,{outline},{shadow},{alignment},"
             f"{margin_l},{margin_r},{margin_v},1\n"
         )
     elif effect == "typewriter":
         header += (
             f"Style: Default,{font_name},{font_size},"
             f"{base_color},{base_color},{outline_color},{back_color},"
-            f"-1,0,0,0,100,100,2,0,1,{outline},{shadow},{alignment},10,10,{margin_v},1\n"
+            f"-1,0,0,0,100,100,2,0,1,{outline},{shadow},{alignment},"
             f"{margin_l},{margin_r},{margin_v},1\n"
         )
 
@@ -370,30 +371,31 @@ def burn_whisper_subtitle(
     max_chars_per_line: int = 18,
     alignment: int = 2,
     margin_v: int = 50,
-    margin_l: int = 10,  # 新增左边距参数
-    margin_r: int = 10,  # 新增右边距参数
-    offset_x: int = 0,   # 新增水平偏移参数
-    offset_y: int = 0,   # 新增垂直偏移参数
+    margin_l: int = 10,
+    margin_r: int = 10,
+    offset_x: int = 0,
+    offset_y: int = 0,
+    corrections: Optional[Dict[str, str]] = None,  # 新增
+    corrections_file: Optional[str] = None,         # 新增
 ) -> str:
     """
     完整流水线: 读取 Whisper JSON → 生成 ASS → 烧录到视频
-
-    参数:
-      input_video     : 输入视频
-      output_video    : 输出视频
-      json_path       : Whisper JSON 文件
-      effect          : 特效类型 (karaoke/highlight/typewriter/bounce)
-      font_file       : 字体文件路径 (.ttf/.ttc)
-      font_size       : 字号
-      highlight_color : 高亮颜色 (ASS格式 &HAABBGGRR)
-      filter_transition: 是否过滤"转场"标记
-      max_chars_per_line: 每行最大字符数
+    
+    新增参数:
+      corrections      : 错别字校正表 dict {错误: 正确}
+      corrections_file : 校正表文件路径 (corrections.json)
     """
     import subprocess
     import shutil
     import tempfile
     from video_utils import get_video_info, find_chinese_font, _esc_filter_path
-    from whisper_parser import load_whisper_json, preprocess_segments
+    from whisper_parser import load_whisper_json, preprocess_segments, load_corrections
+
+    # ── 加载校正表 ──
+    if corrections is None and corrections_file:
+        corrections = load_corrections(corrections_file)
+        if corrections:
+            print(f"     🔧 已加载 {len(corrections)} 条错别字校正规则")
     
     # ── 确定字体 ──
     if font_file is None:
@@ -402,7 +404,6 @@ def burn_whisper_subtitle(
             print(f"     🔤 自动使用中文字体: {os.path.basename(font_file)}")
         else:
             print("     ⚠️  未找到中文字体, 中文可能显示为方块")
-            print("        请用 --font 指定 .ttf/.ttc 字体文件")
 
     font_name = "Sans"
     font_dir = None
@@ -415,12 +416,13 @@ def burn_whisper_subtitle(
     res_x = info["width"]
     res_y = info["height"]
 
-    # ── 读取 + 预处理 JSON ──
+    # ── 读取 + 预处理 JSON（带校正） ──
     data = load_whisper_json(json_path)
     segments = preprocess_segments(
         data,
         filter_transition=filter_transition,
         max_chars_per_line=max_chars_per_line,
+        corrections=corrections,  # 传入校正表
     )
 
     if not segments:
@@ -438,7 +440,6 @@ def burn_whisper_subtitle(
     tmp_ass.close()
 
     try:
-        # 根据颜色名查找预设
         hl_color = COLOR_PRESETS.get(highlight_color, highlight_color)
 
         generate_word_ass(
@@ -458,7 +459,7 @@ def burn_whisper_subtitle(
             offset_y=offset_y,
         )
 
-        # ── 烧录 ASS 到视频 ──
+        # ── 烧录 ASS ──
         esc_ass = _esc_filter_path(tmp_ass.name)
         vf = f"ass='{esc_ass}'"
         if font_dir:
@@ -477,7 +478,6 @@ def burn_whisper_subtitle(
         subprocess.run(cmd, check=True)
 
     finally:
-        # 保留 ASS 文件副本供调试
         debug_ass = output_video.rsplit(".", 1)[0] + ".ass"
         try:
             shutil.copy2(tmp_ass.name, debug_ass)

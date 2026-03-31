@@ -7,7 +7,8 @@ include:
   - subtitle_effects.py
   - process_transcription.py
   - cut_transition.py
+  - corrections.json
   # - merge_videos.py
   - lip_sync.py
   - script.json
-  - 阳光百纳文案.MD
+  - 鹿茸血文案.txt

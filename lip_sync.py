@@ -146,6 +146,8 @@ def resync_subtitle(
     margin_r: int = 10,
     offset_x: int = 0,
     offset_y: int = 0,
+    corrections: Optional[Dict[str, str]] = None,      # 新增
+    corrections_file: Optional[str] = None,             # 新增
 ) -> str:
     """
     完整嘴型同步流水线:
@@ -194,13 +196,11 @@ def resync_subtitle(
     tmp_json.close()
 
     try:
-        # ── STEP 3: 烧录字幕 ──
         print(f"\n  🎬 烧录逐字字幕 (特效: {effect}) ...")
-
-        # 计算实际的边距值，考虑偏移
+        
         actual_margin_l = margin_l + (offset_x if offset_x > 0 else 0)
         actual_margin_r = margin_r + (abs(offset_x) if offset_x < 0 else 0)
-        
+
         burn_whisper_subtitle(
             input_video=input_video,
             output_video=output_video,
@@ -213,6 +213,12 @@ def resync_subtitle(
             max_chars_per_line=max_chars_per_line,
             alignment=alignment,
             margin_v=margin_v,
+            margin_l=actual_margin_l,
+            margin_r=actual_margin_r,
+            offset_x=offset_x,
+            offset_y=offset_y,
+            corrections=corrections,               # 新增
+            corrections_file=corrections_file,      # 新增
         )
     finally:
         os.unlink(tmp_json.name)
@@ -597,6 +603,13 @@ def compose_from_timeline(
     font_size: int = 52,
     highlight_color: str = "gold",
     max_chars_per_line: int = 18,
+    alignment: int = 2,
+    margin_v: int = 50,
+    margin_l: int = 10,
+    margin_r: int = 10,
+    offset_x: int = 0,
+    offset_y: int = 0,
+    corrections_file: Optional[str] = None,  # 新增
 ):
     """
     从 timeline.json 进行最终合成
@@ -656,6 +669,14 @@ def compose_from_timeline(
                 filter_transition=False,
                 max_chars_per_line=max_chars_per_line,
                 save_json=True,
+                alignment=alignment,
+                margin_v=margin_v,
+                margin_l=margin_l,
+                margin_r=margin_r,
+                offset_x=offset_x,
+                offset_y=offset_y,
+                corrections_file=corrections_file,
+                
             )
         else:
             shutil.copy2(tmp_merged, output_video)
@@ -757,7 +778,10 @@ def main():
                     help="字幕水平偏移像素，正值向右偏移 (默认: 0)")
     sg.add_argument("--offset-y", type=int, default=0,
                     help="字幕垂直偏移像素，正值向下偏移 (默认: 0)")
-
+    # ── 字幕设置组中新增 ──
+    sg.add_argument("--corrections", default=None,
+                    help="错别字校正文件路径 (corrections.json)")
+    
     # ── 时间线合成设置 ──
     tg = parser.add_argument_group("🎬 时间线合成")
     tg.add_argument("--timeline", default=None,
@@ -770,7 +794,7 @@ def main():
                     help="合并片段时使用 xfade 转场")
     tg.add_argument("--transition", default="fade",
                     help="转场类型 (默认: fade)")
-    tg.add_argument("--transition-duration", type=float, default=0.5,
+    tg.add_argument("--transition-duration", type=float, default=0.8,
                     help="转场时长秒 (默认: 0.5)")
 
     # ── 特殊模式 ──
@@ -843,6 +867,13 @@ def main():
             font_size=args.font_size,
             highlight_color=args.color,
             max_chars_per_line=args.max_chars,
+            alignment=alignment,
+            margin_v=actual_margin_v,
+            margin_l=args.margin_l,
+            margin_r=args.margin_r,
+            offset_x=args.offset_x,
+            offset_y=args.offset_y,
+            corrections_file=args.corrections,
         )
 
         print(f"\n{'='*62}")
@@ -929,6 +960,13 @@ def main():
         filter_transition=not args.no_filter_transition,
         max_chars_per_line=args.max_chars,
         save_json=True,
+        alignment=alignment,
+        margin_v=actual_margin_v,
+        margin_l=args.margin_l,
+        margin_r=args.margin_r,
+        offset_x=args.offset_x,
+        offset_y=args.offset_y,
+        corrections_file=args.corrections,
     )
 
     out_dur = get_duration(args.output)
