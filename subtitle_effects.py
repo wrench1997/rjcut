@@ -569,7 +569,7 @@ def _eff_ad(
                 keyword_scale=112,
             )
             line_parts.append(
-                f"{{\\c&H{hl_bgr}&\\b1}}{current_styled}"
+                f"{{\\c&H{dim_bgr}&\\b1\\fscx100\\fscy100}}{after_styled}"
             )
 
         line_text = "".join(line_parts)
