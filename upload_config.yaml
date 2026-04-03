@@ -37,3 +37,7 @@ include:
   - Dockerfile.api
   - Dockerfile.worker
   - .env
+  - cut_transition.py
+  - lip_sync.py
+  - chanjing_api.py
+  - api_digital_human.py

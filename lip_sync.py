@@ -472,16 +472,11 @@ def build_scene_clip(
     height: int,
     fps: float,
 ):
-    """
-    用 scene 视频作为画面，audio_part 作为音频，生成一个固定时长片段
-    最小版策略:
-      - scene 不够长时循环
-      - 音频完全使用 audio_part
-    """
     import subprocess
 
+    # 增加 -nostdin
     cmd = [
-        "ffmpeg", "-y", "-hide_banner", "-loglevel", "warning",
+        "ffmpeg", "-nostdin", "-y", "-hide_banner", "-loglevel", "warning",
         "-stream_loop", "-1", "-i", scene_path,
         "-i", audio_part_path,
         "-t", f"{duration:.4f}",
@@ -498,7 +493,8 @@ def build_scene_clip(
         "-movflags", "+faststart",
         output_path,
     ]
-    subprocess.run(cmd, check=True)
+    # 增加 stdin=subprocess.DEVNULL
+    subprocess.run(cmd, check=True, stdin=subprocess.DEVNULL)
 
 
 

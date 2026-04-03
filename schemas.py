@@ -53,7 +53,29 @@ class OutputConfig(BaseModel):
     need_transcription_json: bool = True
     need_ass: bool = True
 
+# schemas.py (追加以下内容)
 
+class DhGenerateVideoRequest(BaseModel):
+    text: str
+    person_id: Optional[str] = None
+    audio_man_id: str
+    figure_type: str = "sit_body"
+    drive_mode: str = "random"
+    bg_type: str = "color"
+    bg_color: str = "#EDEDED"
+    bg_file_oss_key: Optional[str] = None # 如果是图片背景，前端先传 MinIO，传 key 过来
+    client_ref_id: Optional[str] = None
+    timeout_seconds: Optional[int] = 3600
+
+class DhCreateCustomPersonRequest(BaseModel):
+    name: str
+    source_video_oss_key: str  # 前端上传视频到 MinIO 后的 oss_key
+    train_type: str = "both"
+    language: str = "cn"
+    error_skip: bool = False
+    resolution_rate: int = 0
+    client_ref_id: Optional[str] = None
+    
 class CallbackConfig(BaseModel):
     url: Optional[str] = None
     secret: Optional[str] = None

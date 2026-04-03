@@ -92,6 +92,34 @@ class ApiKey(Base):
     )
 
 
+
+class DhCustomPerson(Base):
+    __tablename__ = "dh_custom_persons"
+
+    id = Column(String(64), primary_key=True, default=gen_uuid)
+    merchant_id = Column(String(64), ForeignKey("merchants.id"), nullable=False)
+    
+    # 关联蝉镜平台的真实 ID
+    chanjing_person_id = Column(String(128), nullable=False)
+    name = Column(String(256), nullable=False)
+    
+    # 状态：10-训练中，30-成功，40-失败 (与蝉镜状态码对齐)
+    status = Column(Integer, default=10, nullable=False)
+    cover_url = Column(Text, nullable=True)
+    
+    # 关联生成该数字人的任务ID，方便追溯
+    source_task_id = Column(String(64), ForeignKey("tasks.id"), nullable=True)
+
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False)
+
+    merchant = relationship("Merchant")
+
+    __table_args__ = (
+        Index("idx_dh_person_merchant_id", "merchant_id"),
+    )
+    
+
 class Task(Base):
     __tablename__ = "tasks"
 

@@ -22,11 +22,13 @@ from quota import check_quota, check_concurrent_limit, reserve_quota, refund_quo
 from oss import ensure_bucket, generate_oss_key, presigned_put_url, presigned_get_url, get_object_info
 
 from admin_api import router as admin_router
+from api_digital_human import router as dh_router
 
 settings = get_settings()
 app = FastAPI(title="RJCut Commercial API", version="1.0.0")
 app.include_router(admin_router)
 
+app.include_router(dh_router)
 
 def ok(data=None, trace_id=None):
     return {"code": 0, "message": "ok", "data": data, "trace_id": trace_id}
@@ -179,7 +181,7 @@ def create_agent_compose_task(
         payload=req.model_dump(),
         trace_id=trace_id,
         merchant_id=merchant.id,
-        job_id=f"rjcut:{task_id}",
+        job_id=f"rjcut_{task_id}",
         job_timeout=timeout + 60,
         result_ttl=86400,
         failure_ttl=86400,

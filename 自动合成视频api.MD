@@ -64,11 +64,18 @@ curl -s -X POST "$BASE_URL/v1/tasks/agent-compose" \
   -d '{
     "input": {
       "video_url": "<oss_key_or_url>",
-      "script_url": "<oss_key_or_url>"
+      "script_url": "<oss_key_or_url>",
+      "scene_base_url": "<oss_key_or_url>",
+      "corrections_url": "<oss_key_or_url>"
     },
     "pipeline": {
       "remove_keyword": "转场",
-      "use_transitions": false
+      "margin": 0.15,
+      "min_segment_duration": 0.1,
+      "use_transitions": false,
+      "transition_type": "fade",
+      "transition_duration": 0.8,
+      "resync_subtitle": true
     },
     "asr": {
       "model": "large-v3",
@@ -100,6 +107,7 @@ curl -s -X POST "$BASE_URL/v1/tasks/<task_id>/cancel" \
   -d '{"reason": "no longer needed"}' | python -m json.tool
 
 # ── 8. 下载产物（获取预签名下载 URL） ──
+
 curl -s "$BASE_URL/v1/tasks/<task_id>/files/final_video" \
   -H "Authorization: Bearer $API_KEY" | python -m json.tool
 
@@ -118,6 +126,8 @@ curl -s -X POST "$BASE_URL/admin/merchants/<merchant_id>/api-keys" \
   -H "X-Admin-Key: $ADMIN_KEY" \
   -H "Content-Type: application/json" \
   -d '{"name": "production"}' | python -m json.tool
+
+
 架构总结
 组件	技术	说明
 API 服务	FastAPI + Uvicorn	无状态，可水平扩展

@@ -57,15 +57,17 @@ def transcribe_video(video_path: str,
                      language: str = "zh") -> dict:
     """用 whisper_timestamped 做带字级时间戳的中文语音识别"""
 
-    print(f"\n{'='*60}")
-    print(f"  🎙️  语音识别")
-    print(f"  模型: {model_size}  |  设备: {device}  |  语言: {language}")
-    print(f"{'='*60}")
+    print(f"\n{'='*60}", flush=True)
+    print(f"  🎙️  语音识别", flush=True)
+    print(f"  模型: {model_size}  |  设备: {device}  |  语言: {language}", flush=True)
+    print(f"{'='*60}", flush=True)
 
-    print(f"  ⏳ 加载模型 {model_size} ...")
+
+    print(f"  ⏳ 加载模型 {model_size} ...", flush=True)
+
     model = whisper.load_model(model_size, device=device, download_root=DOWNLOAD_ROOT)
 
-    print(f"  ⏳ 识别语音中（可能需要几分钟）...")
+    print(f"  ⏳ 识别语音中（可能需要几分钟）...", flush=True)
     audio = whisper.load_audio(video_path)
     result = whisper.transcribe(
         model, audio,
@@ -73,7 +75,7 @@ def transcribe_video(video_path: str,
         detect_disfluencies=False,
         vad=True,
     )
-    print(f"  ✅ 识别完成，共 {len(result.get('segments', []))} 个语句段")
+    print(f"  ✅ 识别完成，共 {len(result.get('segments', []))} 个语句段", flush=True)
     return result
 
 
@@ -155,47 +157,82 @@ def get_duration(path: str) -> float:
         "-of", "default=noprint_wrappers=1:nokey=1",
         path,
     ]
-    r = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    # 增加 stdin=subprocess.DEVNULL
+    r = subprocess.run(cmd, capture_output=True, text=True, check=True, stdin=subprocess.DEVNULL)
     return float(r.stdout.strip())
 
 
-def get_video_info(path: str) -> Dict[str, Any]:
+def get_video_info(path: str) -> dict:
     cmd = [
         "ffprobe", "-v", "error",
-        "-show_entries", "stream=width,height,r_frame_rate,codec_name",
         "-select_streams", "v:0",
-        "-of", "json",
-        path,
+        "-show_entries", "stream=width,height,r_frame_rate",
+        "-of", "json", path,
     ]
-    r = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    # 增加 stdin=subprocess.DEVNULL
+    r = subprocess.run(cmd, capture_output=True, text=True, check=True, stdin=subprocess.DEVNULL)
     info = json.loads(r.stdout)
-    stream = info["streams"][0]
-    
-    fr_parts = stream.get("r_frame_rate", "").split("/")
-    fps = float(fr_parts[0]) / float(fr_parts[1]) if len(fr_parts) == 2 else 0
-    
+    if not info.get("streams"):
+        raise ValueError(f"文件 {path} 中未找到视频流")
+
+    s = info["streams"][0]
+    parts = s.get("r_frame_rate", "30/1").split("/")
+    fps = float(parts[0]) / float(parts[1]) if len(parts) == 2 else float(parts[0])
+
+    cmd2 = [
+        "ffprobe", "-v", "error", "-select_streams", "a",
+        "-show_entries", "stream=index", "-of", "csv=p=0", path,
+    ]
+    # 增加 stdin=subprocess.DEVNULL
+    r2 = subprocess.run(cmd2, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    has_audio = bool(r2.stdout.strip())
+
     return {
-        "width": int(stream.get("width", 0)),
-        "height": int(stream.get("height", 0)),
-        "fps": fps,
-        "codec": stream.get("codec_name", "")
+        "width": int(s["width"]),
+        "height": int(s["height"]),
+        "fps": round(fps, 3),
+        "has_audio": has_audio,
+        "duration": get_duration(path),
     }
 
 
 def ffmpeg_cut_segment(input_path: str, output_path: str,
                        ss: float, to: float):
-    cmd = [
-        "ffmpeg", "-y", "-hide_banner", "-loglevel", "warning",
-        "-i", input_path,
-        "-ss", f"{ss:.4f}",
-        "-to", f"{to:.4f}",
-        "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-        "-c:a", "aac", "-b:a", "192k",
-        "-avoid_negative_ts", "make_zero",
-        "-max_muxing_queue_size", "1024",
-        output_path,
-    ]
-    subprocess.run(cmd, check=True)
+    duration = max(0.01, to - ss)
+
+    # 重点1：命令中增加 -nostdin
+    cmd = (
+        f'ffmpeg -nostdin -y -hide_banner -loglevel info '
+        f'-ss {ss:.4f} -t {duration:.4f} '
+        f'-i "{input_path}" '
+        f'-c:v libx264 -preset veryfast -crf 23 '
+        f'-c:a aac -b:a 128k '
+        f'-pix_fmt yuv420p '
+        f'-movflags +faststart '
+        f'-max_muxing_queue_size 1024 '
+        f'"{output_path}"'
+    )
+
+    print("  [ffmpeg_cut_segment shell]", cmd, flush=True)
+
+    try:
+        subprocess.run(
+            cmd,
+            shell=True,
+            check=True,
+            timeout=600,
+            stdin=subprocess.DEVNULL,  # 重点2：阻断标准输入
+        )
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError(
+            f"ffmpeg cut segment timeout after 600s: "
+            f"ss={ss:.3f}, to={to:.3f}, output={output_path}"
+        ) from e
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(
+            f"ffmpeg cut segment failed: "
+            f"ss={ss:.3f}, to={to:.3f}, output={output_path}, returncode={e.returncode}"
+        ) from e
 
 
 def ffmpeg_concat_segments(part_files: List[str], output_path: str):
@@ -207,14 +244,32 @@ def ffmpeg_concat_segments(part_files: List[str], output_path: str):
             list_file.write(f"file '{os.path.abspath(pf)}'\n")
         list_file.close()
 
-        cmd = [
-            "ffmpeg", "-y", "-hide_banner", "-loglevel", "warning",
-            "-f", "concat", "-safe", "0",
-            "-i", list_file.name,
-            "-c", "copy",
-            output_path,
-        ]
-        subprocess.run(cmd, check=True)
+        # 重点1：命令中增加 -nostdin
+        cmd = (
+            f'ffmpeg -nostdin -y -hide_banner -loglevel info '
+            f'-f concat -safe 0 '
+            f'-i "{list_file.name}" '
+            f'-c copy '
+            f'"{output_path}"'
+        )
+
+        print("  [ffmpeg_concat_segments shell]", cmd, flush=True)
+
+        subprocess.run(
+            cmd,
+            shell=True,
+            check=True,
+            timeout=600,
+            stdin=subprocess.DEVNULL,  # 重点2：阻断标准输入
+        )
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError(
+            f"ffmpeg concat timeout after 600s: output={output_path}"
+        ) from e
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(
+            f"ffmpeg concat failed: output={output_path}, returncode={e.returncode}"
+        ) from e
     finally:
         os.unlink(list_file.name)
 
@@ -385,37 +440,37 @@ def process(input_path: str, *,
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
 
-    print(f"\n{'─'*60}")
-    print("  📝 完整识别文本")
-    print(f"{'─'*60}")
+    print(f"\n{'─'*60}",flush=True)
+    print("  📝 完整识别文本",flush=True)
+    print(f"{'─'*60}",flush=True)
     for seg in result.get("segments", []):
         text = seg["text"].strip()
         marker = " 🔴" if keyword in text.replace(" ", "") else ""
-        print(f"  [{seg['start']:7.2f}s → {seg['end']:7.2f}s]{marker}  {text}")
-    print(f"{'─'*60}")
+        print(f"  [{seg['start']:7.2f}s → {seg['end']:7.2f}s]{marker}  {text}", flush=True)
+    print(f"{'─'*60}", flush=True)
 
     # ── STEP 2: 定位关键词 ──
     hits = find_all_keyword_spans(result, keyword=keyword)
 
     if not hits:
-        print(f"\n✅ 未检测到关键词「{keyword}」，视频无需处理。")
+        print(f"\n✅ 未检测到关键词「{keyword}」，视频无需处理。", flush=True)
         shutil.rmtree(tmp_dir, ignore_errors=True)
         return
 
-    print(f"\n{'='*60}")
-    print(f"  🔍 检测到 {len(hits)} 处「{keyword}」")
-    print(f"{'='*60}")
+    print(f"\n{'='*60}", flush=True)
+    print(f"  🔍 检测到 {len(hits)} 处「{keyword}」", flush=True)
+    print(f"{'='*60}", flush=True)
     total_cut = 0.0
     for i, h in enumerate(hits, 1):
         print(f"  #{i:02d}  {h.start:7.3f}s → {h.end:7.3f}s  "
               f"(时长 {h.duration:.3f}s)")
         total_cut += h.duration
-    print(f"  {'─'*50}")
-    print(f"  合计切除约 {total_cut:.2f}s  |  margin ±{margin}s")
+    print(f"  {'─'*50}", flush=True)
+    print(f"  合计切除约 {total_cut:.2f}s  |  margin ±{margin}s", flush=True)
 
     # ── STEP 3: 计算保留区间 ──
     duration = get_duration(input_path)
-    print(f"\n  📏 视频总时长: {duration:.2f}s")
+    print(f"\n  📏 视频总时长: {duration:.2f}s", flush=True)
 
     keeps = compute_keep_segments(duration, hits,
                                   margin=margin,
@@ -430,22 +485,32 @@ def process(input_path: str, *,
     print(f"  保留 {len(keeps)} 段，合计 {kept_total:.2f}s\n")
 
     # ── STEP 4: 逐段切割 ──
-    print(f"  ✂️  开始切割 ...")
+    print(f"  ✂️  开始切割 ...", flush=True)
     tmp_parts: List[str] = []
     final_parts: List[str] = []
     
     for i, seg in enumerate(keeps, 1):
         tmp_path = os.path.join(tmp_dir, f"part_{i:03d}.mp4")
-        print(f"     片段 {i:02d}/{len(keeps)}  "
-              f"[{seg.start:.3f}s → {seg.end:.3f}s]  "
-              f"({seg.duration:.2f}s)")
+        print(
+            f"     片段 {i:02d}/{len(keeps)}  "
+            f"[{seg.start:.3f}s → {seg.end:.3f}s]  "
+            f"({seg.duration:.2f}s)",
+            flush=True
+        )
+        print(f"     输入文件存在: {os.path.isfile(input_path)} | {input_path}", flush=True)
+        print(f"     输出目录存在: {os.path.isdir(os.path.dirname(tmp_path))} | {os.path.dirname(tmp_path)}", flush=True)
+
         ffmpeg_cut_segment(input_path, tmp_path, seg.start, seg.end)
+
+        print(f"     切割完成: {tmp_path} | exists={os.path.isfile(tmp_path)}", flush=True)
+
         tmp_parts.append(tmp_path)
         
         if keep_parts or gen_timeline:
             final_part = os.path.join(parts_dir, f"{base}_part{i:02d}.mp4")
             shutil.copy2(tmp_path, final_part)
             final_parts.append(final_part)
+            print(f"     已复制到 parts_dir: {final_part}", flush=True)
 
     # ── STEP 5: 合并 ──
     cleaned_path = os.path.join(output_dir, f"{base}_cleaned.mp4")
@@ -459,7 +524,7 @@ def process(input_path: str, *,
     # ── STEP 6: 生成时间线（可选）──
     timeline_path = None
     if gen_timeline:
-        print(f"\n  📜 生成时间线 JSON ...")
+        print(f"\n  📜 生成时间线 JSON ...", flush=True)
         timeline_path = os.path.join(output_dir, f"{base}_timeline.json")
         generate_timeline_json(
             input_path=input_path,
@@ -469,13 +534,13 @@ def process(input_path: str, *,
             keeps=keeps,
             script_path=script_path
         )
-        print(f"  ✅ 时间线已保存: {timeline_path}")
+        print(f"  ✅ 时间线已保存: {timeline_path}", flush=True)
 
     # ── STEP 7: 执行嘴型同步（可选）──
     if lip_sync:
-        print(f"\n{'='*60}")
-        print(f"  👄 启动 lip_sync 嘴型合成与字幕烧录")
-        print(f"{'='*60}")
+        print(f"\n{'='*60}", flush=True)
+        print(f"  👄 启动 lip_sync 嘴型合成与字幕烧录", flush=True)
+        print(f"{'='*60}", flush=True)
         
         cmd = [sys.executable, "lip_sync.py"]
         if timeline_path:
@@ -502,14 +567,14 @@ def process(input_path: str, *,
     cleaned_size = os.path.getsize(cleaned_path) / 1024 / 1024
     original_size = os.path.getsize(input_path) / 1024 / 1024
 
-    print(f"\n{'='*60}")
-    print(f"  🎉 预处理完成！")
-    print(f"{'='*60}")
-    print(f"  原始视频:  {input_path}")
-    print(f"             {original_size:.1f} MB  |  {duration:.2f}s")
-    print(f"  输出视频:  {cleaned_path}")
-    print(f"             {cleaned_size:.1f} MB  |  {kept_total:.2f}s")
-    print(f"  切除数量:  {len(hits)} 处「{keyword}」")
+    print(f"\n{'='*60}", flush=True)
+    print(f"  🎉 预处理完成！", flush=True)
+    print(f"{'='*60}", flush=True)
+    print(f"  原始视频:  {input_path}", flush=True)
+    print(f"             {original_size:.1f} MB  |  {duration:.2f}s", flush=True)
+    print(f"  输出视频:  {cleaned_path}", flush=True)
+    print(f"             {cleaned_size:.1f} MB  |  {kept_total:.2f}s", flush=True)
+    print(f"  切除数量:  {len(hits)} 处「{keyword}」", flush=True)
     if timeline_path:
         print(f"  时间线:    {timeline_path}")
     print(f"{'='*60}\n")

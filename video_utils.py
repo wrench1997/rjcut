@@ -120,15 +120,15 @@ def format_ass_time(seconds: float) -> str:
 
 def normalize_clip(input_path: str, output_path: str,
                    width: int, height: int, fps: float):
-    """标准化视频片段：统一分辨率、帧率、格式"""
     info = get_video_info(input_path)
     vf = (
         f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
         f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,"
         f"fps={fps},format=yuv420p"
     )
+    # 增加 -nostdin
     cmd = [
-        "ffmpeg", "-y", "-hide_banner", "-loglevel", "warning",
+        "ffmpeg", "-nostdin", "-y", "-hide_banner", "-loglevel", "warning",
         "-i", input_path,
     ]
     if not info["has_audio"]:
@@ -140,38 +140,49 @@ def normalize_clip(input_path: str, output_path: str,
     if not info["has_audio"]:
         cmd += ["-shortest"]
     cmd.append(output_path)
-    subprocess.run(cmd, check=True)
+    # 增加 stdin=subprocess.DEVNULL
+    subprocess.run(cmd, check=True, stdin=subprocess.DEVNULL)
 
 
-def concat_simple(clip_paths: List[str], output_path: str):
-    """稳健拼接视频（使用 filter_complex 确保音视频绝对同步，消除 DTS 错误）"""
-    n = len(clip_paths)
-    if n == 0:
-        return
-    if n == 1:
+def concat_simple(clip_paths, output_path):
+    """
+    优雅的拼接视频方式：使用 FFmpeg concat demuxer
+    由于片段此前已经经过 normalize_clip 统一了参数，
+    这里直接使用 -c copy 复制数据流，速度极快且无画质损失。
+    """
+    if not clip_paths:
+        raise ValueError("没有需要拼接的视频片段")
+        
+    if len(clip_paths) == 1:
         shutil.copy2(clip_paths[0], output_path)
         return
 
-    cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "warning"]
-    for p in clip_paths:
-        cmd += ["-i", p]
+    # 1. 创建一个临时文本文件，写入要拼接的视频列表
+    list_file = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8")
+    try:
+        for cp in clip_paths:
+            # 必须使用绝对路径，并转义潜在的特殊字符
+            abs_path = os.path.abspath(cp).replace("'", r"'\''")
+            list_file.write(f"file '{abs_path}'\n")
+        list_file.close()
 
-    # 构建滤镜链: [0:v:0][0:a:0][1:v:0][1:a:0]concat=n=X:v=1:a=1[vout][aout]
-    filter_parts = []
-    for i in range(n):
-        filter_parts.append(f"[{i}:v:0][{i}:a:0]")
-    filter_parts.append(f"concat=n={n}:v=1:a=1[vout][aout]")
-    filter_complex = "".join(filter_parts)
-
-    cmd += [
-        "-filter_complex", filter_complex,
-        "-map", "[vout]", "-map", "[aout]",
-        "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-        "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2",
-        "-movflags", "+faststart",
-        output_path,
-    ]
-    subprocess.run(cmd, check=True)
+        # 2. 调用 FFmpeg 进行流复制拼接 (Stream Copy)
+        cmd = [
+            "ffmpeg", "-nostdin", "-y", "-hide_banner", "-loglevel", "warning",
+            "-f", "concat", "-safe", "0",
+            "-i", list_file.name,
+            "-c", "copy",             # 核心：直接拷贝音视频流，不重编
+            "-movflags", "+faststart",
+            output_path
+        ]
+        
+        # 阻断标准输入，防止 ffmpeg 卡死
+        subprocess.run(cmd, check=True, stdin=subprocess.DEVNULL)
+        
+    finally:
+        # 3. 清理临时文件
+        if os.path.exists(list_file.name):
+            os.unlink(list_file.name)
 
 
 def burn_subtitle(input_path: str, output_path: str,
@@ -208,14 +219,16 @@ def burn_subtitle(input_path: str, output_path: str,
             esc_dir = _esc_filter_path(font_dir)
             vf += f":fontsdir='{esc_dir}'"
 
+    # 增加 -nostdin
     cmd = [
-        "ffmpeg", "-y", "-hide_banner", "-loglevel", "warning",
+        "ffmpeg", "-nostdin", "-y", "-hide_banner", "-loglevel", "warning",
         "-i", input_path, "-vf", vf,
         "-c:v", "libx264", "-preset", "fast", "-crf", "18",
         "-c:a", "copy", "-movflags", "+faststart",
         output_path,
     ]
-    subprocess.run(cmd, check=True)
+    # 增加 stdin=subprocess.DEVNULL
+    subprocess.run(cmd, check=True, stdin=subprocess.DEVNULL)
 
 
 # 文字位置预设
@@ -268,14 +281,16 @@ def overlay_text(input_path: str, output_path: str,
         dt_parts.append(f"enable='lte(t\\,{show_to})'")
 
     vf = "drawtext=" + ":".join(dt_parts)
+    # 增加 -nostdin
     cmd = [
-        "ffmpeg", "-y", "-hide_banner", "-loglevel", "warning",
+        "ffmpeg", "-nostdin", "-y", "-hide_banner", "-loglevel", "warning",
         "-i", input_path, "-vf", vf,
         "-c:v", "libx264", "-preset", "fast", "-crf", "18",
         "-c:a", "copy", "-movflags", "+faststart",
         output_path,
     ]
-    subprocess.run(cmd, check=True)
+    # 增加 stdin=subprocess.DEVNULL
+    subprocess.run(cmd, check=True, stdin=subprocess.DEVNULL)
 
 
 def mix_bgm(input_path: str, output_path: str,
@@ -290,8 +305,9 @@ def mix_bgm(input_path: str, output_path: str,
         f"[0:a]volume={original_volume}[orig];"
         f"[orig][bgm]amix=inputs=2:duration=first:dropout_transition=0[aout]"
     )
+    # 增加 -nostdin
     cmd = [
-        "ffmpeg", "-y", "-hide_banner", "-loglevel", "warning",
+        "ffmpeg", "-nostdin", "-y", "-hide_banner", "-loglevel", "warning",
         "-i", input_path, "-i", bgm_path,
         "-filter_complex", af,
         "-map", "0:v", "-map", "[aout]",
@@ -299,4 +315,5 @@ def mix_bgm(input_path: str, output_path: str,
         "-movflags", "+faststart",
         output_path,
     ]
-    subprocess.run(cmd, check=True)
+    # 增加 stdin=subprocess.DEVNULL
+    subprocess.run(cmd, check=True, stdin=subprocess.DEVNULL)

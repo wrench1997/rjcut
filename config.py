@@ -18,6 +18,10 @@ class Settings(BaseSettings):
     TASK_STALE_CHECK_INTERVAL: int = 60
     SECRET_KEY: str = "change_me_in_production_2024"
     RQ_QUEUE_NAME: str = "rjcut_tasks"
+    
+    CHANJING_APP_ID: str = "7ced058d"
+    CHANJING_SECRET_KEY: str = "83e6b2f201564a21aa10cbbbcc79b33c"
+    
 
     BASE_TASK_DIR: str = os.path.abspath("./service_data")
 

@@ -15,6 +15,8 @@ from database import get_db_session
 from models import Task, TaskStatus
 from quota import confirm_quota, refund_quota
 from oss import upload_file_to_oss, download_file_from_oss, is_oss_key
+from chanjing_api import ChanjingAPI
+import time
 
 settings = get_settings()
 
@@ -365,3 +367,247 @@ def run_agent_compose_task(task_id: str, payload: dict, trace_id: str, merchant_
             shutil.rmtree(task_dir, ignore_errors=True)
         except Exception:
             pass
+
+
+
+def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merchant_id: str):
+    """数字人视频生成 RQ 任务"""
+    settings = get_settings()
+    api = ChanjingAPI(settings.CHANJING_APP_ID, settings.CHANJING_SECRET_KEY)
+    
+    task_dir = os.path.join(settings.BASE_TASK_DIR, task_id)
+    ensure_dir(task_dir)
+    
+    try:
+        update_task(task_id, status=TaskStatus.processing, progress=5, stage="submitting_to_chanjing", started_at=datetime.now(timezone.utc))
+        if is_task_cancelled(task_id): raise InterruptedError("task cancelled")
+
+        # 1. 准备参数，处理背景图片
+        bg_oss_key = payload.get("bg_file_oss_key")
+        bg_params = None
+        if payload.get("bg_type") == "image" and bg_oss_key:
+            local_bg = os.path.join(task_dir, "bg_image.jpg")
+            download_input_file(bg_oss_key, local_bg)
+            chanjing_file_id = api.upload_file(local_bg, service="background")
+            bg_params = {"file_id": chanjing_file_id, "x": 0, "y": 0, "width": 1080, "height": 1920}
+
+        # 2. 提交给蝉镜
+        video_params = {
+            "digital_person_id": payload.get("person_id"),
+            "text": payload.get("text"),
+            "audio_man_id": payload.get("audio_man_id"),
+            "figure_type": payload.get("figure_type"),
+            "drive_mode": payload.get("drive_mode"),
+            "person_x": 0, "person_y": 0, "person_width": 1080, "person_height": 1920
+        }
+        if bg_params:
+            video_params["bg"] = bg_params
+        else:
+            video_params["bg_color"] = payload.get("bg_color")
+
+        video_response = api.create_video(**video_params)
+        if video_response.get('code') != 0:
+            raise Exception(f"蝉镜接口报错: {video_response}")
+            
+        chanjing_video_id = video_response['data']
+        update_task(task_id, progress=10, stage="waiting_chanjing_render")
+
+        # 3. 轮询等待蝉镜渲染 (阻塞 Worker，最长等 30 分钟)
+        chanjing_video_url = None
+        for _ in range(180): # 180 * 10s = 30分钟
+            if is_task_cancelled(task_id): raise InterruptedError("task cancelled")
+            
+            status_resp = api.get_video_status(chanjing_video_id)
+            if status_resp.get('code') == 0:
+                data = status_resp.get('data', {})
+                status = data.get('status')
+                progress = data.get('progress', 0)
+                
+                # 映射进度 10-90
+                mapped_progress = 10 + int(progress * 0.8)
+                update_task(task_id, progress=mapped_progress)
+                
+                if status in (1, 30): # 成功 (根据蝉镜文档，30为成功)
+                    chanjing_video_url = data.get('video_url')
+                    break
+                elif status in (2, 40, -1): # 失败
+                    raise Exception(f"蝉镜渲染失败: {data.get('msg', '未知错误')}")
+            time.sleep(10)
+
+        if not chanjing_video_url:
+            raise Exception("等待蝉镜渲染超时 (30分钟)")
+
+        # 4. 下载蝉镜成品视频，上传回我们的 MinIO
+        update_task(task_id, progress=90, stage="uploading_results")
+        local_result = os.path.join(task_dir, "final.mp4")
+        api.download_video(chanjing_video_url, local_result)
+        
+        result = {
+            "files": {
+                "final_video": build_oss_file_entry(task_id, "final_video", local_result, merchant_id)
+            }
+        }
+
+        # 5. 完成并确扣配额
+        with get_db_session() as db:
+            task = db.query(Task).filter(Task.id == task_id).first()
+            if task:
+                task.status = TaskStatus.succeeded
+                task.progress = 100
+                task.stage = "finished"
+                task.result = result
+                task.finished_at = datetime.now(timezone.utc)
+                db.add(task)
+                confirm_quota(db, task)
+                
+        # 6. Webhook 回调
+        callback = payload.get("callback") or {}
+        if callback.get("url"):
+            post_callback(callback["url"], {"event": "task.completed", "task_id": task_id, "trace_id": trace_id, "status": "succeeded", "result": result}, callback.get("secret"))
+
+    except InterruptedError as e:
+        with get_db_session() as db:
+            task = db.query(Task).filter(Task.id == task_id).first()
+            if task and task.status != TaskStatus.cancelled:
+                task.status = TaskStatus.cancelled
+                task.stage = "cancelled"
+                task.error = str(e)
+                task.finished_at = datetime.now(timezone.utc)
+                db.add(task)
+                refund_quota(db, task, reason="cancelled")
+                
+    except Exception as e:
+        error_msg = f"{str(e)}\n{traceback.format_exc()}"
+        with get_db_session() as db:
+            task = db.query(Task).filter(Task.id == task_id).first()
+            if task and task.status not in [TaskStatus.failed, TaskStatus.cancelled, TaskStatus.timeout]:
+                task.status = TaskStatus.failed
+                task.stage = "failed"
+                task.error = error_msg[:4000]
+                task.finished_at = datetime.now(timezone.utc)
+                db.add(task)
+                refund_quota(db, task, reason=str(e)[:200])
+
+        callback = payload.get("callback") or {}
+        if callback.get("url"):
+            post_callback(callback["url"], {"event": "task.failed", "task_id": task_id, "trace_id": trace_id, "status": "failed", "error": str(e)}, callback.get("secret"))
+    finally:
+        shutil.rmtree(task_dir, ignore_errors=True)
+
+
+def run_dh_create_person_task(task_id: str, payload: dict, trace_id: str, merchant_id: str):
+    """创建定制数字人的 RQ 任务"""
+    settings = get_settings()
+    api = ChanjingAPI(settings.CHANJING_APP_ID, settings.CHANJING_SECRET_KEY)
+    
+    task_dir = os.path.join(settings.BASE_TASK_DIR, task_id)
+    ensure_dir(task_dir)
+    
+    try:
+        update_task(task_id, status=TaskStatus.processing, progress=5, stage="downloading_source", started_at=datetime.now(timezone.utc))
+        if is_task_cancelled(task_id): raise InterruptedError("task cancelled")
+
+        # 1. 下载用户上传的源视频
+        source_key = payload.get("source_video_oss_key")
+        local_source = os.path.join(task_dir, "source.mp4")
+        download_input_file(source_key, local_source)
+        
+        # 2. 传给蝉镜并获取 file_id
+        update_task(task_id, progress=15, stage="uploading_to_chanjing")
+        chanjing_file_id = api.upload_file(local_source, service="customised_person")
+        
+        # 3. 提交训练请求
+        update_task(task_id, progress=25, stage="submitting_train_task")
+        train_resp = api.create_customised_person(
+            name=payload.get("name"),
+            file_id=chanjing_file_id,
+            train_type=payload.get("train_type", "both"),
+            language=payload.get("language", "cn"),
+            error_skip=payload.get("error_skip", False),
+            resolution_rate=payload.get("resolution_rate", 0)
+        )
+        
+        if train_resp.get('code') != 0:
+            raise Exception(f"蝉镜训练接口报错: {train_resp}")
+            
+        person_id = train_resp.get('data', {}).get('id')
+        if not person_id:
+            raise Exception("未能获取到生成的 person_id")
+
+        # 4. 轮询等待训练完成 (数字人训练时间较长，设定最长等待 4 小时 = 240分钟 = 480 * 30秒)
+        update_task(task_id, progress=30, stage="training")
+        is_success = False
+        
+        for _ in range(480):
+            if is_task_cancelled(task_id): raise InterruptedError("task cancelled")
+            
+            status_resp = api.get_customised_person_status(person_id)
+            if status_resp.get('code') == 0:
+                data = status_resp.get('data', {})
+                status = data.get('status')
+                
+                # 蝉镜状态码：0等待处理，10训练中，30成功，40失败
+                if status == 30:
+                    is_success = True
+                    update_task(task_id, progress=99)
+                    break
+                elif status in (40, -1, 2):
+                    raise Exception(f"数字人训练失败: {data.get('msg', '模型不符合要求或未知错误')}")
+                    
+                # 模拟进度条增加 (30 -> 90)
+                update_task(task_id, progress=min(90, 30 + (_ // 8))) 
+            time.sleep(30)
+
+        if not is_success:
+            raise Exception("等待数字人训练超时 (4小时)")
+
+        result = {
+            "person_id": person_id,
+            "name": payload.get("name")
+        }
+
+        # 5. 完成任务
+        with get_db_session() as db:
+            task = db.query(Task).filter(Task.id == task_id).first()
+            if task:
+                task.status = TaskStatus.succeeded
+                task.progress = 100
+                task.stage = "finished"
+                task.result = result
+                task.finished_at = datetime.now(timezone.utc)
+                db.add(task)
+                confirm_quota(db, task)
+                
+        # 6. 回调
+        callback = payload.get("callback") or {}
+        if callback.get("url"):
+            post_callback(callback["url"], {"event": "task.completed", "task_id": task_id, "trace_id": trace_id, "status": "succeeded", "result": result}, callback.get("secret"))
+
+    except InterruptedError as e:
+        with get_db_session() as db:
+            task = db.query(Task).filter(Task.id == task_id).first()
+            if task and task.status != TaskStatus.cancelled:
+                task.status = TaskStatus.cancelled
+                task.stage = "cancelled"
+                task.error = str(e)
+                task.finished_at = datetime.now(timezone.utc)
+                db.add(task)
+                refund_quota(db, task, reason="cancelled")
+                
+    except Exception as e:
+        error_msg = f"{str(e)}\n{traceback.format_exc()}"
+        with get_db_session() as db:
+            task = db.query(Task).filter(Task.id == task_id).first()
+            if task and task.status not in [TaskStatus.failed, TaskStatus.cancelled, TaskStatus.timeout]:
+                task.status = TaskStatus.failed
+                task.stage = "failed"
+                task.error = error_msg[:4000]
+                task.finished_at = datetime.now(timezone.utc)
+                db.add(task)
+                refund_quota(db, task, reason=str(e)[:200])
+
+        callback = payload.get("callback") or {}
+        if callback.get("url"):
+            post_callback(callback["url"], {"event": "task.failed", "task_id": task_id, "trace_id": trace_id, "status": "failed", "error": str(e)}, callback.get("secret"))
+    finally:
+        shutil.rmtree(task_dir, ignore_errors=True)

@@ -705,8 +705,9 @@ def burn_whisper_subtitle(
             esc_dir = _esc_filter_path(font_dir)
             vf = f"ass='{esc_ass}':fontsdir='{esc_dir}'"
 
+        # 增加 -nostdin
         cmd = [
-            "ffmpeg", "-y", "-hide_banner", "-loglevel", "warning",
+            "ffmpeg", "-nostdin", "-y", "-hide_banner", "-loglevel", "warning",
             "-i", input_video,
             "-vf", vf,
             "-c:v", "libx264", "-preset", "fast", "-crf", "18",
@@ -714,7 +715,8 @@ def burn_whisper_subtitle(
             "-movflags", "+faststart",
             output_video,
         ]
-        subprocess.run(cmd, check=True)
+        # 增加 stdin=subprocess.DEVNULL
+        subprocess.run(cmd, check=True, stdin=subprocess.DEVNULL)
 
     finally:
         debug_ass = output_video.rsplit(".", 1)[0] + ".ass"
