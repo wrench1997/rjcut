@@ -1,4 +1,4 @@
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Literal
 from pydantic import BaseModel, Field
 from datetime import datetime
 
@@ -53,32 +53,73 @@ class OutputConfig(BaseModel):
     need_transcription_json: bool = True
     need_ass: bool = True
 
-# schemas.py (追加以下内容)
 
-class DhGenerateVideoRequest(BaseModel):
-    text: str
-    person_id: Optional[str] = None
-    audio_man_id: str
-    figure_type: str = "sit_body"
-    drive_mode: str = "random"
-    bg_type: str = "color"
-    bg_color: str = "#EDEDED"
-    bg_file_oss_key: Optional[str] = None # 如果是图片背景，前端先传 MinIO，传 key 过来
-    client_ref_id: Optional[str] = None
-    timeout_seconds: Optional[int] = 3600
-
-class DhCreateCustomPersonRequest(BaseModel):
-    name: str
-    source_video_oss_key: str  # 前端上传视频到 MinIO 后的 oss_key
-    train_type: str = "both"
-    language: str = "cn"
-    error_skip: bool = False
-    resolution_rate: int = 0
-    client_ref_id: Optional[str] = None
-    
 class CallbackConfig(BaseModel):
     url: Optional[str] = None
     secret: Optional[str] = None
+
+
+class DraftOptions(BaseModel):
+    need_transcription: bool = True
+    need_timeline: bool = True
+    need_ai_correction: bool = False
+    ai_prompt: Optional[str] = None
+
+
+class AgentDraftRequest(BaseModel):
+    input: InputConfig
+    pipeline: PipelineConfig = PipelineConfig()
+    asr: AsrConfig = AsrConfig()
+    draft: DraftOptions = DraftOptions()
+    callback: Optional[CallbackConfig] = None
+    client_ref_id: Optional[str] = None
+    timeout_seconds: Optional[int] = Field(None, ge=60, le=7200)
+
+
+class EditableScriptSegment(BaseModel):
+    id: int
+    text: str
+    type: str = "human"
+    scene_file: Optional[str] = None
+    part_file: Optional[str] = None
+    start: Optional[float] = None
+    end: Optional[float] = None
+    duration: Optional[float] = None
+
+
+class EditableScript(BaseModel):
+    segments: List[EditableScriptSegment]
+
+
+class TextCorrectionItem(BaseModel):
+    src: str
+    dst: str
+    reason: Optional[str] = None
+
+
+class DraftUpdateRequest(BaseModel):
+    editable_script: Optional[EditableScript] = None
+    corrections: Optional[List[TextCorrectionItem]] = None
+    replace_mode: Literal["merge", "replace"] = "merge"
+
+
+class DraftAiCorrectRequest(BaseModel):
+    mode: str = "rewrite"
+    prompt: Optional[str] = None
+    scope: str = "all_segments"
+
+
+class ComposeFromDraftRequest(BaseModel):
+    draft_task_id: str
+    editable_script: Optional[EditableScript] = None
+    corrections: Optional[List[TextCorrectionItem]] = None
+    pipeline: PipelineConfig = PipelineConfig()
+    asr: AsrConfig = AsrConfig()
+    subtitle: SubtitleConfig = SubtitleConfig()
+    output: OutputConfig = OutputConfig()
+    callback: Optional[CallbackConfig] = None
+    client_ref_id: Optional[str] = None
+    timeout_seconds: Optional[int] = Field(None, ge=60, le=7200)
 
 
 class AgentComposeRequest(BaseModel):
@@ -142,3 +183,26 @@ class AdjustQuotaRequest(BaseModel):
 
 class CreateApiKeyRequest(BaseModel):
     name: str = "default"
+
+
+class DhGenerateVideoRequest(BaseModel):
+    text: str
+    person_id: Optional[str] = None
+    audio_man_id: str
+    figure_type: str = "sit_body"
+    drive_mode: str = "random"
+    bg_type: str = "color"
+    bg_color: str = "#EDEDED"
+    bg_file_oss_key: Optional[str] = None
+    client_ref_id: Optional[str] = None
+    timeout_seconds: Optional[int] = 3600
+
+
+class DhCreateCustomPersonRequest(BaseModel):
+    name: str
+    source_video_oss_key: str
+    train_type: str = "both"
+    language: str = "cn"
+    error_skip: bool = False
+    resolution_rate: int = 0
+    client_ref_id: Optional[str] = None

@@ -13,31 +13,35 @@ include:
   #- script.json
   #- 鹿茸血文案.txt
   - api_service.py
-  - service_models.py
-  - service_auth.py
-  - service_store.py
-  - service_runner.py
-  - admin_api.py
-  - models.py
-  - oss.py
-  - quota.py
+  # - service_models.py
+  # - service_auth.py
+  # - service_store.py
+  # - service_runner.py
+  # - admin_api.py
+  # - models.py
+  # - oss.py
+  # - quota.py
   - schemas.py
   - task_runner.py
-  - task_watchdog.py
+  # - task_watchdog.py
   - worker.py
-  - auth.py
-  - config.py
-  - api_service.py
-  - admin_api.py
-  - scripts/init_db.py
-  - scripts/create_merchant.py
-  - alembic/env.py
-  - alembic/versions/001_initial.py
+  # - auth.py
+  # - config.py
+  # - api_service.py
+  # - admin_api.py
+  # - scripts/init_db.py
+  # - scripts/create_merchant.py
+  # - alembic/env.py
+  # - alembic/versions/001_initial.py
   - docker-compose.yml
-  - Dockerfile.api
-  - Dockerfile.worker
+  - draft_utils.py
+  # - Dockerfile.api
+  # - Dockerfile.worker
   - .env
-  - cut_transition.py
-  - lip_sync.py
-  - chanjing_api.py
-  - api_digital_human.py
+  - 草稿模式测试.MD
+  # - cut_transition.py
+  # - lip_sync.py
+  # - chanjing_api.py
+  # - api_digital_human.py
+  # - 数字人API.MD
+  # - 自动合成视频api.MD
