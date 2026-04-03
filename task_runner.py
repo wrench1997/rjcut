@@ -6,7 +6,7 @@ import mimetypes
 import traceback
 from datetime import datetime, timezone
 from urllib.parse import urljoin, urlparse
-
+import re
 import requests
 from redis import Redis
 
@@ -175,22 +175,45 @@ def build_scene_assets_and_upload(scene_dir: str, task_id: str, merchant_id: str
     return scene_assets
 
 
-def build_parts_and_upload(output_dir: str, task_id: str, merchant_id: str):
+def build_parts_and_upload(parts_dir: str, task_id: str, merchant_id: str):
+    """
+    扫描 cut_transition 产出的切片目录，并统一映射成标准 file_key:
+      - part_001
+      - part_002
+      - ...
+
+    兼容本地文件名格式：
+      - part_001.mp4
+      - xxx_part01.mp4
+      - xxx_part001.mp4
+    """
     parts = {}
-    if not output_dir or not os.path.isdir(output_dir):
+    if not parts_dir or not os.path.isdir(parts_dir):
         return parts
 
-    for name in sorted(os.listdir(output_dir)):
-        local_path = os.path.join(output_dir, name)
+    candidates = []
+
+    for name in sorted(os.listdir(parts_dir)):
+        local_path = os.path.join(parts_dir, name)
         if not os.path.isfile(local_path):
             continue
 
         lower_name = name.lower()
-        if not lower_name.startswith("part_") or not lower_name.endswith(".mp4"):
+        if not lower_name.endswith(".mp4"):
             continue
 
-        file_key = os.path.splitext(name)[0]
-        parts[file_key] = build_oss_file_entry(task_id, file_key, local_path, merchant_id)
+        m = re.search(r'part[_]?(\d+)\.mp4$', lower_name)
+        if not m:
+            continue
+
+        part_index = int(m.group(1))
+        candidates.append((part_index, name, local_path))
+
+    for part_index, name, local_path in sorted(candidates, key=lambda x: x[0]):
+        file_key = f"part_{part_index:03d}"
+        entry = build_oss_file_entry(task_id, file_key, local_path, merchant_id)
+        entry["filename"] = name
+        parts[file_key] = entry
 
     return parts
 
@@ -582,7 +605,8 @@ def run_agent_draft_task(task_id: str, payload: dict, trace_id: str, merchant_id
         if corrections_data:
             editable_script = apply_corrections_to_editable_script(editable_script, corrections_data)
 
-        parts = build_parts_and_upload(output_dir, task_id, merchant_id)
+        parts_dir = os.path.join(output_dir, f"{base}_parts")
+        parts = build_parts_and_upload(parts_dir, task_id, merchant_id)
         editable_script = attach_part_file_to_editable_script(editable_script, parts)
 
         scene_assets = build_scene_assets_and_upload(scene_dir, task_id, merchant_id)
