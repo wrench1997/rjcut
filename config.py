@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     MINIO_USE_SSL: bool = False
     MINIO_EXTERNAL_ENDPOINT: str = "http://localhost:9003"
 
-    TASK_TIMEOUT_SECONDS: int = 3600
+    TASK_TIMEOUT_SECONDS: int = 360
     TASK_STALE_CHECK_INTERVAL: int = 60
     SECRET_KEY: str = "change_me_in_production_2024"
     RQ_QUEUE_NAME: str = "rjcut_tasks"

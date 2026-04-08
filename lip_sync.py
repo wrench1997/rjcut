@@ -35,7 +35,8 @@ import argparse
 import tempfile
 import shutil
 from typing import Optional, List, Dict, Any
-
+import gc
+import torch
 DOWNLOAD_ROOT = "./model"
 
 
@@ -120,6 +121,13 @@ def resync_transcribe(
             json.dump(result, f, ensure_ascii=False, indent=2)
         print(f"\n  💾 时间戳 JSON 已保存: {output_json}")
 
+
+    # --- 增加以下清理代码 ---
+    del model
+    gc.collect()
+    if device == "cuda":
+        torch.cuda.empty_cache()
+    # ------------------------
     return result
 
 
@@ -464,19 +472,14 @@ def compare_timestamps(old_json_path: str, new_json_path: str):
 # ═══════════════════════════════════════════════
 
 def build_scene_clip(
-    scene_path: str,
-    audio_part_path: str,
-    output_path: str,
-    duration: float,
-    width: int,
-    height: int,
-    fps: float,
+    scene_path: str, audio_part_path: str, output_path: str,
+    duration: float, width: int, height: int, fps: float,
 ):
     import subprocess
 
-    # 增加 -nostdin
+    # 🟢 新增：加入 -threads 2 限制
     cmd = [
-        "ffmpeg", "-nostdin", "-y", "-hide_banner", "-loglevel", "warning",
+        "ffmpeg", "-nostdin", "-threads", "2", "-y", "-hide_banner", "-loglevel", "warning",
         "-stream_loop", "-1", "-i", scene_path,
         "-i", audio_part_path,
         "-t", f"{duration:.4f}",
@@ -485,16 +488,13 @@ def build_scene_clip(
             f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,"
             f"fps={fps},format=yuv420p"
         ),
-        "-map", "0:v",
-        "-map", "1:a",
+        "-map", "0:v", "-map", "1:a",
         "-c:v", "libx264", "-preset", "fast", "-crf", "18",
         "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2",
-        "-shortest",
-        "-movflags", "+faststart",
+        "-shortest", "-movflags", "+faststart",
         output_path,
     ]
-    # 增加 stdin=subprocess.DEVNULL
-    subprocess.run(cmd, check=True, stdin=subprocess.DEVNULL)
+    subprocess.run(cmd, check=True, timeout=600, stdin=subprocess.DEVNULL)
 
 
 
@@ -738,12 +738,11 @@ def main():
     parser.add_argument("-o", "--output", default=None,
                         help="输出路径 (视频或 JSON)")
     parser.add_argument("-m", "--model", default="large-v3",
-                        choices=["tiny", "base", "small", "medium",
-                                 "large", "large-v2", "large-v3"],
-                        help="Whisper 模型 (默认: medium)")
-    parser.add_argument("--device", default="cpu",
-                        choices=["cpu", "cuda"],
-                        help="推理设备 (默认: cpu)")
+                        choices=["large-v3"],
+                        help="Whisper 模型 (默认: large-v3)")
+    parser.add_argument("--device", default="cuda",
+                        choices=["cuda"],
+                        help="推理设备 (默认: cuda)")
     parser.add_argument("--language", default="zh",
                         help="语言代码 (默认: zh)")
 

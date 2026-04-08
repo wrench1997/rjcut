@@ -9,10 +9,10 @@ include:
   #- cut_transition.py
   #- corrections.json
   # - merge_videos.py
-  #- lip_sync.py
+  # - lip_sync.py
   #- script.json
   #- 鹿茸血文案.txt
-  - api_service.py
+  # - api_service.py
   # - service_models.py
   # - service_auth.py
   # - service_store.py
@@ -21,10 +21,10 @@ include:
   # - models.py
   # - oss.py
   # - quota.py
-  - schemas.py
-  - task_runner.py
+  # - schemas.py
+  # - task_runner.py
   # - task_watchdog.py
-  - worker.py
+  # - worker.py
   # - auth.py
   # - config.py
   # - api_service.py
@@ -33,13 +33,16 @@ include:
   # - scripts/create_merchant.py
   # - alembic/env.py
   # - alembic/versions/001_initial.py
-  - docker-compose.yml
-  - draft_utils.py
-  - cut_transition.py
+  # - docker-compose.yml
+  # - draft_utils.py
+  # - cut_transition.py
   # - Dockerfile.api
   # - Dockerfile.worker
-  - .env
+  # - .env
   - 草稿模式测试.MD
+  - script.json
+  - corrections.json
+  - run_draft_full.sh
   # - cut_transition.py
   # - lip_sync.py
   # - chanjing_api.py

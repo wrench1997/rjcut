@@ -14,9 +14,10 @@ from config import get_settings
 from database import get_db_session
 from models import Task, TaskStatus
 from quota import confirm_quota, refund_quota
-from oss import upload_file_to_oss, download_file_from_oss, is_oss_key
+from oss import upload_file_to_oss, download_file_from_oss, is_oss_key, copy_file_in_oss
 from chanjing_api import ChanjingAPI
 import time
+from cut_transition import get_duration
 
 from draft_utils import (
     build_editable_script_from_result,
@@ -150,6 +151,19 @@ def load_json_file(path: str, default=None):
 
 
 def build_scene_assets_and_upload(scene_dir: str, task_id: str, merchant_id: str):
+    """
+    构建 scene_assets 字典并复制场景素材（使用 MinIO 内部复制，避免重新上传）
+    
+    Args:
+        scene_dir: 本地场景素材目录
+        task_id: 任务 ID
+        merchant_id: 商户 ID
+    
+    Returns:
+        scene_assets 字典
+    """
+
+    
     scene_assets = {}
     if not scene_dir or not os.path.isdir(scene_dir):
         return scene_assets
@@ -159,18 +173,49 @@ def build_scene_assets_and_upload(scene_dir: str, task_id: str, merchant_id: str
         if not os.path.isfile(local_path):
             continue
 
-        ext = os.path.splitext(name)[1]
-        oss_key = f"{merchant_id}/tasks/{task_id}/scene_assets/{os.path.splitext(name)[0]}{ext}"
+        # 源文件在 scenes/ 目录（上传时已经放在这里）
+        src_oss_key = f"{merchant_id}/scenes/{name}"
+        # 目标文件在 tasks/xxx/scene_assets/ 目录
+        dst_oss_key = f"{merchant_id}/tasks/{task_id}/scene_assets/{name}"
+        
         mime = mimetypes.guess_type(local_path)[0] or "application/octet-stream"
-        upload_file_to_oss(local_path, oss_key, content_type=mime)
 
-        scene_assets[name] = {
-            "oss_key": oss_key,
-            "filename": name,
-            "exists": True,
-            "size": os.path.getsize(local_path),
-            "mime_type": mime,
-        }
+        # 🔧 增加重试逻辑，避免网络抖动导致失败
+        max_retries = 3
+        success = False
+        
+        for attempt in range(max_retries):
+            try:
+                # ⭐ 关键修复：使用 MinIO 内部复制，而不是重新上传
+                copy_file_in_oss(src_oss_key, dst_oss_key)
+                
+                scene_assets[name] = {
+                    "oss_key": dst_oss_key,
+                    "filename": name,
+                    "exists": True,
+                    "size": os.path.getsize(local_path),
+                    "mime_type": mime,
+                }
+                
+                print(f"✅ 场景素材复制成功: {name} (尝试 {attempt + 1}/{max_retries})")
+                success = True
+                break
+                
+            except Exception as e:
+                print(f"⚠️  场景素材复制失败 (尝试 {attempt + 1}/{max_retries}): {name}")
+                print(f"    错误: {e}")
+                
+                if attempt < max_retries - 1:
+                    # 指数退避
+                    wait_time = 2 ** attempt
+                    print(f"    等待 {wait_time} 秒后重试...")
+                    time.sleep(wait_time)
+                else:
+                    print(f"❌ 场景素材 {name} 复制失败，已跳过")
+        
+        # 如果最终失败，不加入 scene_assets
+        if not success:
+            print(f"⚠️  警告: 场景素材 {name} 未能成功复制到任务目录")
 
     return scene_assets
 
@@ -279,6 +324,15 @@ def run_agent_compose_task(task_id: str, payload: dict, trace_id: str, merchant_
         input_video = os.path.join(input_dir, video_name)
         download_input_file(video_url, input_video)
 
+       # 🟢 新增：严格限制视频时长（5分钟 = 300秒）防止 Whisper 撑爆显存
+        try:
+            vid_duration = get_duration(input_video)
+            if vid_duration > 300:
+                raise ValueError(f"视频时长 {vid_duration:.1f}s 超过最大限制 300s (5分钟)，请切片后重试。")
+        except Exception as e:
+            if isinstance(e, ValueError): raise e
+            pass # 忽略 ffprobe 获取失败的异常
+        
         script_path = None
         script_data = None
         script_url = req["input"].get("script_url")
@@ -336,8 +390,7 @@ def run_agent_compose_task(task_id: str, payload: dict, trace_id: str, merchant_
             input_path=input_video,
             keyword=req.get("pipeline", {}).get("remove_keyword", "转场"),
             model_size=req.get("asr", {}).get("model", "large-v3"),
-            device=req.get("asr", {}).get("device", "cuda"),
-            output_dir=output_dir,
+            device="cuda",  # 强制替换 req.get("asr", {}).get("device", "cuda") 为 "cuda"            output_dir=output_dir,
             margin=float(req.get("pipeline", {}).get("margin", 0.15)),
             keep_parts=True,
             min_seg_duration=float(req.get("pipeline", {}).get("min_segment_duration", 0.1)),
@@ -515,11 +568,23 @@ def run_agent_draft_task(task_id: str, payload: dict, trace_id: str, merchant_id
         if is_task_cancelled(task_id):
             raise InterruptedError("task cancelled by user")
 
+        # ========== 下载主视频 ==========
         video_url = req["input"]["video_url"]
         video_name = safe_name_from_url(video_url, "input.mp4")
         input_video = os.path.join(input_dir, video_name)
         download_input_file(video_url, input_video)
 
+        # ========== 视频时长限制（防止 Whisper 显存溢出）==========
+        try:
+            vid_duration = get_duration(input_video)
+            if vid_duration > 300:
+                raise ValueError(f"视频时长 {vid_duration:.1f}s 超过最大限制 300s (5分钟)，请切片后重试。")
+        except Exception as e:
+            if isinstance(e, ValueError):
+                raise e
+            pass  # 忽略 ffprobe 获取失败的异常
+
+        # ========== 下载脚本文件 ==========
         script_path = None
         script_data = None
         script_url = req["input"].get("script_url")
@@ -529,6 +594,7 @@ def run_agent_draft_task(task_id: str, payload: dict, trace_id: str, merchant_id
             download_input_file(script_url, script_path)
             script_data = load_json_file(script_path, default={})
 
+        # ========== 下载纠错字典 ==========
         corrections_data = []
         corrections_url = req["input"].get("corrections_url")
         if corrections_url:
@@ -540,38 +606,74 @@ def run_agent_draft_task(task_id: str, payload: dict, trace_id: str, merchant_id
         if is_task_cancelled(task_id):
             raise InterruptedError("task cancelled by user")
 
+        # ========== 下载场景素材（带容错处理）==========
         scene_base_url = req["input"].get("scene_base_url")
         if script_data and scene_base_url:
             update_task(task_id, progress=18, stage="downloading_scenes")
+            failed_scenes = []
+            
             for seg in script_data.get("segments", []):
                 if seg.get("flag") == "scene" and seg.get("scene_file"):
                     original_scene_file = seg["scene_file"]
                     basename = os.path.basename(original_scene_file)
                     local_scene_path = os.path.join(scene_dir, basename)
 
-                    if not os.path.isfile(local_scene_path):
+                    # 如果本地已经存在，直接使用
+                    if os.path.isfile(local_scene_path):
+                        seg["scene_file"] = basename
+                        continue
+
+                    # 尝试下载场景素材
+                    try:
                         if is_oss_key(scene_base_url):
+                            # scene_base_url 是 OSS Key（例如 merchant_id）
                             scene_key = scene_base_url.rstrip("/") + "/" + original_scene_file
+                            print(f"📥 下载场景素材: {scene_key} -> {local_scene_path}")
                             download_file_from_oss(scene_key, local_scene_path)
                         else:
+                            # scene_base_url 是 HTTP URL
                             scene_url = urljoin(scene_base_url.rstrip("/") + "/", original_scene_file)
+                            print(f"📥 下载场景素材: {scene_url} -> {local_scene_path}")
                             download_file(scene_url, local_scene_path)
-
-                    seg["scene_file"] = basename
-
-            with open(script_path, "w", encoding="utf-8") as f:
-                json.dump(script_data, f, ensure_ascii=False, indent=2)
+                        
+                        # 下载成功，更新为本地文件名
+                        seg["scene_file"] = basename
+                        print(f"✅ 场景素材下载成功: {basename}")
+                        
+                    except Exception as e:
+                        # ⭐ 容错处理：下载失败时，将该段落转为 human 类型
+                        print(f"⚠️  场景素材下载失败: {original_scene_file}")
+                        print(f"    错误类型: {type(e).__name__}")
+                        print(f"    错误信息: {str(e)}")
+                        print(f"    该段落将转为 human 类型（保留文本，去除场景素材）")
+                        
+                        seg["flag"] = "human"
+                        seg["scene_file"] = None
+                        failed_scenes.append(original_scene_file)
+            
+            # 统计失败情况
+            if failed_scenes:
+                print(f"⚠️  共有 {len(failed_scenes)} 个场景素材下载失败，已转为 human 类型:")
+                for fs in failed_scenes:
+                    print(f"    - {fs}")
+            
+            # 保存更新后的 script（包含降级后的段落）
+            if script_path:
+                with open(script_path, "w", encoding="utf-8") as f:
+                    json.dump(script_data, f, ensure_ascii=False, indent=2)
+                print(f"✅ 更新后的脚本已保存: {script_path}")
 
         if is_task_cancelled(task_id):
             raise InterruptedError("task cancelled by user")
 
+        # ========== 执行核心切分任务 ==========
         update_task(task_id, progress=25, stage="generating_draft")
 
         cut_process(
             input_path=input_video,
             keyword=req.get("pipeline", {}).get("remove_keyword", "转场"),
             model_size=req.get("asr", {}).get("model", "large-v3"),
-            device=req.get("asr", {}).get("device", "cuda"),
+            device="cuda",
             output_dir=output_dir,
             margin=float(req.get("pipeline", {}).get("margin", 0.15)),
             keep_parts=True,
@@ -585,6 +687,7 @@ def run_agent_draft_task(task_id: str, payload: dict, trace_id: str, merchant_id
         if is_task_cancelled(task_id):
             raise InterruptedError("task cancelled by user")
 
+        # ========== 收集产物文件 ==========
         base = os.path.splitext(os.path.basename(input_video))[0]
         cleaned_video = os.path.join(output_dir, f"{base}_cleaned.mp4")
         timeline_json = os.path.join(output_dir, f"{base}_timeline.json")
@@ -600,17 +703,22 @@ def run_agent_draft_task(task_id: str, payload: dict, trace_id: str, merchant_id
             }
         }
 
+        # ========== 构建可编辑脚本 ==========
         editable_script = build_editable_script_from_result(draft_result)
 
+        # ========== 应用纠错字典 ==========
         if corrections_data:
             editable_script = apply_corrections_to_editable_script(editable_script, corrections_data)
 
+        # ========== 上传切片文件 ==========
         parts_dir = os.path.join(output_dir, f"{base}_parts")
         parts = build_parts_and_upload(parts_dir, task_id, merchant_id)
         editable_script = attach_part_file_to_editable_script(editable_script, parts)
 
+        # ========== 上传场景素材（使用 MinIO 内部复制）==========
         scene_assets = build_scene_assets_and_upload(scene_dir, task_id, merchant_id)
 
+        # ========== 构建最终结果 ==========
         result = {
             "draft": {
                 "editable_script": editable_script,
@@ -629,6 +737,7 @@ def run_agent_draft_task(task_id: str, payload: dict, trace_id: str, merchant_id
             }
         }
 
+        # ========== 更新任务状态为成功 ==========
         with get_db_session() as db:
             task = db.query(Task).filter(Task.id == task_id).first()
             if task:
@@ -641,6 +750,7 @@ def run_agent_draft_task(task_id: str, payload: dict, trace_id: str, merchant_id
                 db.add(task)
                 confirm_quota(db, task)
 
+        # ========== 回调通知 ==========
         callback = req.get("callback") or {}
         if callback.get("url"):
             post_callback(
@@ -750,7 +860,7 @@ def run_compose_from_draft_task(task_id: str, payload: dict, trace_id: str, merc
         update_task(task_id, progress=20, stage="restoring_scene_assets")
         restore_scene_assets(scene_assets, scene_dir)
 
-        patched_timeline = json.loads(json.dumps(timeline_data))
+        patched_timeline = copy.deepcopy(timeline_data)
         seg_map = {
             int(seg["id"]): seg
             for seg in editable_script.get("segments", [])

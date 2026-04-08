@@ -9,7 +9,7 @@ x-common-env: &common-env
   MINIO_BUCKET: rjcut
   MINIO_USE_SSL: "false"
   MINIO_EXTERNAL_ENDPOINT: http://192.168.166.151:9003
-  TASK_TIMEOUT_SECONDS: "3600"
+  TASK_TIMEOUT_SECONDS: "360"
   TASK_STALE_CHECK_INTERVAL: "60"
   SECRET_KEY: change_me_in_production_2024
   RQ_QUEUE_NAME: rjcut_tasks

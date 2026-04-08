@@ -25,7 +25,8 @@ import tempfile
 import shutil
 from dataclasses import dataclass, asdict
 from typing import List, Optional, Dict, Any
-
+import gc
+import torch
 DOWNLOAD_ROOT = "./model"
 
 # ═══════════════════════════════════════════════
@@ -53,10 +54,13 @@ class TimeSpan:
 
 def transcribe_video(video_path: str,
                      model_size: str = "medium",
-                     device: str = "cpu",
+                     device: str = "cuda",
                      language: str = "zh") -> dict:
     """用 whisper_timestamped 做带字级时间戳的中文语音识别"""
 
+    if device != "cuda":
+        print(f"  ⚠️ 警告: 已禁止使用 {device} 进行推理，自动切换为 cuda 防止内存溢出！", flush=True)
+        device = "cuda"
     print(f"\n{'='*60}", flush=True)
     print(f"  🎙️  语音识别", flush=True)
     print(f"  模型: {model_size}  |  设备: {device}  |  语言: {language}", flush=True)
@@ -76,6 +80,13 @@ def transcribe_video(video_path: str,
         vad=True,
     )
     print(f"  ✅ 识别完成，共 {len(result.get('segments', []))} 个语句段", flush=True)
+    
+    # --- 增加以下清理代码 ---
+    del model
+    gc.collect()
+    if device == "cuda":
+        torch.cuda.empty_cache()
+    # ------------------------
     return result
 
 
@@ -196,80 +207,48 @@ def get_video_info(path: str) -> dict:
     }
 
 
-def ffmpeg_cut_segment(input_path: str, output_path: str,
-                       ss: float, to: float):
+def ffmpeg_cut_segment(input_path: str, output_path: str, ss: float, to: float):
     duration = max(0.01, to - ss)
 
-    # 重点1：命令中增加 -nostdin
-    cmd = (
-        f'ffmpeg -nostdin -y -hide_banner -loglevel info '
-        f'-ss {ss:.4f} -t {duration:.4f} '
-        f'-i "{input_path}" '
-        f'-c:v libx264 -preset veryfast -crf 23 '
-        f'-c:a aac -b:a 128k '
-        f'-pix_fmt yuv420p '
-        f'-movflags +faststart '
-        f'-max_muxing_queue_size 1024 '
-        f'"{output_path}"'
-    )
-
-    print("  [ffmpeg_cut_segment shell]", cmd, flush=True)
+    # 🟢 修改：改为数组传参，抛弃 shell=True，增加 -threads 2
+    cmd = [
+        "ffmpeg", "-nostdin", "-threads", "2", "-y", "-hide_banner", "-loglevel", "info",
+        "-ss", f"{ss:.4f}", "-t", f"{duration:.4f}",
+        "-i", input_path,
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+        "-c:a", "aac", "-b:a", "128k",
+        "-pix_fmt", "yuv420p",
+        "-movflags", "+faststart",
+        "-max_muxing_queue_size", "1024",
+        output_path
+    ]
 
     try:
-        subprocess.run(
-            cmd,
-            shell=True,
-            check=True,
-            timeout=600,
-            stdin=subprocess.DEVNULL,  # 重点2：阻断标准输入
-        )
+        # 🟢 shell=False (默认)，这样 timeout 时能直接干掉 ffmpeg 进程，绝不会有僵尸进程
+        subprocess.run(cmd, check=True, timeout=600, stdin=subprocess.DEVNULL)
     except subprocess.TimeoutExpired as e:
-        raise RuntimeError(
-            f"ffmpeg cut segment timeout after 600s: "
-            f"ss={ss:.3f}, to={to:.3f}, output={output_path}"
-        ) from e
-    except subprocess.CalledProcessError as e:
-        raise RuntimeError(
-            f"ffmpeg cut segment failed: "
-            f"ss={ss:.3f}, to={to:.3f}, output={output_path}, returncode={e.returncode}"
-        ) from e
+        raise RuntimeError(f"ffmpeg cut timeout after 600s: {output_path}") from e
 
 
 def ffmpeg_concat_segments(part_files: List[str], output_path: str):
-    list_file = tempfile.NamedTemporaryFile(
-        mode="w", suffix=".txt", delete=False, encoding="utf-8"
-    )
+    list_file = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8")
     try:
         for pf in part_files:
             list_file.write(f"file '{os.path.abspath(pf)}'\n")
         list_file.close()
 
-        # 重点1：命令中增加 -nostdin
-        cmd = (
-            f'ffmpeg -nostdin -y -hide_banner -loglevel info '
-            f'-f concat -safe 0 '
-            f'-i "{list_file.name}" '
-            f'-c copy '
-            f'"{output_path}"'
-        )
-
-        print("  [ffmpeg_concat_segments shell]", cmd, flush=True)
-
-        subprocess.run(
-            cmd,
-            shell=True,
-            check=True,
-            timeout=600,
-            stdin=subprocess.DEVNULL,  # 重点2：阻断标准输入
-        )
+        # 🟢 修改：改为数组传参，增加 -threads 2
+        cmd = [
+            "ffmpeg", "-nostdin", "-threads", "2", "-y", "-hide_banner", "-loglevel", "info",
+            "-f", "concat", "-safe", "0",
+            "-i", list_file.name,
+            "-c", "copy",
+            output_path
+        ]
+        
+        subprocess.run(cmd, check=True, timeout=600, stdin=subprocess.DEVNULL)
     except subprocess.TimeoutExpired as e:
-        raise RuntimeError(
-            f"ffmpeg concat timeout after 600s: output={output_path}"
-        ) from e
-    except subprocess.CalledProcessError as e:
-        raise RuntimeError(
-            f"ffmpeg concat failed: output={output_path}, returncode={e.returncode}"
-        ) from e
+        raise RuntimeError(f"ffmpeg concat timeout after 600s: {output_path}") from e
     finally:
         os.unlink(list_file.name)
 
@@ -399,7 +378,7 @@ def generate_timeline_json(
 def process(input_path: str, *,
             keyword: str = "转场",
             model_size: str = "medium",
-            device: str = "cpu",
+            device: str = "cuda",
             output_dir: Optional[str] = None,
             margin: float = 0.15,
             keep_parts: bool = False,
@@ -451,37 +430,40 @@ def process(input_path: str, *,
 
     # ── STEP 2: 定位关键词 ──
     hits = find_all_keyword_spans(result, keyword=keyword)
-
-    if not hits:
-        print(f"\n✅ 未检测到关键词「{keyword}」，视频无需处理。", flush=True)
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-        return
-
-    print(f"\n{'='*60}", flush=True)
-    print(f"  🔍 检测到 {len(hits)} 处「{keyword}」", flush=True)
-    print(f"{'='*60}", flush=True)
-    total_cut = 0.0
-    for i, h in enumerate(hits, 1):
-        print(f"  #{i:02d}  {h.start:7.3f}s → {h.end:7.3f}s  "
-              f"(时长 {h.duration:.3f}s)")
-        total_cut += h.duration
-    print(f"  {'─'*50}", flush=True)
-    print(f"  合计切除约 {total_cut:.2f}s  |  margin ±{margin}s", flush=True)
-
-    # ── STEP 3: 计算保留区间 ──
+    
+    # 提前获取视频总时长
     duration = get_duration(input_path)
     print(f"\n  📏 视频总时长: {duration:.2f}s", flush=True)
 
-    keeps = compute_keep_segments(duration, hits,
-                                  margin=margin,
-                                  min_duration=min_seg_duration)
+    if not hits:
+        print(f"\n✅ 未检测到关键词「{keyword}」，视频无需切除，将保留完整片段。", flush=True)
+        # ⚠️ 修复Bug: 不要直接 return，将其作为完整的一段供后续草稿模式生成 timeline 和 parts
+        keeps = [TimeSpan(0.0, duration, "keep_all")]
+        kept_total = duration
+    else:
+        print(f"\n{'='*60}", flush=True)
+        print(f"  🔍 检测到 {len(hits)} 处「{keyword}」", flush=True)
+        print(f"{'='*60}", flush=True)
+        total_cut = 0.0
+        for i, h in enumerate(hits, 1):
+            print(f"  #{i:02d}  {h.start:7.3f}s → {h.end:7.3f}s  "
+                  f"(时长 {h.duration:.3f}s)")
+            total_cut += h.duration
+        print(f"  {'─'*50}", flush=True)
+        print(f"  合计切除约 {total_cut:.2f}s  |  margin ±{margin}s", flush=True)
 
-    if not keeps:
-        print("  ⚠️ 切割后无有效内容！请检查 margin 参数。")
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-        return
+        # ── STEP 3: 计算保留区间 ──
+        keeps = compute_keep_segments(duration, hits,
+                                      margin=margin,
+                                      min_duration=min_seg_duration)
 
-    kept_total = sum(k.duration for k in keeps)
+        if not keeps:
+            print("  ⚠️ 切割后无有效内容！请检查 margin 参数。")
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            return
+
+        kept_total = sum(k.duration for k in keeps)
+
     print(f"  保留 {len(keeps)} 段，合计 {kept_total:.2f}s\n")
 
     # ── STEP 4: 逐段切割 ──
@@ -592,7 +574,7 @@ def main():
     parser.add_argument("input", help="输入视频文件路径")
     parser.add_argument("-k", "--keyword", default="转场", help="要检测并切除的关键词 (默认: 转场)")
     parser.add_argument("-m", "--model", default="large-v3", help="Whisper 模型")
-    parser.add_argument("--device", default="cpu", choices=["cpu", "cuda"], help="推理设备")
+    parser.add_argument("--device", default="cuda", choices=["cuda"], help="推理设备")
     parser.add_argument("-o", "--output-dir", default=None, help="输出目录")
     parser.add_argument("--margin", type=float, default=0.15, help="切割点两侧额外切除量/秒")
     parser.add_argument("--keep-parts", action="store_true", help="保留中间分段文件")

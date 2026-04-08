@@ -107,3 +107,25 @@ def get_object_info(oss_key: str):
 
 def is_oss_key(value: str) -> bool:
     return not (value.startswith("http://") or value.startswith("https://"))
+
+
+
+
+def copy_file_in_oss(src_oss_key: str, dst_oss_key: str):
+    """
+    在 MinIO 内部复制文件（不经过本地下载上传）
+    
+    Args:
+        src_oss_key: 源文件的 OSS key
+        dst_oss_key: 目标文件的 OSS key
+    """
+    from minio.commonconfig import CopySource
+    
+    settings = get_settings()  # ⭐ 正确获取 settings
+    client = get_minio_client()
+    
+    client.copy_object(
+        bucket_name=settings.MINIO_BUCKET,
+        object_name=dst_oss_key,
+        source=CopySource(settings.MINIO_BUCKET, src_oss_key),
+    )

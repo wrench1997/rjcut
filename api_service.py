@@ -250,6 +250,11 @@ def confirm_upload(
     if not info:
         return fail(40401, "uploaded object not found", status_code=404)
 
+    # 🟢 新增：严格限制文件大小为 500MB
+    MAX_FILE_SIZE = 500 * 1024 * 1024
+    if info["size"] > MAX_FILE_SIZE:
+        return fail(41300, f"文件过大 ({(info['size']/1024/1024):.1f}MB)，单次上传限制为 500MB", status_code=413)
+
     record.is_confirmed = True
     record.size_bytes = info["size"]
     db.add(record)

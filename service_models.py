@@ -24,7 +24,7 @@ class PipelineConfig(BaseModel):
 
 class AsrConfig(BaseModel):
     model: str = "large-v3"
-    device: str = "cpu"
+    device: str = "cuda"
     language: str = "zh"
 
 
