@@ -1,6 +1,8 @@
+
+
 #!/bin/bash
 # ==========================================================
-# RJCut 草稿模式全量测试脚本 (含视频, 脚本, 纠错, 场景素材)
+# RJCut 草稿模式全量测试脚本 (含视频，脚本，纠错，场景素材，背景音乐)
 # 运行前请确保安装了 jq: apt-get install jq / yum install jq
 # ==========================================================
 
@@ -13,6 +15,7 @@ VIDEO_FILE=${1:-"./鹿茸血广告.mp4"}
 SCRIPT_FILE="./script.json"
 CORRECTIONS_FILE="./corrections.json"
 SCENES_DIR="./scenes"
+BGM_FILE="./qc007-ai-song-435745.mp3"  # 🆕 背景音乐文件
 
 # --- 输出目录 ---
 OUTPUT_DIR="./draft_output"
@@ -20,11 +23,11 @@ PARTS_DIR="$OUTPUT_DIR/parts"
 FINAL_DIR="$OUTPUT_DIR/final"
 
 if [ ! -f "$VIDEO_FILE" ]; then
-  echo "❌ 找不到主视频文件: $VIDEO_FILE"
+  echo "❌ 找不到主视频文件：$VIDEO_FILE"
   exit 1
 fi
 if [ ! -x "$(command -v jq)" ]; then
-  echo "❌ 缺少依赖 jq，请先安装 (例: apt-get install jq)"
+  echo "❌ 缺少依赖 jq，请先安装 (例：apt-get install jq)"
   exit 1
 fi
 
@@ -68,7 +71,7 @@ upload_file() {
       oss_key=$(echo "$presign_res" | jq -r '.data.oss_key // empty')
 
       if [ -z "$upload_id" ] || [ -z "$upload_url" ] || [ -z "$oss_key" ]; then
-        err="预签名返回异常: $presign_res"
+        err="预签名返回异常：$presign_res"
       fi
     fi
 
@@ -93,7 +96,7 @@ upload_file() {
       if [ -z "$err" ]; then
         confirmed=$(echo "$confirm_res" | jq -r '.data.confirmed // empty')
         if [ "$confirmed" != "true" ]; then
-          err="上传确认失败: $confirm_res"
+          err="上传确认失败：$confirm_res"
         fi
       fi
     fi
@@ -105,13 +108,13 @@ upload_file() {
 
     if [ "$attempt" -lt "$max_retries" ]; then
       echo "⚠️  上传失败（第 $attempt/$max_retries 次）: $file_path" >&2
-      echo "   原因: $err" >&2
+      echo "   原因：$err" >&2
       echo "   ${delay}s 后重试..." >&2
       sleep "$delay"
       delay=$((delay * 2))
     else
-      echo "❌ 上传失败，已重试 $max_retries 次仍不成功: $file_path" >&2
-      echo "   最后原因: $err" >&2
+      echo "❌ 上传失败，已重试 $max_retries 次仍不成功：$file_path" >&2
+      echo "   最后原因：$err" >&2
       return 1
     fi
 
@@ -144,7 +147,7 @@ download_file() {
     if [ -z "$err" ]; then
       download_url=$(echo "$url_res" | jq -r '.data.download_url // empty')
       if [ -z "$download_url" ]; then
-        err="无法获取下载链接: $url_res"
+        err="无法获取下载链接：$url_res"
       fi
     fi
 
@@ -165,13 +168,13 @@ download_file() {
 
     if [ "$attempt" -lt "$max_retries" ]; then
       echo "⚠️  下载失败（第 $attempt/$max_retries 次）: $file_key" >&2
-      echo "   原因: $err" >&2
+      echo "   原因：$err" >&2
       echo "   ${delay}s 后重试..." >&2
       sleep "$delay"
       delay=$((delay * 2))
     else
-      echo "❌ 下载失败，已重试 $max_retries 次仍不成功: $file_key" >&2
-      echo "   最后原因: $err" >&2
+      echo "❌ 下载失败，已重试 $max_retries 次仍不成功：$file_key" >&2
+      echo "   最后原因：$err" >&2
       return 1
     fi
 
@@ -191,7 +194,7 @@ echo "👤 当前商户 ID: $MERCHANT_ID"
 # ---------------------------------------------------------
 # 2. 上传素材
 # ---------------------------------------------------------
-echo "🚀 1/4 上传主视频..."
+echo "🚀 1/5 上传主视频..."
 VIDEO_OSS_KEY=$(upload_file "$VIDEO_FILE" "input" "$(basename "$VIDEO_FILE")" "video/mp4") || exit 1
 echo "   ✅ $VIDEO_OSS_KEY"
 
@@ -201,7 +204,7 @@ echo "   ✅ $VIDEO_OSS_KEY"
 cp "$SCRIPT_FILE" /tmp/fmt_script.json
 SCENE_BASE_URL="$MERCHANT_ID"
 
-echo "🚀 2/4 批量上传场景素材 (并动态更新 JSON 脚本)..."
+echo "🚀 2/5 批量上传场景素材 (并动态更新 JSON 脚本)..."
 
 # 创建一个临时映射文件
 > /tmp/scene_mapping.txt
@@ -212,7 +215,7 @@ for scene_file in "$SCENES_DIR"/*; do
     echo "   - 上传 $bname ..."
     
     real_oss_key=$(upload_file "$scene_file" "scenes" "$bname" "video/mp4") || {
-    echo "     ❌ 场景素材上传失败: $bname"
+    echo "     ❌ 场景素材上传失败：$bname"
     exit 1
     }
     # 检查上传是否成功
@@ -221,7 +224,7 @@ for scene_file in "$SCENES_DIR"/*; do
       continue
     fi
     
-    echo "     -> 成功放入: $real_oss_key"
+    echo "     -> 成功放入：$real_oss_key"
     
     # 从 OSS KEY 中提取后端重命名后的纯文件名
     real_name=$(basename "$real_oss_key")
@@ -261,7 +264,7 @@ for seg in script.get('segments', []):
             new_segments.append(seg)
         else:
             # 上传失败，移除此段落或转为 human
-            print(f"⚠️  警告: {basename} 上传失败，已从脚本中移除", file=sys.stderr)
+            print(f"⚠️  警告：{basename} 上传失败，已从脚本中移除", file=sys.stderr)
             # 选项 1: 直接跳过（不加入 new_segments）
             # 选项 2: 转为 human 类型
             seg['flag'] = 'human'
@@ -282,13 +285,13 @@ fi
 
 echo "   ✅ 场景素材上传并映射完毕"
 
-echo "🚀 3/4 上传映射后的脚本文档..."
+echo "🚀 3/5 上传映射后的脚本文档..."
 SCRIPT_OSS_KEY=$(upload_file "/tmp/fmt_script.json" "input" "script.json" "application/json") || exit 1
 echo "   ✅ $SCRIPT_OSS_KEY"
 # ================= 关键修复区域 结束 =================
 
 
-echo "🚀 4/4 处理并上传错别字字典..."
+echo "🚀 4/5 处理并上传错别字字典..."
 if [ "$(jq type "$CORRECTIONS_FILE")" == "\"object\"" ]; then
   jq '[.corrections | to_entries | .[] | {src: .key, dst: .value}]' "$CORRECTIONS_FILE" > /tmp/fmt_corrections.json
 else
@@ -296,6 +299,23 @@ else
 fi
 CORRECTIONS_OSS_KEY=$(upload_file "/tmp/fmt_corrections.json" "input" "corrections.json" "application/json") || exit 1
 echo "   ✅ $CORRECTIONS_OSS_KEY"
+
+# ---------------------------------------------------------
+# 🆕 上传背景音乐文件
+# ---------------------------------------------------------
+BGM_OSS_KEY=""
+if [ -f "$BGM_FILE" ]; then
+  echo "🚀 5/5 上传背景音乐..."
+  BGM_OSS_KEY=$(upload_file "$BGM_FILE" "input" "$(basename "$BGM_FILE")" "audio/mpeg") || {
+    echo "   ⚠️  背景音乐上传失败，将跳过"
+    BGM_OSS_KEY=""
+  }
+  if [ -n "$BGM_OSS_KEY" ]; then
+    echo "   ✅ $BGM_OSS_KEY"
+  fi
+else
+  echo "⚠️  未找到背景音乐文件：$BGM_FILE (跳过)"
+fi
 
 # ---------------------------------------------------------
 # 3. 发起完整草稿任务
@@ -336,10 +356,10 @@ task_res=$(curl -s -X POST "$BASE_URL/v1/tasks/agent-draft" \
 
 TASK_ID=$(echo "$task_res" | jq -r '.data.task_id')
 if [ "$TASK_ID" == "null" ] || [ -z "$TASK_ID" ]; then
-  echo "❌ 任务提交失败: $task_res"
+  echo "❌ 任务提交失败：$task_res"
   exit 1
 fi
-echo "   ✅ 任务创建成功: $TASK_ID"
+echo "   ✅ 任务创建成功：$TASK_ID"
 
 # 保存任务 ID 到文件，方便后续恢复
 echo "$TASK_ID" > "$OUTPUT_DIR/task_id.txt"
@@ -354,14 +374,14 @@ while true; do
   progress=$(echo "$status_res" | jq -r '.data.progress')
   stage=$(echo "$status_res" | jq -r '.data.stage')
   
-  echo -ne "\r   [$status] 进度: ${progress}% - 当前阶段: $stage       "
+  echo -ne "\r   [$status] 进度：${progress}% - 当前阶段：$stage       "
   
   if [ "$status" == "succeeded" ]; then
     echo -e "\n🎉 任务处理完毕！"
     break
   elif [ "$status" == "failed" ] || [ "$status" == "cancelled" ]; then
     error=$(echo "$status_res" | jq -r '.data.error')
-    echo -e "\n❌ 任务失败: $error"
+    echo -e "\n❌ 任务失败：$error"
     exit 1
   fi
   sleep 5
@@ -377,11 +397,11 @@ curl -s "$BASE_URL/v1/drafts/$TASK_ID" -H "Authorization: Bearer $API_KEY" > "$O
 PARTS_COUNT=$(jq -r '.data.parts_count' "$OUTPUT_DIR/draft_detail.json")
 SCENE_COUNT=$(jq '.data.scene_assets | length' "$OUTPUT_DIR/draft_detail.json")
 
-echo "👇 切片数量: $PARTS_COUNT"
+echo "👇 切片数量：$PARTS_COUNT"
 echo "👇 场景素材数 (Scene Assets): $SCENE_COUNT"
 echo "👇 Editable Script 预览 (前 2 段):"
 jq '.data.editable_script.segments[:2]' "$OUTPUT_DIR/draft_detail.json"
-echo "✅ 草稿详情已保存到: $OUTPUT_DIR/draft_detail.json"
+echo "✅ 草稿详情已保存到：$OUTPUT_DIR/draft_detail.json"
 
 # ==========================================================
 # 6. 工作流选择
@@ -451,7 +471,7 @@ case $workflow_choice in
     fi
     
     echo ""
-    echo "✅ 所有文件已下载到: $OUTPUT_DIR"
+    echo "✅ 所有文件已下载到：$OUTPUT_DIR"
     echo ""
     echo "=========================================================="
     echo "📝 人工审核说明"
@@ -494,7 +514,7 @@ case $workflow_choice in
         b)
           echo ""
           read -p "请输入要修改的段落 ID: " seg_id
-          read -p "请输入新的文本内容: " new_text
+          read -p "请输入新的文本内容：$new_text"
           
           update_json=$(cat <<EOF
 {
@@ -555,7 +575,7 @@ EOF
           
         d)
           echo ""
-          echo "请输入 corrections JSON (格式: [{\"src\":\"错\",\"dst\":\"对\"}])"
+          echo "请输入 corrections JSON (格式：[{\"src\":\"错\",\"dst\":\"对\"}])"
           echo "或直接按 Enter 使用默认 corrections.json:"
           read -p "" corrections_input
           
@@ -588,7 +608,7 @@ EOF
           
         e)
           echo ""
-          read -p "请输入 AI 修稿 prompt (默认: 请修正常见错别字): " ai_prompt
+          read -p "请输入 AI 修稿 prompt (默认：请修正常见错别字): " ai_prompt
           ai_prompt=${ai_prompt:-"请修正常见错别字，保持原意不变"}
           
           ai_json=$(cat <<EOF
@@ -644,6 +664,15 @@ EOF
     "effect": "ad",
     "font_size": 88
   },
+  "audio": {
+    "bgm_url": "$BGM_OSS_KEY",
+    "bgm_volume": 0.3,
+    "original_volume": 1.0,
+    "bgm_start_time": 0.0,
+    "bgm_loop": true,
+    "fade_in_duration": 0.5,
+    "fade_out_duration": 0.5
+  },
   "output": {
     "need_ass": true
   },
@@ -660,11 +689,11 @@ EOF
           COMPOSE_TASK_ID=$(echo "$compose_res" | jq -r '.data.task_id')
           
           if [ "$COMPOSE_TASK_ID" == "null" ] || [ -z "$COMPOSE_TASK_ID" ]; then
-            echo "❌ 合成任务创建失败: $compose_res"
+            echo "❌ 合成任务创建失败：$compose_res"
             continue
           fi
           
-          echo "   ✅ 合成任务创建成功: $COMPOSE_TASK_ID"
+          echo "   ✅ 合成任务创建成功：$COMPOSE_TASK_ID"
           echo "$COMPOSE_TASK_ID" > "$OUTPUT_DIR/compose_task_id.txt"
           
           # 轮询合成任务状态
@@ -675,14 +704,14 @@ EOF
             compose_progress=$(echo "$compose_status_res" | jq -r '.data.progress')
             compose_stage=$(echo "$compose_status_res" | jq -r '.data.stage')
             
-            echo -ne "\r   [$compose_status] 进度: ${compose_progress}% - 当前阶段: $compose_stage       "
+            echo -ne "\r   [$compose_status] 进度：${compose_progress}% - 当前阶段：$compose_stage       "
             
             if [ "$compose_status" == "succeeded" ]; then
               echo -e "\n🎉 合成完毕！"
               break
             elif [ "$compose_status" == "failed" ] || [ "$compose_status" == "cancelled" ]; then
               compose_error=$(echo "$compose_status_res" | jq -r '.data.error')
-              echo -e "\n❌ 合成失败: $compose_error"
+              echo -e "\n❌ 合成失败：$compose_error"
               break 2
             fi
             sleep 5
@@ -706,7 +735,7 @@ EOF
           echo "🎉 全部完成!"
           echo "=========================================================="
           echo ""
-          echo "📁 输出目录: $OUTPUT_DIR"
+          echo "📁 输出目录：$OUTPUT_DIR"
           echo ""
           echo "草稿产物:"
           ls -lh "$OUTPUT_DIR"/*.json "$OUTPUT_DIR"/*.mp4 2>/dev/null
@@ -778,6 +807,15 @@ EOF
     "effect": "ad",
     "font_size": 88
   },
+  "audio": {
+    "bgm_url": "$BGM_OSS_KEY",
+    "bgm_volume": 0.3,
+    "original_volume": 1.0,
+    "bgm_start_time": 0.0,
+    "bgm_loop": true,
+    "fade_in_duration": 0.5,
+    "fade_out_duration": 0.5
+  },
   "output": {
     "need_ass": true
   },
@@ -794,11 +832,11 @@ EOF
     COMPOSE_TASK_ID=$(echo "$compose_res" | jq -r '.data.task_id')
     
     if [ "$COMPOSE_TASK_ID" == "null" ] || [ -z "$COMPOSE_TASK_ID" ]; then
-      echo "❌ 合成任务创建失败: $compose_res"
+      echo "❌ 合成任务创建失败：$compose_res"
       exit 1
     fi
     
-    echo "   ✅ 合成任务创建成功: $COMPOSE_TASK_ID"
+    echo "   ✅ 合成任务创建成功：$COMPOSE_TASK_ID"
     echo "$COMPOSE_TASK_ID" > "$OUTPUT_DIR/compose_task_id.txt"
     
     # 轮询合成任务状态
@@ -809,14 +847,14 @@ EOF
       compose_progress=$(echo "$compose_status_res" | jq -r '.data.progress')
       compose_stage=$(echo "$compose_status_res" | jq -r '.data.stage')
       
-      echo -ne "\r   [$compose_status] 进度: ${compose_progress}% - 当前阶段: $compose_stage       "
+      echo -ne "\r   [$compose_status] 进度：${compose_progress}% - 当前阶段：$compose_stage       "
       
       if [ "$compose_status" == "succeeded" ]; then
         echo -e "\n🎉 合成完毕！"
         break
       elif [ "$compose_status" == "failed" ] || [ "$compose_status" == "cancelled" ]; then
         compose_error=$(echo "$compose_status_res" | jq -r '.data.error')
-        echo -e "\n❌ 合成失败: $compose_error"
+        echo -e "\n❌ 合成失败：$compose_error"
         exit 1
       fi
       sleep 5
@@ -844,7 +882,7 @@ EOF
     echo "🎉 全部完成!"
     echo "=========================================================="
     echo ""
-    echo "📁 输出目录: $OUTPUT_DIR"
+    echo "📁 输出目录：$OUTPUT_DIR"
     echo ""
     echo "最终视频:"
     ls -lh "$FINAL_DIR"/ 2>/dev/null
@@ -896,7 +934,7 @@ EOF
     echo "✅ 下载完成!"
     echo "=========================================================="
     echo ""
-    echo "📁 输出目录: $OUTPUT_DIR"
+    echo "📁 输出目录：$OUTPUT_DIR"
     echo ""
     echo "草稿产物:"
     ls -lh "$OUTPUT_DIR"/*.json "$OUTPUT_DIR"/*.mp4 2>/dev/null
@@ -920,7 +958,7 @@ EOF
     echo "👋 已退出"
     echo ""
     echo "📌 任务 ID: $TASK_ID"
-    echo "📌 草稿详情已保存到: $OUTPUT_DIR/draft_detail.json"
+    echo "📌 草稿详情已保存到：$OUTPUT_DIR/draft_detail.json"
     echo ""
     exit 0
     ;;
@@ -937,10 +975,6 @@ echo "=========================================================="
 echo ""
 echo "草稿任务 ID:    $TASK_ID"
 [ -n "$COMPOSE_TASK_ID" ] && echo "合成任务 ID:    $COMPOSE_TASK_ID"
-echo "输出目录:       $OUTPUT_DIR"
+echo "输出目录：       $OUTPUT_DIR"
 echo ""
 echo "=========================================================="
-
-
-
-

@@ -37,6 +37,9 @@ import shutil
 from typing import Optional, List, Dict, Any
 import gc
 import torch
+from audio_mixer import add_background_music
+from oss import download_file_from_oss, is_oss_key
+
 DOWNLOAD_ROOT = "./model"
 
 
@@ -584,7 +587,7 @@ def prepare_timeline_render_clips(
 
     return render_clips
 
-
+# 修改 compose_from_timeline 函数签名，添加背景音乐参数
 def compose_from_timeline(
     timeline_path: str,
     output_video: str,
@@ -607,7 +610,15 @@ def compose_from_timeline(
     margin_r: int = 10,
     offset_x: int = 0,
     offset_y: int = 0,
-    corrections_file: Optional[str] = None,  # 新增
+    corrections_file: Optional[str] = None,
+    # 🆕 背景音乐参数
+    bgm_url: Optional[str] = None,
+    bgm_volume: float = 0.3,
+    original_volume: float = 1.0,
+    bgm_start_time: float = 0.0,
+    bgm_loop: bool = True,
+    fade_in_duration: float = 0.5,
+    fade_out_duration: float = 0.5,
 ):
     """
     从 timeline.json 进行最终合成
@@ -623,9 +634,9 @@ def compose_from_timeline(
         timeline = json.load(f)
     ad_keywords = timeline.get("ad_keywords", [])
 
-
     work_dir = tempfile.mkdtemp(prefix="timeline_compose_")
     tmp_merged = os.path.join(work_dir, "merged.mp4")
+    tmp_subtitled = os.path.join(work_dir, "subtitled.mp4")  # 🆕 新增中间文件
 
     try:
         clips = prepare_timeline_render_clips(
@@ -652,13 +663,17 @@ def compose_from_timeline(
         else:
             concat_simple(clips, tmp_merged)
 
+        # 🆕 根据是否需要字幕，决定中间文件路径
+        video_for_bgm = tmp_merged  # 默认直接用合并后的视频
+        
         if resync:
             print(f"\n{'='*60}")
             print(f"  👄 重新识别并烧录字幕")
             print(f"{'='*60}")
+            
             resync_subtitle(
                 input_video=tmp_merged,
-                output_video=output_video,
+                output_video=tmp_subtitled,  # 🆕 先输出到临时文件
                 model_size=model_size,
                 device=device,
                 language=language,
@@ -678,8 +693,46 @@ def compose_from_timeline(
                 corrections_file=corrections_file,
                 ad_keywords=ad_keywords,
             )
+            
+            video_for_bgm = tmp_subtitled  # 🆕 使用带字幕的视频
+
+        # 🆕 添加背景音乐处理
+        if bgm_url:
+            print(f"\n{'='*60}")
+            print(f"  🎵 添加背景音乐")
+            print(f"{'='*60}")
+            
+            # 下载背景音乐文件
+            bgm_path = os.path.join(work_dir, "bgm_audio.mp3")
+            
+            if is_oss_key(bgm_url):
+                print(f"  📥 从 OSS 下载背景音乐...")
+                download_file_from_oss(bgm_url, bgm_path)
+            else:
+                print(f"  📥 下载背景音乐: {bgm_url}")
+                import requests
+                resp = requests.get(bgm_url, timeout=120, stream=True)
+                resp.raise_for_status()
+                with open(bgm_path, 'wb') as f:
+                    for chunk in resp.iter_content(chunk_size=1024*1024):
+                        if chunk:
+                            f.write(chunk)
+            
+            # 添加背景音乐
+            add_background_music(
+                input_video=video_for_bgm,
+                output_video=output_video,
+                bgm_path=bgm_path,
+                bgm_volume=bgm_volume,
+                original_volume=original_volume,
+                bgm_start_time=bgm_start_time,
+                bgm_loop=bgm_loop,
+                fade_in_duration=fade_in_duration,
+                fade_out_duration=fade_out_duration,
+            )
         else:
-            shutil.copy2(tmp_merged, output_video)
+            # 🆕 无背景音乐，直接复制
+            shutil.copy2(video_for_bgm, output_video)
 
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)

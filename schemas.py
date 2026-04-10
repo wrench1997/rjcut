@@ -46,6 +46,16 @@ class SubtitleConfig(BaseModel):
     offset_x: int = 0
     offset_y: int = 0
 
+# 在 SubtitleConfig 类后面添加 AudioConfig 类
+class AudioConfig(BaseModel):
+    bgm_url: Optional[str] = Field(None, description="背景音乐 URL 或 OSS key")
+    bgm_volume: float = Field(0.3, ge=0.0, le=1.0, description="背景音乐音量 (0.0-1.0)")
+    original_volume: float = Field(1.0, ge=0.0, le=1.0, description="原始视频音量 (0.0-1.0)")
+    bgm_start_time: float = Field(0.0, ge=0.0, description="背景音乐开始时间 (秒)")
+    bgm_loop: bool = Field(True, description="是否循环背景音乐")
+    fade_in_duration: float = Field(0.5, ge=0.0, description="淡入时长 (秒)")
+    fade_out_duration: float = Field(0.5, ge=0.0, description="淡出时长 (秒)")
+    
 
 class OutputConfig(BaseModel):
     need_cleaned_video: bool = True
@@ -116,6 +126,7 @@ class ComposeFromDraftRequest(BaseModel):
     pipeline: PipelineConfig = PipelineConfig()
     asr: AsrConfig = AsrConfig()
     subtitle: SubtitleConfig = SubtitleConfig()
+    audio: AudioConfig = AudioConfig()  # 🆕 添加这一行
     output: OutputConfig = OutputConfig()
     callback: Optional[CallbackConfig] = None
     client_ref_id: Optional[str] = None
@@ -127,6 +138,7 @@ class AgentComposeRequest(BaseModel):
     pipeline: PipelineConfig = PipelineConfig()
     asr: AsrConfig = AsrConfig()
     subtitle: SubtitleConfig = SubtitleConfig()
+    audio: AudioConfig = AudioConfig()  # 🆕 添加这一行
     output: OutputConfig = OutputConfig()
     callback: Optional[CallbackConfig] = None
     client_ref_id: Optional[str] = None
@@ -206,3 +218,5 @@ class DhCreateCustomPersonRequest(BaseModel):
     error_skip: bool = False
     resolution_rate: int = 0
     client_ref_id: Optional[str] = None
+
+

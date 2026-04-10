@@ -850,6 +850,7 @@ def run_agent_draft_task(task_id: str, payload: dict, trace_id: str, merchant_id
             pass
 
 
+
 def run_compose_from_draft_task(task_id: str, payload: dict, trace_id: str, merchant_id: str):
     from lip_sync import compose_from_timeline
 
@@ -951,6 +952,18 @@ def run_compose_from_draft_task(task_id: str, payload: dict, trace_id: str, merc
             font_path = os.path.join(input_dir, safe_name_from_url(font_url, "custom_font.ttf"))
             download_input_file(font_url, font_path)
 
+        # 🆕 下载背景音乐文件（如果提供）
+        bgm_path = None
+        audio_config = payload.get("audio", {})
+        bgm_url = audio_config.get("bgm_url")
+        
+        if bgm_url:
+            update_task(task_id, progress=35, stage="downloading_bgm")
+            bgm_filename = safe_name_from_url(bgm_url, "bgm.mp3")
+            bgm_path = os.path.join(input_dir, bgm_filename)
+            download_input_file(bgm_url, bgm_path)
+            print(f"✅ 背景音乐已下载：{bgm_path}")
+
         final_output = os.path.join(output_dir, "final.mp4")
 
         subtitle = payload.get("subtitle", {})
@@ -987,6 +1000,14 @@ def run_compose_from_draft_task(task_id: str, payload: dict, trace_id: str, merc
             offset_x=int(subtitle.get("offset_x", 0)),
             offset_y=int(subtitle.get("offset_y", 0)),
             corrections_file=corrections_file,
+            # 🆕 添加背景音乐参数
+            bgm_url=bgm_path,  # 传递本地路径
+            bgm_volume=float(audio_config.get("bgm_volume", 0.3)),
+            original_volume=float(audio_config.get("original_volume", 1.0)),
+            bgm_start_time=float(audio_config.get("bgm_start_time", 0.0)),
+            bgm_loop=bool(audio_config.get("bgm_loop", True)),
+            fade_in_duration=float(audio_config.get("fade_in_duration", 0.5)),
+            fade_out_duration=float(audio_config.get("fade_out_duration", 0.5)),
         )
 
         if is_task_cancelled(task_id):
