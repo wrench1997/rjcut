@@ -206,6 +206,19 @@ def run_agent_compose_task(task_id: str, payload: dict, trace_id: str):
                 offset_y=int(subtitle.get("offset_y", 0)),
             )
 
+            # 🆕 Task 1: 支持 pipeline.mode 参数
+            pipeline_mode = req.get("pipeline", {}).get("mode", "normal")
+            subtitle_json = None
+            
+            if pipeline_mode == "scene_only":
+                subtitle_json_url = req.get("input", {}).get("subtitle_json_url")
+                if subtitle_json_url:
+                    print(f"📥 下载字幕 JSON (纯场景模式): {subtitle_json_url}")
+                    subtitle_json = os.path.join(input_dir, "subtitle.json")
+                    download_file(subtitle_json_url, subtitle_json)
+                else:
+                    raise ValueError("纯场景模式 (mode=scene_only) 需要提供 input.subtitle_json_url")
+
             compose_from_timeline(
                 timeline_path=timeline_json,
                 output_video=final_output,
@@ -229,6 +242,9 @@ def run_agent_compose_task(task_id: str, payload: dict, trace_id: str):
                 offset_x=int(subtitle.get("offset_x", 0)),
                 offset_y=int(subtitle.get("offset_y", 0)),
                 corrections_file=corrections_path,
+                # 🆕 Task 1: 纯场景模式参数
+                mode=pipeline_mode,
+                subtitle_json=subtitle_json,
             )
         else:
             shutil.copy2(cleaned_video, final_output)

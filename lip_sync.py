@@ -582,9 +582,18 @@ def compose_from_timeline(
     # 🆕 新增：明确输出路径
     ass_output_path: Optional[str] = None,
     resync_json_output_path: Optional[str] = None,
+    # 🆕 Task 1: pipeline.mode 支持纯场景模式
+    mode: str = "normal",
+    subtitle_json: Optional[str] = None,
 ):
     """
     从 timeline.json 进行最终合成
+    
+    Args:
+        mode: 运行模式
+            - "normal": 正常模式，使用 Whisper 重新识别字幕
+            - "scene_only": 纯场景模式，跳过 Whisper，使用提供的 subtitle_json
+        subtitle_json: 纯场景模式下使用的字幕 JSON 路径（mode="scene_only" 时必填）
     """
     from video_utils import check_ffmpeg
     from transitions import merge_with_xfade
@@ -628,7 +637,73 @@ def compose_from_timeline(
 
         video_for_bgm = tmp_merged
 
-        if resync:
+        if mode == "scene_only":
+            # 🆕 Task 1: 纯场景模式 - 跳过 Whisper，使用提供的 subtitle_json
+            print(f"\n{'='*60}")
+            print(f"  🎬 纯场景模式 - 使用提供的字幕 JSON 烧录字幕")
+            print(f"{'='*60}")
+            
+            if not subtitle_json or not os.path.isfile(subtitle_json):
+                raise ValueError(f"纯场景模式需要提供有效的 subtitle_json 路径：{subtitle_json}")
+            
+            # 直接使用提供的 JSON 烧录字幕，不重新识别
+            from subtitle_effects import burn_whisper_subtitle
+            
+            # 加载提供的字幕 JSON
+            with open(subtitle_json, "r", encoding="utf-8") as f:
+                subtitle_data = json.load(f)
+            
+            # 保存到临时文件供烧录使用
+            tmp_subtitle_json = tempfile.NamedTemporaryFile(
+                suffix=".json", delete=False, mode="w", encoding="utf-8"
+            )
+            json.dump(subtitle_data, tmp_subtitle_json, ensure_ascii=False, indent=2)
+            tmp_subtitle_json.close()
+            
+            try:
+                actual_margin_l = margin_l + (offset_x if offset_x > 0 else 0)
+                actual_margin_r = margin_r + (abs(offset_x) if offset_x < 0 else 0)
+                
+                burn_whisper_subtitle(
+                    input_video=tmp_merged,
+                    output_video=tmp_subtitled,
+                    json_path=tmp_subtitle_json.name,
+                    effect=effect,
+                    font_file=font_file,
+                    font_size=font_size,
+                    highlight_color=highlight_color,
+                    filter_transition=False,
+                    max_chars_per_line=max_chars_per_line,
+                    alignment=alignment,
+                    margin_v=margin_v,
+                    margin_l=actual_margin_l,
+                    margin_r=actual_margin_r,
+                    offset_x=offset_x,
+                    offset_y=offset_y,
+                    corrections_file=corrections_file,
+                    ad_keywords=ad_keywords,
+                )
+                
+                # 复制 resync JSON 到指定路径（如果提供了）
+                if resync_json_output_path:
+                    os.makedirs(os.path.dirname(os.path.abspath(resync_json_output_path)), exist_ok=True)
+                    shutil.copy2(subtitle_json, resync_json_output_path)
+                
+                # 复制 ASS 文件到指定路径（如果提供了）
+                if ass_output_path:
+                    produced_ass = os.path.join(work_dir, "subtitled.ass")
+                    if os.path.isfile(produced_ass):
+                        os.makedirs(os.path.dirname(os.path.abspath(ass_output_path)), exist_ok=True)
+                        shutil.copy2(produced_ass, ass_output_path)
+                    else:
+                        print(f"  ⚠️ 未找到生成的 ASS: {produced_ass}")
+                
+                video_for_bgm = tmp_subtitled
+                
+            finally:
+                os.unlink(tmp_subtitle_json.name)
+        
+        elif resync:
             print(f"\n{'='*60}")
             print(f"  👄 重新识别并烧录字幕")
             print(f"{'='*60}")
