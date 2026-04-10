@@ -10,8 +10,8 @@ include:
   #- corrections.json
   # - merge_videos.py
   # - lip_sync.py
-  #- script.json
-  #- 鹿茸血文案.txt
+  # - script.json
+  # - 鹿茸血文案.txt
   # - api_service.py
   # - service_models.py
   # - service_auth.py
@@ -43,9 +43,9 @@ include:
   #- script.json
   # - corrections.json
   - run_draft_full.sh
-  #- task_runner.py
-  # - cut_transition.py
-  # - lip_sync.py
+  - task_runner.py
+  - cut_transition.py
+  - lip_sync.py
   # - chanjing_api.py
   # - api_digital_human.py
   # - 数字人API.MD
