@@ -126,7 +126,8 @@ class ChanjingAPI:
             elif isinstance(data, str):
                 curl.append(f"-d '{data}'")
         
-        self.logger.debug(f"Curl命令:\n{' \\\n  '.join(curl)}")
+        curl_str = ' \\\n '.join(curl)
+        self.logger.debug(f"Curl命令:\n{curl_str}")
     
     # 文件上传相关方法
     def upload_file(self, file_path: str, service: str = "customised_person") -> str:

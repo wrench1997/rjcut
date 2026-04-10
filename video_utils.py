@@ -69,8 +69,20 @@ def get_video_info(path: str) -> dict:
 
 
 def find_chinese_font() -> Optional[str]:
-    """查找系统中可用的中文字体"""
+    """查找系统中可用的中文字体（旧逻辑保留）"""
     candidates = [
+        # === 优先：项目自带 fonts 目录 ===
+        "/app/fonts/SourceHanSerifCN-Regular-1.otf",
+        "/app/fonts/SourceHanSerifCN-SemiBold-7.otf",
+        "/app/fonts/SourceHanSerifCN-Bold-2.otf",
+        "/app/fonts/SourceHanSerifCN-Medium-6.otf",
+        "/app/fonts/SourceHanSerifCN-Light-5.otf",
+        "/app/fonts/SourceHanSerifCN-ExtraLight-3.otf",
+        "/app/fonts/SourceHanSerifCN-Heavy-4.otf",
+        "/app/fonts/wsf.ttf",
+        # =================================================
+
+        # 系统字体路径
         "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
         "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
         "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
@@ -89,6 +101,54 @@ def find_chinese_font() -> Optional[str]:
         if os.path.isfile(p):
             return p
     return None
+
+
+def find_cjk_font_by_weight(prefer: str = "regular") -> Optional[str]:
+    """
+    智能选择 CJK 字体文件：
+    prefer: 'regular' | 'bold' | 'semibold' | 'medium' | 'light'
+    优先从 /app/fonts 选择，其次回退到 find_chinese_font()
+    """
+    prefer = (prefer or "regular").lower()
+
+    app_fonts = {
+        "regular": "/app/fonts/SourceHanSerifCN-Regular-1.otf",
+        "medium": "/app/fonts/SourceHanSerifCN-Medium-6.otf",
+        "semibold": "/app/fonts/SourceHanSerifCN-SemiBold-7.otf",
+        "bold": "/app/fonts/SourceHanSerifCN-Bold-2.otf",
+        "light": "/app/fonts/SourceHanSerifCN-Light-5.otf",
+        "extralight": "/app/fonts/SourceHanSerifCN-ExtraLight-3.otf",
+        "heavy": "/app/fonts/SourceHanSerifCN-Heavy-4.otf",
+        "wsf": "/app/fonts/wsf.ttf",
+    }
+
+    def pick(keys):
+        for k in keys:
+            p = app_fonts.get(k)
+            if p and os.path.isfile(p):
+                return p
+        return None
+
+    # 想更粗：优先 SemiBold/Bold
+    if prefer in ("bold", "semibold"):
+        p = pick([prefer, "bold", "semibold", "medium", "regular", "wsf"])
+        if p:
+            return p
+
+    # 常规：regular -> medium
+    if prefer in ("regular", "medium"):
+        p = pick([prefer, "regular", "medium", "semibold", "wsf", "light"])
+        if p:
+            return p
+
+    # 想更细：light/extralight
+    if prefer in ("light", "extralight"):
+        p = pick([prefer, "light", "extralight", "regular", "wsf"])
+        if p:
+            return p
+
+    # 兜底：旧逻辑
+    return find_chinese_font()
 
 
 def _esc_filter_path(path: str) -> str:
@@ -126,7 +186,6 @@ def normalize_clip(input_path: str, output_path: str,
         f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,"
         f"fps={fps},format=yuv420p"
     )
-    # 增加 -nostdin
     cmd = [
         "ffmpeg", "-nostdin", "-y", "-hide_banner", "-loglevel", "warning",
         "-i", input_path,
@@ -140,47 +199,37 @@ def normalize_clip(input_path: str, output_path: str,
     if not info["has_audio"]:
         cmd += ["-shortest"]
     cmd.append(output_path)
-    # 增加 stdin=subprocess.DEVNULL
     subprocess.run(cmd, check=True, stdin=subprocess.DEVNULL)
 
 
 def concat_simple(clip_paths, output_path):
     """
-    优雅的拼接视频方式：使用 FFmpeg concat demuxer
-    由于片段此前已经经过 normalize_clip 统一了参数，
-    这里直接使用 -c copy 复制数据流，速度极快且无画质损失。
+    使用 FFmpeg concat demuxer -c copy 拼接（要求参数已统一）
     """
     if not clip_paths:
         raise ValueError("没有需要拼接的视频片段")
-        
+
     if len(clip_paths) == 1:
         shutil.copy2(clip_paths[0], output_path)
         return
 
-    # 1. 创建一个临时文本文件，写入要拼接的视频列表
     list_file = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8")
     try:
         for cp in clip_paths:
-            # 必须使用绝对路径，并转义潜在的特殊字符
             abs_path = os.path.abspath(cp).replace("'", r"'\''")
             list_file.write(f"file '{abs_path}'\n")
         list_file.close()
 
-        # 2. 调用 FFmpeg 进行流复制拼接 (Stream Copy)
         cmd = [
             "ffmpeg", "-nostdin", "-y", "-hide_banner", "-loglevel", "warning",
             "-f", "concat", "-safe", "0",
             "-i", list_file.name,
-            "-c", "copy",             # 核心：直接拷贝音视频流，不重编
+            "-c", "copy",
             "-movflags", "+faststart",
             output_path
         ]
-        
-        # 阻断标准输入，防止 ffmpeg 卡死
         subprocess.run(cmd, check=True, stdin=subprocess.DEVNULL)
-        
     finally:
-        # 3. 清理临时文件
         if os.path.exists(list_file.name):
             os.unlink(list_file.name)
 
@@ -219,7 +268,6 @@ def burn_subtitle(input_path: str, output_path: str,
             esc_dir = _esc_filter_path(font_dir)
             vf += f":fontsdir='{esc_dir}'"
 
-    # 增加 -nostdin
     cmd = [
         "ffmpeg", "-nostdin", "-y", "-hide_banner", "-loglevel", "warning",
         "-i", input_path, "-vf", vf,
@@ -227,11 +275,9 @@ def burn_subtitle(input_path: str, output_path: str,
         "-c:a", "copy", "-movflags", "+faststart",
         output_path,
     ]
-    # 增加 stdin=subprocess.DEVNULL
     subprocess.run(cmd, check=True, stdin=subprocess.DEVNULL)
 
 
-# 文字位置预设
 TEXT_POSITIONS = {
     "top":          "x=(w-text_w)/2:y={m}",
     "center":       "x=(w-text_w)/2:y=(h-text_h)/2",
@@ -281,7 +327,6 @@ def overlay_text(input_path: str, output_path: str,
         dt_parts.append(f"enable='lte(t\\,{show_to})'")
 
     vf = "drawtext=" + ":".join(dt_parts)
-    # 增加 -nostdin
     cmd = [
         "ffmpeg", "-nostdin", "-y", "-hide_banner", "-loglevel", "warning",
         "-i", input_path, "-vf", vf,
@@ -289,7 +334,6 @@ def overlay_text(input_path: str, output_path: str,
         "-c:a", "copy", "-movflags", "+faststart",
         output_path,
     ]
-    # 增加 stdin=subprocess.DEVNULL
     subprocess.run(cmd, check=True, stdin=subprocess.DEVNULL)
 
 
@@ -305,7 +349,6 @@ def mix_bgm(input_path: str, output_path: str,
         f"[0:a]volume={original_volume}[orig];"
         f"[orig][bgm]amix=inputs=2:duration=first:dropout_transition=0[aout]"
     )
-    # 增加 -nostdin
     cmd = [
         "ffmpeg", "-nostdin", "-y", "-hide_banner", "-loglevel", "warning",
         "-i", input_path, "-i", bgm_path,
@@ -315,5 +358,4 @@ def mix_bgm(input_path: str, output_path: str,
         "-movflags", "+faststart",
         output_path,
     ]
-    # 增加 stdin=subprocess.DEVNULL
     subprocess.run(cmd, check=True, stdin=subprocess.DEVNULL)

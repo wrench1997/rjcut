@@ -2,11 +2,11 @@ output_file: selected_code.txt
 include:
   # - src/editor/*.zig
   #- transitions.py
-  #- video_utils.py
-  #- whisper_parser.py
-  #- subtitle_effects.py
-  #- process_transcription.py
-  #- cut_transition.py
+  - video_utils.py
+  - whisper_parser.py
+  - subtitle_effects.py
+  - process_transcription.py
+  - cut_transition.py
   #- corrections.json
   # - merge_videos.py
   # - lip_sync.py
@@ -33,7 +33,7 @@ include:
   # - scripts/create_merchant.py
   # - alembic/env.py
   # - alembic/versions/001_initial.py
-  # - docker-compose.yml
+  - docker-compose.yml
   # - draft_utils.py
   # - cut_transition.py
   # - Dockerfile.api
@@ -42,9 +42,10 @@ include:
   - 草稿模式测试.MD
   - script.json
   - corrections.json
-  - run_draft_full.sh
+  # - run_draft_full.sh
+  #- task_runner.py
   # - cut_transition.py
-  # - lip_sync.py
+  - lip_sync.py
   # - chanjing_api.py
   # - api_digital_human.py
   # - 数字人API.MD

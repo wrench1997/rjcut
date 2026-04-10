@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """
 字幕特效生成模块
@@ -21,7 +20,6 @@ COLOR_PRESETS = {
     "white":      "&H00FFFFFF",
 }
 
-# 字幕特效说明
 SUBTITLE_EFFECTS = {
     "karaoke":    "卡拉OK填充 — 逐字从白变金，填充动画",
     "highlight":  "逐字高亮 — 当前字放大变色，其余变暗",
@@ -53,24 +51,26 @@ def generate_word_ass(
     shadow: int = 2,
     ad_keywords: Optional[List[str]] = None,
     max_chars_per_line: int = 12,
+    # === 新增：智能粗体控制 ===
+    bold: bool = True,
+    auto_disable_bold_for_light_fonts: bool = True,
 ) -> str:
     """
     根据逐字时间戳生成 ASS 字幕文件。
-
-    支持的特效 (effect):
-      karaoke   — 卡拉OK填充 (逐字从 base_color 变为 highlight_color)
-      highlight — 逐字高亮 (当前字放大变色)
-      typewriter— 打字机 (字逐个出现)
-      bounce    — 弹跳 (当前字弹跳出现)
-
     返回: 生成的 ASS 文件路径
     """
-    from video_utils import format_ass_time
+    from video_utils import format_ass_time  # noqa
 
     ad_keywords = ad_keywords or []
-    # ══════════════════════════════════
-    #  ASS 文件头
-    # ══════════════════════════════════
+
+    # ── 智能粗体：如果 font_name 看起来是 Light/ExtraLight，就不要强制粗体 ──
+    if auto_disable_bold_for_light_fonts:
+        fn = (font_name or "").lower()
+        if ("light" in fn) or ("extralight" in fn):
+            bold = False
+
+    bold_flag = -1 if bold else 0  # ASS: -1 开启粗体, 0 关闭
+
     header = f"""[Script Info]
 Title: Word-Sync Subtitles
 ScriptType: v4.00+
@@ -86,38 +86,40 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
 
     # 根据特效类型定义样式
     if effect == "karaoke":
-        # 卡拉OK: Primary=高亮色(填充完成), Secondary=基础色(未填充)
         header += (
             f"Style: Default,{font_name},{font_size},"
             f"{highlight_color},{base_color},{outline_color},{back_color},"
-            f"-1,0,0,0,100,100,1,0,1,{outline},{shadow},{alignment},"
+            f"{bold_flag},0,0,0,100,100,1,0,1,{outline},{shadow},{alignment},"
             f"{margin_l},{margin_r},{margin_v},1\n"
         )
     elif effect in ("highlight", "bounce", "typewriter"):
-        # 高亮/弹跳/打字机: 白字黑边，override 中控制高亮
         header += (
             f"Style: Default,{font_name},{font_size},"
             f"{base_color},{base_color},{outline_color},{back_color},"
-            f"-1,0,0,0,100,100,0,0,1,{max(outline, 4)},{max(shadow, 1)},{alignment},"
+            f"{bold_flag},0,0,0,100,100,0,0,1,{max(outline, 4)},{max(shadow, 1)},{alignment},"
             f"{margin_l},{margin_r},{margin_v},1\n"
         )
     elif effect == "ad":
-        # 广告风：更粗、更重描边、更适合带货视频
         header += (
             f"Style: Default,{font_name},{font_size},"
             f"{base_color},{base_color},&H00000000,&H64000000,"
-            f"-1,0,0,0,100,100,0,0,1,{max(outline, 5)},{max(shadow, 2)},{alignment},"
+            f"{bold_flag},0,0,0,100,100,0,0,1,{max(outline, 5)},{max(shadow, 2)},{alignment},"
+            f"{margin_l},{margin_r},{margin_v},1\n"
+        )
+    else:
+        # fallback
+        header += (
+            f"Style: Default,{font_name},{font_size},"
+            f"{base_color},{base_color},{outline_color},{back_color},"
+            f"{bold_flag},0,0,0,100,100,0,0,1,{outline},{shadow},{alignment},"
             f"{margin_l},{margin_r},{margin_v},1\n"
         )
 
-    header += f"""
+    header += """
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
 
-    # ══════════════════════════════════
-    #  生成事件
-    # ══════════════════════════════════
     events: List[str] = []
 
     for seg in segments:
@@ -135,8 +137,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             events.extend(_eff_bounce(seg, highlight_color))
         elif effect == "ad":
             events.extend(_eff_ad(seg, highlight_color, ad_keywords, max_chars_per_line))
+        else:
+            events.extend(_eff_karaoke(seg, highlight_color))
 
-    # ── 写入 ASS 文件 ──
     with open(output_path, "w", encoding="utf-8-sig") as f:
         f.write(header)
         for ev in events:
@@ -147,15 +150,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     return output_path
 
 
-# ── 特效 1: 卡拉OK 填充 ─────────────────────────
-
 def _eff_karaoke(seg: dict, hl_color: str) -> List[str]:
-    """
-    卡拉OK效果: 文字从 SecondaryColour(白) 逐字填充为 PrimaryColour(金)
-    使用 ASS \\kf 标签实现平滑填充动画
-    """
     from video_utils import format_ass_time
-    
     words = seg["words"]
     seg_start = seg["start"]
     seg_end = seg["end"]
@@ -164,13 +160,11 @@ def _eff_karaoke(seg: dict, hl_color: str) -> List[str]:
     prev_end = seg_start
 
     for w in words:
-        # 包含前面的间隙时间, 确保总时长精确
         dur = w["end"] - prev_end
         dur_cs = max(1, round(dur * 100))
         parts.append(f"{{\\kf{dur_cs}}}{w['text']}")
         prev_end = w["end"]
 
-    # 添加淡入淡出
     text = "{\\fad(150,300)}" + "".join(parts)
 
     return [
@@ -179,27 +173,15 @@ def _eff_karaoke(seg: dict, hl_color: str) -> List[str]:
     ]
 
 
-# ── 特效 2: 逐字高亮 ────────────────────────────
-
 def _eff_highlight(seg: dict, hl_color: str) -> List[str]:
-    """
-    逐字高亮: 显示完整句子, 当前发音的字用醒目颜色+放大显示
-    每个字的时间段生成一条独立事件
-    """
     from video_utils import format_ass_time
-    
     words = seg["words"]
     full_text = seg["text"]
     events = []
 
-    # 颜色 (override 格式: \\c&HBBGGRR&)
-    # 从 &HAABBGGRR 转为 \\c&HBBGGRR&
-    hl_c = "\\c" + hl_color.replace("&H00", "&H") if hl_color.startswith("&H00") else "\\c" + hl_color
-    # 简化: 直接用 BBGGRR 部分
-    hl_bgr = hl_color[4:]  # 去掉 &H00 前缀, 得到 BBGGRR
-    dim_bgr = "999999"     # 暗灰色
+    hl_bgr = hl_color[4:]
+    dim_bgr = "999999"
 
-    # 计算每个 word 在 full_text 中的字符位置
     positions = []
     pos = 0
     for w in words:
@@ -212,11 +194,9 @@ def _eff_highlight(seg: dict, hl_color: str) -> List[str]:
         before = full_text[:p]
         after = full_text[p + len(wt):]
 
-        # 构建高亮文本
         line_parts = []
         if before:
             line_parts.append(f"{{\\c&H{dim_bgr}&\\b0}}{before}")
-        # 当前字: 高亮色 + 加粗 + 放大115%
         line_parts.append(
             f"{{\\c&H{hl_bgr}&\\b1\\fscx115\\fscy115}}{wt}"
         )
@@ -227,13 +207,11 @@ def _eff_highlight(seg: dict, hl_color: str) -> List[str]:
 
         line_text = "".join(line_parts)
 
-        # 首字淡入, 末字淡出
         if i == 0:
             line_text = "{\\fad(200,0)}" + line_text
         if i == len(words) - 1:
             line_text = "{\\fad(0,300)}" + line_text
 
-        # 时间: 从当前字开始 到 下一个字开始 (或末尾+缓冲)
         start_t = w["start"]
         end_t = words[i + 1]["start"] if i < len(words) - 1 else w["end"] + 0.3
 
@@ -245,26 +223,17 @@ def _eff_highlight(seg: dict, hl_color: str) -> List[str]:
     return events
 
 
-# ── 特效 3: 打字机 ──────────────────────────────
-
 def _eff_typewriter(seg: dict, hl_color: str) -> List[str]:
-    """
-    打字机效果: 字逐个出现, 逐步构建完整句子
-    最新出现的字用高亮色显示
-    """
     from video_utils import format_ass_time
-    
     words = seg["words"]
     seg_end = seg["end"]
     events = []
     hl_bgr = hl_color[4:]
 
     for i, w in enumerate(words):
-        # 已出现的文字
         prev_text = "".join(ww["text"] for ww in words[:i])
         cur_text = w["text"]
 
-        # 前面的字用白色, 当前字用高亮色
         display_parts = []
         if prev_text:
             display_parts.append(f"{{\\c&HFFFFFF&}}{prev_text}")
@@ -274,22 +243,18 @@ def _eff_typewriter(seg: dict, hl_color: str) -> List[str]:
 
         display = "".join(display_parts)
 
-        # 首字淡入
         if i == 0:
             display = "{\\fad(150,0)}" + display
 
         start_t = w["start"]
         end_t = words[i + 1]["start"] if i < len(words) - 1 else seg_end + 0.5
 
-        # 末字: 显示完整句子并淡出
         if i == len(words) - 1:
             full = f"{{\\fad(0,400)}}{{\\c&HFFFFFF&}}{seg['text']}"
-            # 先显示带高亮的版本
             events.append(
                 f"Dialogue: 0,{format_ass_time(start_t)},"
                 f"{format_ass_time(w['end'])},Default,,0,0,0,,{display}"
             )
-            # 再显示全白版本并淡出
             events.append(
                 f"Dialogue: 0,{format_ass_time(w['end'])},"
                 f"{format_ass_time(seg_end + 0.5)},Default,,0,0,0,,{full}"
@@ -304,15 +269,8 @@ def _eff_typewriter(seg: dict, hl_color: str) -> List[str]:
     return events
 
 
-# ── 特效 4: 弹跳出现 ────────────────────────────
-
 def _eff_bounce(seg: dict, hl_color: str) -> List[str]:
-    """
-    弹跳效果: 每个字出现时有放大→回弹的动画
-    使用 ASS \\t 动画标签
-    """
     from video_utils import format_ass_time
-    
     words = seg["words"]
     full_text = seg["text"]
     events = []
@@ -331,13 +289,10 @@ def _eff_bounce(seg: dict, hl_color: str) -> List[str]:
         before = full_text[:p]
         after = full_text[p + len(wt):]
 
-        # 当前字带弹跳动画: 先放大130%, 然后回弹到100%
         line_parts = []
         if before:
             line_parts.append(f"{{\\c&H{dim_bgr}&}}{before}")
 
-        # \\t(start,end,style): 在时间范围内做动画
-        # 弹跳: 0→80ms 放大到130%, 80→200ms 缩回100%
         line_parts.append(
             f"{{\\c&H{hl_bgr}&\\b1"
             f"\\fscx130\\fscy130"
@@ -368,18 +323,10 @@ def _eff_bounce(seg: dict, hl_color: str) -> List[str]:
 
 
 def _ass_escape_text(text: str) -> str:
-    """转义 ASS 文本中的特殊字符"""
     return text.replace("{", r"\{").replace("}", r"\}")
 
 
-
 def _split_words_for_display(words: List[dict], max_chars: int = 12) -> List[List[dict]]:
-    """
-    用于显示层的自动换行：
-      - 优先按标点断
-      - 单行不超过 max_chars
-      - 返回二维数组，每个子列表是一行
-    """
     if not words:
         return []
 
@@ -403,12 +350,10 @@ def _split_words_for_display(words: List[dict], max_chars: int = 12) -> List[Lis
         cur_line.append(w)
         cur_len += wlen
 
-        # 句号类优先换行
         if txt and txt[-1] in major_breaks:
             lines.append(cur_line)
             cur_line = []
             cur_len = 0
-        # 逗号类：若当前行已接近满，也换
         elif txt and txt[-1] in minor_breaks and cur_len >= max_chars - 2:
             lines.append(cur_line)
             cur_line = []
@@ -426,17 +371,9 @@ def _apply_keyword_emphasis(
     keyword_color: str = "FFB300",
     keyword_scale: int = 106,
 ) -> str:
-    """
-    对重点词做 ASS override 强调：
-      - 变色
-      - 加粗
-      - 轻微放大
-    keyword_color 传入 BGR 6位，例如 FFB300
-    """
     if not text:
         return text
 
-    # 长词优先，避免短词先替换破坏长词
     sorted_keywords = sorted(set(keywords), key=len, reverse=True)
 
     result = text
@@ -454,27 +391,18 @@ def _apply_keyword_emphasis(
 
 
 def _slice_display_text(display_text: str, start: int, length: int):
-    """
-    从 display_text 中按位置切出：
-      before / current / after
-    """
     before = display_text[:start]
     current = display_text[start:start + length]
     after = display_text[start + length:]
     return before, current, after
 
+
 def _build_display_text_and_map(words: List[dict], max_chars: int = 12):
-    """
-    根据 words 构造 display_text（带 \\N），并返回：
-      - display_text: 用于 ASS 显示的文本
-      - word_positions: 每个 word 在 display_text 中的起始位置
-    """
     lines = _split_words_for_display(words, max_chars=max_chars)
 
     display_parts = []
     word_positions = []
     pos = 0
-    word_idx = 0
 
     for li, line in enumerate(lines):
         for w in line:
@@ -482,16 +410,14 @@ def _build_display_text_and_map(words: List[dict], max_chars: int = 12):
             txt = w.get("text", "")
             display_parts.append(txt)
             pos += len(txt)
-            word_idx += 1
 
         if li < len(lines) - 1:
             display_parts.append(r"\N")
-            pos += 2  # "\N" 作为两个字符计入显示位置
+            pos += 2
 
     display_text = "".join(display_parts)
     return display_text, word_positions
 
-    
 
 def _eff_ad(
     seg: dict,
@@ -499,13 +425,6 @@ def _eff_ad(
     ad_keywords: Optional[List[str]] = None,
     max_chars_per_line: int = 12,
 ) -> List[str]:
-    """
-    带货广告风（真正分行版）：
-      - 在同一个 ASS 事件内使用 \\N 自动换行
-      - 当前字高亮放大
-      - 重点词自动强调
-      - 去掉句末额外 hold，避免重叠
-    """
     from video_utils import format_ass_time
 
     ad_keywords = ad_keywords or []
@@ -522,26 +441,19 @@ def _eff_ad(
     display_text, positions = _build_display_text_and_map(
         words, max_chars=max_chars_per_line
     )
-    
+
     if not display_text:
         return events
 
     for i, w in enumerate(words):
-        wt = _ass_escape_text(w["text"])
         p = positions[i]
-
         before, current, after = _slice_display_text(display_text, p, len(w["text"]))
-
-        # 注意：display_text 里有 \N，不需要再次 escape
-        before_text = before
-        current_text = current
-        after_text = after
 
         line_parts = []
 
-        if before_text:
+        if before:
             before_styled = _apply_keyword_emphasis(
-                before_text,
+                before,
                 ad_keywords,
                 keyword_color=keyword_bgr,
                 keyword_scale=102,
@@ -551,7 +463,7 @@ def _eff_ad(
             )
 
         current_styled = _apply_keyword_emphasis(
-            current_text,
+            current,
             ad_keywords,
             keyword_color=keyword_bgr,
             keyword_scale=104,
@@ -561,9 +473,9 @@ def _eff_ad(
             f"\\t(0,100,\\fscx108\\fscy108)}}{current_styled}"
         )
 
-        if after_text:
+        if after:
             after_styled = _apply_keyword_emphasis(
-                after_text,
+                after,
                 ad_keywords,
                 keyword_color=keyword_bgr,
                 keyword_scale=112,
@@ -595,6 +507,8 @@ def _eff_ad(
     return events
 
 
+
+
 def burn_whisper_subtitle(
     input_video: str,
     output_video: str,
@@ -615,17 +529,10 @@ def burn_whisper_subtitle(
     corrections_file: Optional[str] = None,
     ad_keywords: Optional[List[str]] = None,
 ) -> str:
-    """
-    完整流水线: 读取 Whisper JSON → 生成 ASS → 烧录到视频
-    
-    新增参数:
-      corrections      : 错别字校正表 dict {错误: 正确}
-      corrections_file : 校正表文件路径 (corrections.json)
-    """
     import subprocess
     import shutil
     import tempfile
-    from video_utils import get_video_info, find_chinese_font, _esc_filter_path
+    from video_utils import get_video_info, _esc_filter_path, find_cjk_font_by_weight
     from whisper_parser import load_whisper_json, preprocess_segments, load_corrections
 
     # ── 加载校正表 ──
@@ -633,33 +540,41 @@ def burn_whisper_subtitle(
         corrections = load_corrections(corrections_file)
         if corrections:
             print(f"     🔧 已加载 {len(corrections)} 条错别字校正规则")
-    
-    # ── 确定字体 ──
+
+    # ── effect -> 默认是否偏粗 ──
+    prefer_bold = effect in ("ad", "highlight", "bounce", "typewriter")
+
+    # ── 智能选择字体文件 ──
     if font_file is None:
-        font_file = find_chinese_font()
+        font_file = find_cjk_font_by_weight("semibold" if prefer_bold else "regular")
         if font_file:
-            print(f"     🔤 自动使用中文字体: {os.path.basename(font_file)}")
+            print(f"     🔤 自动使用中文字体：{os.path.basename(font_file)}")
         else:
-            print("     ⚠️  未找到中文字体, 中文可能显示为方块")
+            print("     ⚠️  未找到中文字体，中文可能显示为方块")
 
     font_name = "Sans"
     font_dir = None
     if font_file:
-        font_name = os.path.splitext(os.path.basename(font_file))[0]
         font_dir = os.path.dirname(os.path.abspath(font_file))
+
+        base = os.path.basename(font_file).lower()
+        if "sourcehanserifcn" in base:
+            font_name = "Source Han Serif CN"
+        else:
+            font_name = os.path.splitext(os.path.basename(font_file))[0]
 
     # ── 获取视频分辨率 ──
     info = get_video_info(input_video)
     res_x = info["width"]
     res_y = info["height"]
 
-    # ── 读取 + 预处理 JSON（带校正） ──
+    # ── 读取 + 预处理 JSON ──
     data = load_whisper_json(json_path)
     segments = preprocess_segments(
         data,
         filter_transition=filter_transition,
         max_chars_per_line=max_chars_per_line,
-        corrections=corrections,  # 传入校正表
+        corrections=corrections,
     )
 
     if not segments:
@@ -667,7 +582,7 @@ def burn_whisper_subtitle(
         shutil.copy2(input_video, output_video)
         return output_video
 
-    print(f"     📊 解析到 {len(segments)} 段字幕, "
+    print(f"     📊 解析到 {len(segments)} 段字幕，"
           f"时间范围 {segments[0]['start']:.1f}s ~ {segments[-1]['end']:.1f}s")
 
     # ── 生成 ASS ──
@@ -696,6 +611,8 @@ def burn_whisper_subtitle(
             offset_y=offset_y,
             ad_keywords=ad_keywords,
             max_chars_per_line=max_chars_per_line,
+            bold=prefer_bold,  # 关键：不再无脑强制粗体
+            auto_disable_bold_for_light_fonts=True,
         )
 
         # ── 烧录 ASS ──
@@ -705,7 +622,6 @@ def burn_whisper_subtitle(
             esc_dir = _esc_filter_path(font_dir)
             vf = f"ass='{esc_ass}':fontsdir='{esc_dir}'"
 
-        # 增加 -nostdin
         cmd = [
             "ffmpeg", "-nostdin", "-y", "-hide_banner", "-loglevel", "warning",
             "-i", input_video,
@@ -715,23 +631,20 @@ def burn_whisper_subtitle(
             "-movflags", "+faststart",
             output_video,
         ]
-        # 增加 stdin=subprocess.DEVNULL
         subprocess.run(cmd, check=True, stdin=subprocess.DEVNULL)
 
     finally:
         debug_ass = output_video.rsplit(".", 1)[0] + ".ass"
         try:
             shutil.copy2(tmp_ass.name, debug_ass)
-            print(f"     💾 ASS 副本已保存: {debug_ass}")
+            print(f"     💾 ASS 副本已保存：{debug_ass}")
         except Exception:
             pass
         os.unlink(tmp_ass.name)
 
     return output_video
 
-
 def list_effects():
-    """显示所有可用的字幕特效"""
     print(f"\n{'='*58}")
     print(f"  可用字幕特效 (共 {len(SUBTITLE_EFFECTS)} 种)")
     print(f"{'='*58}\n")

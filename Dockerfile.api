@@ -1,16 +1,63 @@
-FROM python:3.11-slim
+FROM pytorch/pytorch:2.5.1-cuda11.8-cudnn9-devel
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential libpq-dev curl && \
-    rm -rf /var/lib/apt/lists/*
+# 换源
+# RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple && \
+#     sed -i 's@archive.ubuntu.com@mirrors.aliyun.com@g' /etc/apt/sources.list || true
 
-COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+# 先装系统包
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libpq-dev \
+    ffmpeg \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# 分批装 Python 包，失败了好定位
+RUN pip install --no-cache-dir \
+    fastapi==0.115.6 \
+    uvicorn[standard]==0.34.0
+
+RUN pip install --no-cache-dir \
+    sqlalchemy==2.0.36 \
+    psycopg2-binary==2.9.10 \
+    alembic==1.14.0
+
+RUN pip install --no-cache-dir \
+    redis==5.2.1 \
+    rq==1.16.2 \
+    minio==7.2.12
+
+RUN pip install --no-cache-dir \
+    requests==2.32.3 \
+    httpx==0.28.1 \
+    python-multipart==0.0.18 \
+    tenacity==9.0.0
+
+RUN pip install --no-cache-dir \
+    passlib[bcrypt]==1.7.4 \
+    python-jose[cryptography]==3.3.0 \
+    pydantic==2.10.3 \
+    pydantic-settings==2.7.0 \
+    backslash
+
+RUN pip install whisper_timestamped --no-cache-dir
 
 COPY . /app
-
+COPY fonts/ /app/fonts/
 RUN mkdir -p /app/service_data
+
+# 安装字体
+RUN bash -lc ' \
+    set -e && \
+    mkdir -p /usr/share/fonts/opentype/rjcut && \
+    cp -f /app/fonts/*.otf /usr/share/fonts/opentype/rjcut/ && \
+    cp -f /app/fonts/*.ttf /usr/share/fonts/opentype/rjcut/ 2>/dev/null || true && \
+    fc-cache -f -v >/dev/null && \
+    echo "== fc-list check ==" && \
+    fc-list | grep -i "Source Han Serif CN" | head -10 \
+    '
 
 EXPOSE 8000

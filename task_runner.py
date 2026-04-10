@@ -18,7 +18,7 @@ from oss import upload_file_to_oss, download_file_from_oss, is_oss_key, copy_fil
 from chanjing_api import ChanjingAPI
 import time
 from cut_transition import get_duration
-
+import copy
 from draft_utils import (
     build_editable_script_from_result,
     apply_corrections_to_editable_script,
@@ -35,6 +35,32 @@ if not callable(apply_corrections_to_editable_script):
     raise RuntimeError("draft_utils.apply_corrections_to_editable_script is not available")
 
 
+
+def restore_part_files(parts: dict, input_dir: str):
+    """
+    把 draft 中的 part 文件从 MinIO 恢复到 compose 任务本地目录
+    目录结构保持为：
+      input/<prefix>_parts/<prefix>_part01.mp4
+    """
+    ensure_dir(input_dir)
+
+    for part_key, info in (parts or {}).items():
+        oss_key = info.get("oss_key")
+        filename = info.get("filename") or f"{part_key}.mp4"
+        if not oss_key:
+            continue
+
+        stem = os.path.splitext(filename)[0]
+        prefix = stem.split("_part")[0] if "_part" in stem else stem
+
+        parts_dir = os.path.join(input_dir, f"{prefix}_parts")
+        ensure_dir(parts_dir)
+
+        local_path = os.path.join(parts_dir, filename)
+        if not os.path.isfile(local_path):
+            print(f"📥 恢复 part 文件: {oss_key} -> {local_path}")
+            download_file_from_oss(oss_key, local_path)
+            
 def ensure_dir(path: str):
     os.makedirs(path, exist_ok=True)
 
@@ -129,7 +155,23 @@ def build_oss_file_entry(task_id: str, file_key: str, local_path: str, merchant_
     ext = os.path.splitext(filename)[1]
     oss_key = f"{merchant_id}/tasks/{task_id}/{file_key}{ext}"
     mime = mimetypes.guess_type(local_path)[0] or "application/octet-stream"
-    upload_file_to_oss(local_path, oss_key, content_type=mime)
+
+    max_retries = 3
+    last_err = None
+
+    for attempt in range(max_retries):
+        try:
+            upload_file_to_oss(local_path, oss_key, content_type=mime)
+            last_err = None
+            break
+        except Exception as e:
+            last_err = e
+            print(f"⚠️  上传 OSS 失败 ({file_key})，第 {attempt + 1}/{max_retries} 次: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(2 ** attempt)
+
+    if last_err:
+        raise last_err
 
     return {
         "oss_key": oss_key,
@@ -844,6 +886,12 @@ def run_compose_from_draft_task(task_id: str, payload: dict, trace_id: str, merc
             editable_script = draft.get("editable_script") or {"segments": []}
             timeline_data = draft.get("timeline") or {}
             scene_assets = draft.get("scene_assets") or {}
+            parts = draft.get("parts") or {}
+
+            # 兼容旧草稿：如果 draft.parts 不存在，则尝试从 files 中兜底恢复
+            if not parts:
+                files = draft_result.get("files") or {}
+                parts = {k: v for k, v in files.items() if re.match(r"^part_\d+$", k)}
 
         if payload.get("editable_script"):
             editable_script = payload["editable_script"]
@@ -857,7 +905,10 @@ def run_compose_from_draft_task(task_id: str, payload: dict, trace_id: str, merc
         if not timeline_data:
             raise Exception("draft timeline not found")
 
-        update_task(task_id, progress=20, stage="restoring_scene_assets")
+        update_task(task_id, progress=20, stage="restoring_part_files")
+        restore_part_files(parts, input_dir)
+ 
+        update_task(task_id, progress=25, stage="restoring_scene_assets")
         restore_scene_assets(scene_assets, scene_dir)
 
         patched_timeline = copy.deepcopy(timeline_data)
@@ -874,6 +925,7 @@ def run_compose_from_draft_task(task_id: str, payload: dict, trace_id: str, merc
                 continue
             seg["type"] = edit_seg.get("type", seg.get("type", "human"))
             seg["scene_file"] = edit_seg.get("scene_file")
+            seg["part_file"] = edit_seg.get("part_file", seg.get("part_file"))
 
         timeline_path = os.path.join(input_dir, "timeline.json")
         with open(timeline_path, "w", encoding="utf-8") as f:
