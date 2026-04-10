@@ -265,6 +265,19 @@ def _calc_actual_margin_v(position: str, margin_v: int, offset_y: int) -> int:
 
 
 def _download_file(url: str, output_path: str, timeout: int = 300):
+    """
+    兼容下载 OSS Key 和 HTTP URL
+    """
+    # 1. 检查如果是 OSS key，走 OSS 下载通道
+    if is_oss_key(url):
+        download_file_from_oss(url, output_path)
+        return output_path
+        
+    # 2. 否则走 HTTP 下载通道
+    if not url.startswith("http"):
+        # 兜底：如果既不是合法的 OSS key 又没有 http 前缀
+        raise ValueError(f"无效的下载地址: {url}")
+        
     r = requests.get(url, stream=True, timeout=timeout)
     r.raise_for_status()
     with open(output_path, "wb") as f:
