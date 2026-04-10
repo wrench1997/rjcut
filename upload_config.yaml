@@ -45,7 +45,7 @@ include:
   - run_draft_full.sh
   #- task_runner.py
   # - cut_transition.py
-  - lip_sync.py
+  # - lip_sync.py
   # - chanjing_api.py
   # - api_digital_human.py
   # - 数字人API.MD

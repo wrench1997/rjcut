@@ -908,7 +908,7 @@ def run_compose_from_draft_task(task_id: str, payload: dict, trace_id: str, merc
 
         update_task(task_id, progress=20, stage="restoring_part_files")
         restore_part_files(parts, input_dir)
- 
+
         update_task(task_id, progress=25, stage="restoring_scene_assets")
         restore_scene_assets(scene_assets, scene_dir)
 
@@ -952,11 +952,11 @@ def run_compose_from_draft_task(task_id: str, payload: dict, trace_id: str, merc
             font_path = os.path.join(input_dir, safe_name_from_url(font_url, "custom_font.ttf"))
             download_input_file(font_url, font_path)
 
-        # 🆕 下载背景音乐文件（如果提供）
+        # 下载背景音乐
         bgm_path = None
         audio_config = payload.get("audio", {})
         bgm_url = audio_config.get("bgm_url")
-        
+
         if bgm_url:
             update_task(task_id, progress=35, stage="downloading_bgm")
             bgm_filename = safe_name_from_url(bgm_url, "bgm.mp3")
@@ -976,6 +976,10 @@ def run_compose_from_draft_task(task_id: str, payload: dict, trace_id: str, merc
         )
 
         update_task(task_id, progress=50, stage="composing_video")
+
+        # ★ 关键：明确指定 ass/resync 输出路径
+        resync_json = os.path.splitext(final_output)[0] + "_resync.json"
+        ass_file = os.path.splitext(final_output)[0] + ".ass"
 
         compose_from_timeline(
             timeline_path=timeline_path,
@@ -1000,23 +1004,22 @@ def run_compose_from_draft_task(task_id: str, payload: dict, trace_id: str, merc
             offset_x=int(subtitle.get("offset_x", 0)),
             offset_y=int(subtitle.get("offset_y", 0)),
             corrections_file=corrections_file,
-            # 🆕 添加背景音乐参数
-            bgm_url=bgm_path,  # 传递本地路径
+            bgm_url=bgm_path,
             bgm_volume=float(audio_config.get("bgm_volume", 0.3)),
             original_volume=float(audio_config.get("original_volume", 1.0)),
             bgm_start_time=float(audio_config.get("bgm_start_time", 0.0)),
             bgm_loop=bool(audio_config.get("bgm_loop", True)),
             fade_in_duration=float(audio_config.get("fade_in_duration", 0.5)),
             fade_out_duration=float(audio_config.get("fade_out_duration", 0.5)),
+            # 🆕 新增两项：明确产物路径
+            ass_output_path=ass_file,
+            resync_json_output_path=resync_json,
         )
 
         if is_task_cancelled(task_id):
             raise InterruptedError("task cancelled by user")
 
         update_task(task_id, progress=90, stage="uploading_results")
-
-        resync_json = os.path.splitext(final_output)[0] + "_resync.json"
-        ass_file = os.path.splitext(final_output)[0] + ".ass"
 
         result_files = {
             "final_video": build_oss_file_entry(task_id, "final_video", final_output, merchant_id),
@@ -1025,6 +1028,8 @@ def run_compose_from_draft_task(task_id: str, payload: dict, trace_id: str, merc
         if payload.get("output", {}).get("need_ass", True):
             result_files["ass_file"] = build_oss_file_entry(task_id, "ass_file", ass_file, merchant_id)
 
+        # resync_json 你现在是必传的（resync_subtitle 会写）；如果未来允许 resync=false，
+        # 也可以在这里按 resync_subtitle 开关决定是否上传。
         result_files["resync_json"] = build_oss_file_entry(task_id, "resync_json", resync_json, merchant_id)
 
         result = {

@@ -10,22 +10,6 @@
   - human: 直接使用 part_file
   - scene: 用 scene_file 替换画面，但保留 part 音频
 最后重新识别并烧录字幕，确保嘴型同步。
-
-用法:
-  # 嘴型同步模式: 重新识别 + 生成字幕
-  python lip_sync.py cleaned_video.mp4 -o final.mp4
-
-  # 时间线合成模式: 根据 timeline.json 合成
-  python lip_sync.py --timeline timeline.json --scene-dir ./scenes -o final.mp4
-
-  # 使用大模型 + GPU
-  python lip_sync.py --timeline timeline.json -o final.mp4 -m large-v3 --device cuda
-
-  # 指定特效
-  python lip_sync.py --timeline timeline.json -o final.mp4 --effect highlight --color cyan
-
-  # 对比新旧 JSON 时间戳偏移
-  python lip_sync.py --compare old.json new.json
 """
 
 import json
@@ -39,8 +23,72 @@ import gc
 import torch
 from audio_mixer import add_background_music
 from oss import download_file_from_oss, is_oss_key
+import time
+from urllib.parse import urlparse
+
 
 DOWNLOAD_ROOT = "./model"
+
+
+def _is_http_url(s: str) -> bool:
+    try:
+        p = urlparse(s)
+        return p.scheme in ("http", "https")
+    except Exception:
+        return False
+
+
+def _prepare_bgm_file(bgm_input: str, work_dir: str, max_retries: int = 3) -> str:
+    """
+    bgm_input 支持:
+      - 本地文件路径
+      - OSS key
+      - http(s) url
+    返回: 本地 bgm 文件路径
+    """
+    if not bgm_input:
+        raise ValueError("bgm_input is empty")
+
+    # 1) 本地文件直接用
+    if os.path.isfile(bgm_input):
+        print(f"  🎵 使用本地背景音乐文件: {bgm_input}")
+        return bgm_input
+
+    bgm_path = os.path.join(work_dir, "bgm_audio.mp3")
+
+    last_err = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            # 2) OSS key
+            if is_oss_key(bgm_input):
+                print(f"  📥 从 OSS 下载背景音乐 (attempt {attempt}/{max_retries})...")
+                download_file_from_oss(bgm_input, bgm_path)
+                return bgm_path
+
+            # 3) HTTP URL
+            if _is_http_url(bgm_input):
+                print(f"  📥 下载背景音乐: {bgm_input} (attempt {attempt}/{max_retries})...")
+                import requests
+                resp = requests.get(bgm_input, timeout=120, stream=True)
+                resp.raise_for_status()
+                with open(bgm_path, "wb") as f:
+                    for chunk in resp.iter_content(chunk_size=1024 * 1024):
+                        if chunk:
+                            f.write(chunk)
+                return bgm_path
+
+            raise ValueError(f"bgm_url 既不是本地文件/OSS key/http url: {bgm_input}")
+
+        except Exception as e:
+            last_err = e
+            if attempt < max_retries:
+                wait = 2 ** (attempt - 1)
+                print(f"  ⚠️ 背景音乐准备失败: {e}，{wait}s 后重试...")
+                time.sleep(wait)
+            else:
+                break
+
+    raise last_err
 
 
 # ═══════════════════════════════════════════════
@@ -54,19 +102,6 @@ def resync_transcribe(
     language: str = "zh",
     output_json: Optional[str] = None,
 ) -> dict:
-    """
-    对视频重新进行语音识别，获取精准的逐字时间戳。
-
-    参数:
-        video_path  : 视频文件路径（应为处理后的最终视频）
-        model_size  : Whisper 模型大小
-        device      : 推理设备 (cpu/cuda)
-        language    : 语言代码
-        output_json : 保存 JSON 的路径 (可选)
-
-    返回:
-        Whisper 识别结果 dict (含 segments → words 逐字时间戳)
-    """
     import whisper_timestamped as whisper
 
     print(f"\n{'='*60}")
@@ -90,12 +125,8 @@ def resync_transcribe(
         vad=True,
     )
 
-    # ── 统计 ──
     seg_count = len(result.get("segments", []))
-    word_count = sum(
-        len(seg.get("words", []))
-        for seg in result.get("segments", [])
-    )
+    word_count = sum(len(seg.get("words", [])) for seg in result.get("segments", []))
     total_dur = 0.0
     if result.get("segments"):
         total_dur = result["segments"][-1].get("end", 0)
@@ -105,7 +136,6 @@ def resync_transcribe(
     print(f"     逐字数: {word_count}")
     print(f"     时间跨度: 0.00s ~ {total_dur:.2f}s")
 
-    # ── 打印识别结果预览 ──
     print(f"\n  {'─'*56}")
     print(f"  📝 识别文本预览:")
     print(f"  {'─'*56}")
@@ -118,19 +148,17 @@ def resync_transcribe(
         print(f"  ... 共 {seg_count} 段，仅显示前 15 段")
     print(f"  {'─'*56}")
 
-    # ── 保存 JSON ──
     if output_json:
+        os.makedirs(os.path.dirname(os.path.abspath(output_json)), exist_ok=True)
         with open(output_json, "w", encoding="utf-8") as f:
             json.dump(result, f, ensure_ascii=False, indent=2)
         print(f"\n  💾 时间戳 JSON 已保存: {output_json}")
 
-
-    # --- 增加以下清理代码 ---
     del model
     gc.collect()
     if device == "cuda":
         torch.cuda.empty_cache()
-    # ------------------------
+
     return result
 
 
@@ -160,38 +188,19 @@ def resync_subtitle(
     corrections: Optional[Dict[str, str]] = None,
     corrections_file: Optional[str] = None,
     ad_keywords: Optional[List[str]] = None,
+    # 🆕 新增：明确指定 resync json 输出路径
+    resync_json_path: Optional[str] = None,
 ) -> str:
-    """
-    完整嘴型同步流水线:
-      1. 对视频重新进行 whisper_timestamped 语音识别
-      2. 用全新的时间戳生成逐字 ASS 字幕
-      3. 烧录到视频
-
-    参数:
-        input_video      : 输入视频（已处理过的，如 _cleaned.mp4）
-        output_video     : 输出视频路径
-        model_size       : Whisper 模型大小
-        device           : 推理设备
-        language         : 语言代码
-        effect           : 字幕特效 (karaoke/highlight/typewriter/bounce)
-        font_file        : 字体文件路径
-        font_size        : 字号
-        highlight_color  : 高亮颜色名或 ASS 颜色码
-        filter_transition: 是否过滤文本中的 "转场" 标记
-        max_chars_per_line: 每行最大字符数
-        save_json        : 是否保存 JSON 文件
-
-    返回: 输出视频路径
-    """
     from subtitle_effects import burn_whisper_subtitle
 
-    # ── 保存 JSON 路径 ──
     json_path = None
     if save_json:
-        base = os.path.splitext(output_video)[0]
-        json_path = f"{base}_resync.json"
+        if resync_json_path:
+            json_path = resync_json_path
+        else:
+            base = os.path.splitext(output_video)[0]
+            json_path = f"{base}_resync.json"
 
-    # ── STEP 1: 重新识别 ──
     result = resync_transcribe(
         video_path=input_video,
         model_size=model_size,
@@ -200,7 +209,6 @@ def resync_subtitle(
         output_json=json_path,
     )
 
-    # ── STEP 2: 写临时 JSON ──
     tmp_json = tempfile.NamedTemporaryFile(
         suffix=".json", delete=False, mode="w", encoding="utf-8"
     )
@@ -209,7 +217,7 @@ def resync_subtitle(
 
     try:
         print(f"\n  🎬 烧录逐字字幕 (特效: {effect}) ...")
-        
+
         actual_margin_l = margin_l + (offset_x if offset_x > 0 else 0)
         actual_margin_r = margin_r + (abs(offset_x) if offset_x < 0 else 0)
 
@@ -229,8 +237,8 @@ def resync_subtitle(
             margin_r=actual_margin_r,
             offset_x=offset_x,
             offset_y=offset_y,
-            corrections=corrections,               # 新增
-            corrections_file=corrections_file,      # 新增
+            corrections=corrections,
+            corrections_file=corrections_file,
             ad_keywords=ad_keywords,
         )
     finally:
@@ -252,29 +260,9 @@ def resync_from_json(
     output_json: Optional[str] = None,
     similarity_threshold: float = 0.6,
 ) -> dict:
-    """
-    对比旧 JSON 和重新识别的结果，生成对齐后的 JSON。
-    
-    如果旧 JSON 中某段文本在新识别中也存在，就用新的时间戳；
-    这样可以保留人工修正过的文本，同时获取精准时间戳。
-
-    参数:
-        old_json_path      : 旧的 Whisper JSON 文件
-        video_path          : 视频文件路径
-        model_size          : Whisper 模型
-        device              : 推理设备
-        language            : 语言
-        output_json         : 输出 JSON 路径
-        similarity_threshold: 文本相似度阈值
-
-    返回:
-        对齐后的 JSON dict
-    """
-    # ── 读取旧 JSON ──
     with open(old_json_path, "r", encoding="utf-8") as f:
         old_data = json.load(f)
 
-    # ── 重新识别 ──
     new_data = resync_transcribe(
         video_path=video_path,
         model_size=model_size,
@@ -288,7 +276,6 @@ def resync_from_json(
     print(f"\n  🔄 对齐旧文本与新时间戳 ...")
     print(f"     旧 JSON: {len(old_segs)} 段  |  新识别: {len(new_segs)} 段")
 
-    # ── 用新时间戳替换旧的 ──
     aligned_segs = []
     new_idx = 0
 
@@ -297,15 +284,11 @@ def resync_from_json(
         if not old_text:
             continue
 
-        # 在新结果中找最匹配的段
         best_match = None
         best_sim = 0.0
         best_j = -1
 
-        search_range = range(
-            max(0, new_idx - 3),
-            min(len(new_segs), new_idx + 10)
-        )
+        search_range = range(max(0, new_idx - 3), min(len(new_segs), new_idx + 10))
         for j in search_range:
             new_text = new_segs[j].get("text", "").replace(" ", "").strip()
             sim = _text_similarity(old_text, new_text)
@@ -315,7 +298,6 @@ def resync_from_json(
                 best_j = j
 
         if best_match and best_sim >= similarity_threshold:
-            # 用旧文本 + 新时间戳
             aligned_seg = {
                 "text": old_seg.get("text", ""),
                 "start": best_match["start"],
@@ -328,7 +310,6 @@ def resync_from_json(
                   f"\"{old_text[:15]}\" → "
                   f"[{best_match['start']:.2f}s~{best_match['end']:.2f}s]")
         else:
-            # 未匹配，保留旧段但标记
             aligned_segs.append(old_seg)
             print(f"     ⚠️  未匹配: \"{old_text[:15]}\" "
                   f"(最佳相似度 {best_sim:.0%})")
@@ -340,6 +321,7 @@ def resync_from_json(
     }
 
     if output_json:
+        os.makedirs(os.path.dirname(os.path.abspath(output_json)), exist_ok=True)
         with open(output_json, "w", encoding="utf-8") as f:
             json.dump(result, f, ensure_ascii=False, indent=2)
         print(f"\n  💾 对齐 JSON 已保存: {output_json}")
@@ -348,7 +330,6 @@ def resync_from_json(
 
 
 def _text_similarity(a: str, b: str) -> float:
-    """简单的字符级 Jaccard 相似度"""
     if not a and not b:
         return 1.0
     if not a or not b:
@@ -365,10 +346,6 @@ def _text_similarity(a: str, b: str) -> float:
 # ═══════════════════════════════════════════════
 
 def compare_timestamps(old_json_path: str, new_json_path: str):
-    """
-    对比两个 Whisper JSON 的时间戳差异，
-    帮助诊断嘴型不同步问题。
-    """
     with open(old_json_path, "r", encoding="utf-8") as f:
         old_data = json.load(f)
     with open(new_json_path, "r", encoding="utf-8") as f:
@@ -386,7 +363,6 @@ def compare_timestamps(old_json_path: str, new_json_path: str):
     print(f"           {len(new_segs)} 段")
     print(f"  {'─'*58}")
 
-    # ── 逐段对比 ──
     max_show = min(20, len(old_segs), len(new_segs))
     total_drift_start = 0.0
     total_drift_end = 0.0
@@ -397,7 +373,6 @@ def compare_timestamps(old_json_path: str, new_json_path: str):
         old_s = old_segs[i]
         new_s = new_segs[i]
         old_text = old_s.get("text", "").strip()[:20]
-        new_text = new_s.get("text", "").strip()[:20]
 
         drift_start = new_s["start"] - old_s["start"]
         drift_end = new_s["end"] - old_s["end"]
@@ -407,7 +382,6 @@ def compare_timestamps(old_json_path: str, new_json_path: str):
         total_drift_end += abs(drift_end)
         count += 1
 
-        # 状态图标
         if avg_drift < 0.1:
             icon = "✅"
         elif avg_drift < 0.3:
@@ -438,7 +412,6 @@ def compare_timestamps(old_json_path: str, new_json_path: str):
         else:
             print(f"  ✅ 时间戳偏移较小，基本可用")
 
-    # ── 逐字级别对比（如果有的话） ──
     old_words = []
     for seg in old_segs:
         old_words.extend(seg.get("words", []))
@@ -451,7 +424,6 @@ def compare_timestamps(old_json_path: str, new_json_path: str):
         print(f"     旧 JSON: {len(old_words)} 个字")
         print(f"     新 JSON: {len(new_words)} 个字")
 
-        # 抽样对比前10个字
         max_w = min(10, len(old_words), len(new_words))
         word_drifts = []
         for j in range(max_w):
@@ -480,7 +452,6 @@ def build_scene_clip(
 ):
     import subprocess
 
-    # 🟢 新增：加入 -threads 2 限制
     cmd = [
         "ffmpeg", "-nostdin", "-threads", "2", "-y", "-hide_banner", "-loglevel", "warning",
         "-stream_loop", "-1", "-i", scene_path,
@@ -500,32 +471,22 @@ def build_scene_clip(
     subprocess.run(cmd, check=True, timeout=600, stdin=subprocess.DEVNULL)
 
 
-
 def prepare_timeline_render_clips(
     timeline_path: str,
     work_dir: str,
     scene_dir: Optional[str] = None,
 ) -> List[str]:
-    """
-    根据 timeline.json 生成最终用于拼接的片段列表
-    - human: 直接使用 part_file
-    - scene: 用 scene_file 替换画面，但保留对应 part 音频
-    返回: clip_paths
-    """
     from video_utils import normalize_clip
 
-    # 获取时间线文件所在目录，用于解析相对路径
     timeline_dir = os.path.dirname(os.path.abspath(timeline_path))
-    
+
     with open(timeline_path, "r", encoding="utf-8") as f:
         timeline = json.load(f)
 
     parts_dir = timeline["parts_dir"]
-    
-    # 如果parts_dir是相对路径，则相对于时间线文件所在目录解析
     if not os.path.isabs(parts_dir):
         parts_dir = os.path.join(timeline_dir, parts_dir)
-        
+
     info = timeline["video_info"]
     width = info["width"]
     height = info["height"]
@@ -587,7 +548,7 @@ def prepare_timeline_render_clips(
 
     return render_clips
 
-# 修改 compose_from_timeline 函数签名，添加背景音乐参数
+
 def compose_from_timeline(
     timeline_path: str,
     output_video: str,
@@ -611,7 +572,6 @@ def compose_from_timeline(
     offset_x: int = 0,
     offset_y: int = 0,
     corrections_file: Optional[str] = None,
-    # 🆕 背景音乐参数
     bgm_url: Optional[str] = None,
     bgm_volume: float = 0.3,
     original_volume: float = 1.0,
@@ -619,6 +579,9 @@ def compose_from_timeline(
     bgm_loop: bool = True,
     fade_in_duration: float = 0.5,
     fade_out_duration: float = 0.5,
+    # 🆕 新增：明确输出路径
+    ass_output_path: Optional[str] = None,
+    resync_json_output_path: Optional[str] = None,
 ):
     """
     从 timeline.json 进行最终合成
@@ -636,7 +599,7 @@ def compose_from_timeline(
 
     work_dir = tempfile.mkdtemp(prefix="timeline_compose_")
     tmp_merged = os.path.join(work_dir, "merged.mp4")
-    tmp_subtitled = os.path.join(work_dir, "subtitled.mp4")  # 🆕 新增中间文件
+    tmp_subtitled = os.path.join(work_dir, "subtitled.mp4")
 
     try:
         clips = prepare_timeline_render_clips(
@@ -663,17 +626,16 @@ def compose_from_timeline(
         else:
             concat_simple(clips, tmp_merged)
 
-        # 🆕 根据是否需要字幕，决定中间文件路径
-        video_for_bgm = tmp_merged  # 默认直接用合并后的视频
-        
+        video_for_bgm = tmp_merged
+
         if resync:
             print(f"\n{'='*60}")
             print(f"  👄 重新识别并烧录字幕")
             print(f"{'='*60}")
-            
+
             resync_subtitle(
                 input_video=tmp_merged,
-                output_video=tmp_subtitled,  # 🆕 先输出到临时文件
+                output_video=tmp_subtitled,
                 model_size=model_size,
                 device=device,
                 language=language,
@@ -692,33 +654,28 @@ def compose_from_timeline(
                 offset_y=offset_y,
                 corrections_file=corrections_file,
                 ad_keywords=ad_keywords,
+                # 🆕 关键：把 resync json 写到指定路径
+                resync_json_path=resync_json_output_path,
             )
-            
-            video_for_bgm = tmp_subtitled  # 🆕 使用带字幕的视频
 
-        # 🆕 添加背景音乐处理
+            # 🆕 关键：把 work_dir 里的 subtitled.ass 拷贝到指定路径
+            if ass_output_path:
+                produced_ass = os.path.join(work_dir, "subtitled.ass")
+                if os.path.isfile(produced_ass):
+                    os.makedirs(os.path.dirname(os.path.abspath(ass_output_path)), exist_ok=True)
+                    shutil.copy2(produced_ass, ass_output_path)
+                else:
+                    print(f"  ⚠️ 未找到生成的 ASS: {produced_ass}")
+
+            video_for_bgm = tmp_subtitled
+
         if bgm_url:
             print(f"\n{'='*60}")
             print(f"  🎵 添加背景音乐")
             print(f"{'='*60}")
-            
-            # 下载背景音乐文件
-            bgm_path = os.path.join(work_dir, "bgm_audio.mp3")
-            
-            if is_oss_key(bgm_url):
-                print(f"  📥 从 OSS 下载背景音乐...")
-                download_file_from_oss(bgm_url, bgm_path)
-            else:
-                print(f"  📥 下载背景音乐: {bgm_url}")
-                import requests
-                resp = requests.get(bgm_url, timeout=120, stream=True)
-                resp.raise_for_status()
-                with open(bgm_path, 'wb') as f:
-                    for chunk in resp.iter_content(chunk_size=1024*1024):
-                        if chunk:
-                            f.write(chunk)
-            
-            # 添加背景音乐
+
+            bgm_path = _prepare_bgm_file(bgm_url, work_dir=work_dir, max_retries=3)
+
             add_background_music(
                 input_video=video_for_bgm,
                 output_video=output_video,
@@ -731,8 +688,10 @@ def compose_from_timeline(
                 fade_out_duration=fade_out_duration,
             )
         else:
-            # 🆕 无背景音乐，直接复制
             shutil.copy2(video_for_bgm, output_video)
+
+        # 如果 resync=True 且用户没传 resync_json_output_path，也会默认写到 tmp_subtitled_base_resync.json（临时目录）
+        # 这里不额外处理；task_runner 需要的情况会传 resync_json_output_path
 
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)
@@ -748,141 +707,59 @@ def main():
     parser = argparse.ArgumentParser(
         description="👄 嘴型同步与时间线合成工具",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-典型工作流:
-
-  # 方式 A: 嘴型同步模式 (针对单个视频)
-  python cut_transition.py output/阳光百纳.mp4 --device cuda
-  python lip_sync.py output/阳光百纳_cleaned.mp4 -o 阳光百纳_final.mp4
-
-  # 方式 B: 时间线合成模式 (用于多段+场景)
-  python cut_transition.py avatar.mp4 --script script.json -o ./output
-  python lip_sync.py --timeline output/avatar_timeline.json -o final.mp4
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-示例:
-
-  # 时间线合成模式
-  python lip_sync.py --timeline timeline.json -o final.mp4 --scene-dir ./scenes
-
-  # 时间线合成 + 转场特效
-  python lip_sync.py --timeline timeline.json -o final.mp4 --use-transitions
-
-  # 嘴型同步模式 (单个视频)
-  python lip_sync.py video.mp4 -o video_synced.mp4 --effect karaoke
-
-  # GPU + 大模型
-  python lip_sync.py --timeline timeline.json -o final.mp4 -m large-v3 --device cuda
-
-  # 仅重新识别, 输出 JSON (不烧录字幕)
-  python lip_sync.py video.mp4 --json-only -o transcript.json
-
-  # 对比新旧 JSON 时间戳偏移
-  python lip_sync.py --compare old_transcription.json new_resync.json
-
-  # 用旧文本 + 新时间戳对齐 (保留人工修正的文本)
-  python lip_sync.py video.mp4 --align-from old.json -o aligned.json
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        """,
     )
 
     parser.add_argument("input", nargs="?", help="输入视频文件")
-    parser.add_argument("-o", "--output", default=None,
-                        help="输出路径 (视频或 JSON)")
-    parser.add_argument("-m", "--model", default="large-v3",
-                        choices=["large-v3"],
-                        help="Whisper 模型 (默认: large-v3)")
-    parser.add_argument("--device", default="cuda",
-                        choices=["cuda"],
-                        help="推理设备 (默认: cuda)")
-    parser.add_argument("--language", default="zh",
-                        help="语言代码 (默认: zh)")
+    parser.add_argument("-o", "--output", default=None, help="输出路径 (视频或 JSON)")
+    parser.add_argument("-m", "--model", default="large-v3", choices=["large-v3"], help="Whisper 模型")
+    parser.add_argument("--device", default="cuda", choices=["cuda"], help="推理设备")
+    parser.add_argument("--language", default="zh", help="语言代码")
 
-    # ── 字幕设置 ──
     sg = parser.add_argument_group("✨ 字幕设置")
     sg.add_argument("--effect", default="ad",
-                    choices=["karaoke", "highlight", "typewriter", "bounce", "ad"],
-                    help="字幕特效 (默认: ad)")
-    sg.add_argument("--font", default=None,
-                    help="字体文件路径 (.ttf/.ttc)")
-    sg.add_argument("--font-size", type=int, default=88,
-                    help="字号 (默认: 88)")
-    sg.add_argument("--color", default="gold",
-                    help="高亮颜色: gold/yellow/cyan/red/pink/orange "
-                         "或 ASS 颜色码 (默认: gold)")
-    sg.add_argument("--max-chars", type=int, default=18,
-                    help="每行最大字符数 (默认: 18)")
-    sg.add_argument("--no-filter-transition", action="store_true",
-                    help="不过滤文本中的 '转场' 标记")
+                    choices=["karaoke", "highlight", "typewriter", "bounce", "ad"])
+    sg.add_argument("--font", default=None)
+    sg.add_argument("--font-size", type=int, default=88)
+    sg.add_argument("--color", default="gold")
+    sg.add_argument("--max-chars", type=int, default=18)
+    sg.add_argument("--no-filter-transition", action="store_true")
 
-    # 字幕设置部分
-    sg.add_argument("--position", default="bottom", 
-                    choices=["bottom", "top", "middle"],
-                    help="字幕位置: bottom(底部)/top(顶部)/middle(中间) (默认: bottom)")
-    sg.add_argument("--margin-v", type=int, default=50,
-                    help="字幕垂直边距像素 (默认: 50)")
-    sg.add_argument("--margin-l", type=int, default=10,
-                    help="字幕左边距像素 (默认: 10)")
-    sg.add_argument("--margin-r", type=int, default=10,
-                    help="字幕右边距像素 (默认: 10)")
-    sg.add_argument("--offset-x", type=int, default=0,
-                    help="字幕水平偏移像素，正值向右偏移 (默认: 0)")
-    sg.add_argument("--offset-y", type=int, default=0,
-                    help="字幕垂直偏移像素，正值向下偏移 (默认: 0)")
-    # ── 字幕设置组中新增 ──
-    sg.add_argument("--corrections", default=None,
-                    help="错别字校正文件路径 (corrections.json)")
-    
-    # ── 时间线合成设置 ──
+    sg.add_argument("--position", default="bottom", choices=["bottom", "top", "middle"])
+    sg.add_argument("--margin-v", type=int, default=50)
+    sg.add_argument("--margin-l", type=int, default=10)
+    sg.add_argument("--margin-r", type=int, default=10)
+    sg.add_argument("--offset-x", type=int, default=0)
+    sg.add_argument("--offset-y", type=int, default=0)
+    sg.add_argument("--corrections", default=None)
+
     tg = parser.add_argument_group("🎬 时间线合成")
-    tg.add_argument("--timeline", default=None,
-                    help="timeline.json 路径，用于按时间线合成多段视频")
-    tg.add_argument("--scene-dir", default=None,
-                    help="场景素材目录")
-    tg.add_argument("--no-resync", action="store_true",
-                    help="合成后不重新识别字幕")
-    tg.add_argument("--use-transitions", action="store_true",
-                    help="合并片段时使用 xfade 转场")
-    tg.add_argument("--transition", default="fade",
-                    help="转场类型 (默认: fade)")
-    tg.add_argument("--transition-duration", type=float, default=0.8,
-                    help="转场时长秒 (默认: 0.5)")
+    tg.add_argument("--timeline", default=None)
+    tg.add_argument("--scene-dir", default=None)
+    tg.add_argument("--no-resync", action="store_true")
+    tg.add_argument("--use-transitions", action="store_true")
+    tg.add_argument("--transition", default="fade")
+    tg.add_argument("--transition-duration", type=float, default=0.8)
 
-    # ── 特殊模式 ──
     mg = parser.add_argument_group("🔧 特殊模式")
-    mg.add_argument("--json-only", action="store_true",
-                    help="仅输出 JSON，不烧录字幕")
-    mg.add_argument("--compare", nargs=2, metavar=("OLD_JSON", "NEW_JSON"),
-                    help="对比两个 JSON 的时间戳差异")
-    mg.add_argument("--align-from", default=None, metavar="OLD_JSON",
-                    help="用旧 JSON 文本 + 新时间戳对齐")
-
-
+    mg.add_argument("--json-only", action="store_true")
+    mg.add_argument("--compare", nargs=2, metavar=("OLD_JSON", "NEW_JSON"))
+    mg.add_argument("--align-from", default=None, metavar="OLD_JSON")
 
     args = parser.parse_args()
 
-
-
-    # 位置映射到alignment值
-    alignment = 2  # 默认：底部中央
+    alignment = 2
     if args.position == "top":
-        alignment = 8  # 顶部中央
+        alignment = 8
     elif args.position == "middle":
-        alignment = 5  # 中间中央
+        alignment = 5
 
-    # 使用X/Y偏移调整垂直边距
     actual_margin_v = args.margin_v
     if args.offset_y != 0:
-        if alignment in [7, 8, 9]:  # 顶部对齐
+        if alignment in [7, 8, 9]:
             actual_margin_v = max(0, args.margin_v + args.offset_y)
-        elif alignment in [1, 2, 3]:  # 底部对齐
+        elif alignment in [1, 2, 3]:
             actual_margin_v = max(0, args.margin_v - args.offset_y)
-        # 对于中间对齐，Y偏移会在subtitle_effects.py中处理
-    
-    # ══════════════════════════════════
-    #  对比模式
-    # ══════════════════════════════════
+
     if args.compare:
         for jp in args.compare:
             if not os.path.isfile(jp):
@@ -891,9 +768,6 @@ def main():
         compare_timestamps(args.compare[0], args.compare[1])
         return
 
-    # ══════════════════════════════════
-    #  时间线合成模式
-    # ══════════════════════════════════
     if args.timeline:
         if not os.path.isfile(args.timeline):
             print(f"❌ timeline 文件不存在: {args.timeline}")
@@ -927,30 +801,17 @@ def main():
             offset_y=args.offset_y,
             corrections_file=args.corrections,
         )
-
-        print(f"\n{'='*62}")
-        print(f"  🎉 时间线合成完成!")
-        print(f"{'='*62}")
-        print(f"  timeline: {args.timeline}")
-        print(f"  输出:     {args.output}")
-        print(f"{'='*62}\n")
+        print("✅ 时间线合成完成")
         return
 
-    # ══════════════════════════════════
-    #  需要输入视频的模式
-    # ══════════════════════════════════
     if not args.input:
         parser.print_help()
-        print("\n  💡 提示: 请指定输入视频文件或 timeline.json")
-        print("     例: python lip_sync.py video.mp4 -o output.mp4")
-        print("     例: python lip_sync.py --timeline timeline.json -o output.mp4\n")
         sys.exit(1)
 
     if not os.path.isfile(args.input):
         print(f"❌ 文件不存在: {args.input}")
         sys.exit(1)
 
-    # ── 对齐模式 ──
     if args.align_from:
         if not os.path.isfile(args.align_from):
             print(f"❌ 旧 JSON 不存在: {args.align_from}")
@@ -965,10 +826,8 @@ def main():
             language=args.language,
             output_json=out_json,
         )
-        print(f"\n  🎉 对齐完成! JSON: {out_json}\n")
         return
 
-    # ── 仅 JSON 模式 ──
     if args.json_only:
         base = os.path.splitext(args.input)[0]
         json_out = args.output or f"{base}_resync.json"
@@ -979,12 +838,8 @@ def main():
             language=args.language,
             output_json=json_out,
         )
-        print(f"\n  🎉 识别完成! JSON: {json_out}\n")
         return
 
-    # ══════════════════════════════════
-    #  嘴型同步模式: 识别 + 字幕 + 烧录
-    # ══════════════════════════════════
     if args.output is None:
         base = os.path.splitext(args.input)[0]
         args.output = f"{base}_synced.mp4"
@@ -995,7 +850,6 @@ def main():
 
     in_dur = get_duration(args.input)
     in_size = os.path.getsize(args.input) / 1024 / 1024
-
     print(f"\n  📂 输入: {args.input}")
     print(f"     大小: {in_size:.1f} MB  |  时长: {in_dur:.2f}s")
 
@@ -1024,19 +878,7 @@ def main():
 
     out_dur = get_duration(args.output)
     out_size = os.path.getsize(args.output) / 1024 / 1024
-
-    print(f"\n{'='*62}")
-    print(f"  🎉 嘴型同步完成!")
-    print(f"{'='*62}")
-    print(f"  输入:  {args.input}")
-    print(f"         {in_size:.1f} MB  |  {in_dur:.2f}s")
-    print(f"  输出:  {args.output}")
-    print(f"         {out_size:.1f} MB  |  {out_dur:.2f}s")
-    print(f"  特效:  {args.effect}  |  颜色: {args.color}")
-    resync_json = os.path.splitext(args.output)[0] + "_resync.json"
-    if os.path.isfile(resync_json):
-        print(f"  JSON:  {resync_json}")
-    print(f"{'='*62}\n")
+    print(f"✅ 输出: {args.output} ({out_size:.1f}MB, {out_dur:.2f}s)")
 
 
 if __name__ == "__main__":
