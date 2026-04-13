@@ -23,6 +23,7 @@ include:
   # - quota.py
   - schemas.py
   - task_runner.py
+  - tasks/*.py
   # - task_watchdog.py
   # - worker.py
   # - auth.py
@@ -46,7 +47,9 @@ include:
   - task_runner.py
   - cut_transition.py
   - lip_sync.py
+  - 重构说明.MD
   # - chanjing_api.py
   # - api_digital_human.py
   # - 数字人API.MD
   # - 自动合成视频api.MD
+
