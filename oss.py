@@ -1,7 +1,8 @@
 import os
 import uuid
+import hashlib
 import mimetypes
-from datetime import timedelta
+from datetime import timedelta, datetime, timezone
 from functools import lru_cache
 
 from minio import Minio
@@ -28,9 +29,45 @@ def ensure_bucket():
         client.make_bucket(settings.MINIO_BUCKET)
 
 
-def generate_oss_key(merchant_id: str, purpose: str, filename: str) -> str:
+def generate_oss_key(merchant_id: str, purpose: str, filename: str, file_hash: str = None) -> str:
+    """
+    生成 OSS 存储路径
+    
+    Args:
+        merchant_id: 商户 ID
+        purpose: 用途 (如 video, audio, image 等)
+        filename: 原始文件名
+        file_hash: 文件 hash，如果提供则用于去重命名
+    
+    Returns:
+        OSS 存储路径
+    """
     ext = os.path.splitext(filename)[1]
-    return f"{merchant_id}/{purpose}/{uuid.uuid4().hex[:12]}{ext}"
+    if file_hash and get_settings().FILE_ENABLE_DEDUPLICATION:
+        # 使用 hash 的前 16 位作为文件名，实现去重
+        return f"{merchant_id}/{purpose}/{file_hash[:16]}{ext}"
+    else:
+        # 使用 UUID，不启用去重
+        return f"{merchant_id}/{purpose}/{uuid.uuid4().hex[:12]}{ext}"
+
+
+def calculate_file_hash(file_path: str, algorithm: str = "sha256") -> str:
+    """
+    计算文件的 hash 值
+    
+    Args:
+        file_path: 文件路径
+        algorithm: hash 算法，默认 sha256
+    
+    Returns:
+        文件的 hex hash 字符串
+    """
+    hash_obj = hashlib.new(algorithm)
+    with open(file_path, "rb") as f:
+        # 分块读取，避免大文件内存溢出
+        for chunk in iter(lambda: f.read(8192), b""):
+            hash_obj.update(chunk)
+    return hash_obj.hexdigest()
 
 
 def presigned_put_url(oss_key: str, expires: int = 3600) -> str:
@@ -107,6 +144,117 @@ def get_object_info(oss_key: str):
 
 def is_oss_key(value: str) -> bool:
     return not (value.startswith("http://") or value.startswith("https://"))
+
+
+def find_existing_file_by_hash(db_session, merchant_id: str, file_hash: str):
+    """
+    查找商户下是否已存在相同 hash 的文件
+    
+    Args:
+        db_session: 数据库会话
+        merchant_id: 商户 ID
+        file_hash: 文件 hash
+    
+    Returns:
+        已存在的 UploadRecord 或 None
+    """
+    from models import UploadRecord
+    
+    record = (
+        db_session.query(UploadRecord)
+        .filter(
+            UploadRecord.merchant_id == merchant_id,
+            UploadRecord.file_hash == file_hash,
+            UploadRecord.is_confirmed == True,
+        )
+        .order_by(UploadRecord.created_at.desc())
+        .first()
+    )
+    return record
+
+
+def delete_expired_files(db_session, batch_size: int = 100) -> dict:
+    """
+    清理过期的文件（需要配合定时任务使用）
+    
+    Args:
+        db_session: 数据库会话
+        batch_size: 每批处理的记录数
+    
+    Returns:
+        统计信息 {"deleted_count": int, "freed_bytes": int}
+    """
+    from models import UploadRecord
+    
+    now = datetime.now(timezone.utc)
+    expired_records = (
+        db_session.query(UploadRecord)
+        .filter(
+            UploadRecord.expires_at < now,
+            UploadRecord.is_confirmed == True,
+        )
+        .limit(batch_size)
+        .all()
+    )
+    
+    deleted_count = 0
+    freed_bytes = 0
+    client = get_minio_client()
+    settings = get_settings()
+    
+    for record in expired_records:
+        try:
+            # 从 MinIO 删除文件
+            client.remove_object(settings.MINIO_BUCKET, record.oss_key)
+            freed_bytes += record.size_bytes or 0
+            
+            # 从数据库删除记录
+            db_session.delete(record)
+            deleted_count += 1
+        except Exception as e:
+            # 记录错误但继续处理
+            print(f"Error deleting file {record.oss_key}: {e}")
+    
+    db_session.commit()
+    
+    return {
+        "deleted_count": deleted_count,
+        "freed_bytes": freed_bytes,
+    }
+
+
+def get_storage_stats(db_session, merchant_id: str = None) -> dict:
+    """
+    获取存储统计信息
+    
+    Args:
+        db_session: 数据库会话
+        merchant_id: 可选，商户 ID，不提供则统计全部
+    
+    Returns:
+        统计信息 {"total_files": int, "total_bytes": int, "oldest_file": datetime, "newest_file": datetime}
+    """
+    from models import UploadRecord
+    from sqlalchemy import func
+    
+    query = db_session.query(
+        func.count(UploadRecord.id).label("total_files"),
+        func.sum(UploadRecord.size_bytes).label("total_bytes"),
+        func.min(UploadRecord.created_at).label("oldest_file"),
+        func.max(UploadRecord.created_at).label("newest_file"),
+    ).filter(UploadRecord.is_confirmed == True)
+    
+    if merchant_id:
+        query = query.filter(UploadRecord.merchant_id == merchant_id)
+    
+    result = query.first()
+    
+    return {
+        "total_files": result.total_files or 0,
+        "total_bytes": result.total_bytes or 0,
+        "oldest_file": result.oldest_file.isoformat() if result.oldest_file else None,
+        "newest_file": result.newest_file.isoformat() if result.newest_file else None,
+    }
 
 
 

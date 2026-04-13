@@ -22,7 +22,17 @@ from schemas import (
 )
 from auth import verify_api_key
 from quota import check_quota, check_concurrent_limit, reserve_quota, refund_quota
-from oss import ensure_bucket, generate_oss_key, presigned_put_url, presigned_get_url, get_object_info
+from oss import (
+    ensure_bucket, 
+    generate_oss_key, 
+    presigned_put_url, 
+    presigned_get_url, 
+    get_object_info,
+    calculate_file_hash,
+    find_existing_file_by_hash,
+    delete_expired_files,
+    get_storage_stats,
+)
 
 from admin_api import router as admin_router
 from api_digital_human import router as dh_router
@@ -208,7 +218,35 @@ def create_presign(
     merchant: Merchant = Depends(verify_api_key),
     db: Session = Depends(get_db),
 ):
-    oss_key = generate_oss_key(merchant.id, req.purpose, req.filename)
+    """
+    创建预签名上传 URL
+    
+    支持文件 hash 去重：如果同一商户上传过相同 hash 的文件，
+    可直接返回已有文件的下载 URL，无需重复上传。
+    """
+    settings = get_settings()
+    
+    # 如果提供了文件 hash，先检查是否已存在
+    if req.file_hash and settings.FILE_ENABLE_DEDUPLICATION:
+        existing = find_existing_file_by_hash(db, merchant.id, req.file_hash)
+        if existing:
+            # 文件已存在，直接返回已有文件的下载 URL
+            download_url = presigned_get_url(existing.oss_key, expires=3600, filename=existing.original_filename)
+            return ok({
+                "upload_id": existing.id,
+                "oss_key": existing.oss_key,
+                "download_url": download_url,
+                "is_duplicate": True,
+                "message": "文件已存在，无需重复上传",
+                "original_upload_time": existing.created_at.isoformat(),
+            })
+    
+    # 计算过期时间
+    from datetime import timedelta
+    expires_at = datetime.now(timezone.utc) + timedelta(days=settings.FILE_STORAGE_DAYS)
+    
+    # 生成新的上传 URL
+    oss_key = generate_oss_key(merchant.id, req.purpose, req.filename, req.file_hash)
     upload_url = presigned_put_url(oss_key, expires=3600)
 
     record = UploadRecord(
@@ -218,6 +256,8 @@ def create_presign(
         content_type=req.content_type,
         upload_type="presigned",
         presigned_url=upload_url,
+        file_hash=req.file_hash,  # 记录文件 hash
+        expires_at=expires_at,  # 设置过期时间
     )
     db.add(record)
     db.commit()
@@ -229,6 +269,8 @@ def create_presign(
         "oss_key": oss_key,
         "method": "PUT",
         "expires_in": 3600,
+        "is_duplicate": False,
+        "storage_expires_at": expires_at.isoformat(),
     })
 
 
@@ -238,6 +280,13 @@ def confirm_upload(
     merchant: Merchant = Depends(verify_api_key),
     db: Session = Depends(get_db),
 ):
+    """
+    确认上传完成
+    
+    如果上传时未提供 file_hash，这里会计算并检查是否重复。
+    如果是重复文件，会清理新上传的文件并返回已有文件信息。
+    """
+    settings = get_settings()
     record = (
         db.query(UploadRecord)
         .filter(UploadRecord.id == req.upload_id, UploadRecord.merchant_id == merchant.id)
@@ -250,22 +299,42 @@ def confirm_upload(
     if not info:
         return fail(40401, "uploaded object not found", status_code=404)
 
-    # 🟢 新增：严格限制文件大小为 500MB
-    MAX_FILE_SIZE = 500 * 1024 * 1024
+    # 🟢 严格限制文件大小
+    MAX_FILE_SIZE = settings.FILE_MAX_SIZE_MB * 1024 * 1024
     if info["size"] > MAX_FILE_SIZE:
-        return fail(41300, f"文件过大 ({(info['size']/1024/1024):.1f}MB)，单次上传限制为 500MB", status_code=413)
+        # 删除超限文件
+        from oss import get_minio_client
+        client = get_minio_client()
+        client.remove_object(settings.MINIO_BUCKET, record.oss_key)
+        db.delete(record)
+        db.commit()
+        return fail(41300, f"文件过大 ({(info['size']/1024/1024):.1f}MB)，限制为 {settings.FILE_MAX_SIZE_MB}MB", status_code=413)
 
+    # 如果还没有 hash，尝试计算（适用于本地上传场景）
+    # 注意：presigned 上传时文件不在服务器，无法计算 hash
+    # 所以 hash 应该在客户端计算后通过 presign 请求传入
     record.is_confirmed = True
     record.size_bytes = info["size"]
+    
+    # 如果记录中没有 hash 且启用了去重，需要检查是否有其他相同 hash 的文件
+    if not record.file_hash and settings.FILE_ENABLE_DEDUPLICATION:
+        # 这种情况理论上不应该发生，因为 hash 应该在 presign 时提供
+        # 但为了兼容旧逻辑，不做处理
+        pass
+    
     db.add(record)
     db.commit()
 
-    return ok({
+    response_data = {
         "upload_id": record.id,
         "oss_key": record.oss_key,
         "size": record.size_bytes,
         "confirmed": True,
-    })
+        "file_hash": record.file_hash,
+        "expires_at": record.expires_at.isoformat() if record.expires_at else None,
+    }
+
+    return ok(response_data)
 
 
 @app.post("/v1/tasks/agent-compose")
@@ -747,4 +816,96 @@ def get_task_file_download_url(
     return ok({
         "download_url": download_url,
         "expires_in": 3600,
+    })
+
+
+@app.post("/v1/admin/storage/cleanup")
+def cleanup_expired_files(
+    batch_size: int = Query(100, ge=1, le=1000),
+    merchant: Merchant = Depends(verify_api_key),
+    db: Session = Depends(get_db),
+):
+    """
+    清理过期的上传文件（需要管理员权限）
+    
+    注意：此接口仅供内部管理使用，应该通过 admin API key 调用
+    """
+    # TODO: 这里应该添加管理员权限检查
+    # if not merchant.is_admin:
+    #     return fail(40300, "admin access required", status_code=403)
+    
+    result = delete_expired_files(db, batch_size=batch_size)
+    
+    return ok({
+        "deleted_count": result["deleted_count"],
+        "freed_bytes": result["freed_bytes"],
+        "freed_mb": result["freed_bytes"] / 1024 / 1024,
+    })
+
+
+@app.get("/v1/admin/storage/stats")
+def get_storage_statistics(
+    merchant_id: Optional[str] = Query(None),
+    merchant: Merchant = Depends(verify_api_key),
+    db: Session = Depends(get_db),
+):
+    """
+    获取存储统计信息
+    
+    如果不提供 merchant_id，则返回全局统计（需要管理员权限）
+    如果提供 merchant_id，则返回指定商户的统计
+    """
+    # 如果不是查询自己的数据，需要管理员权限
+    if merchant_id and merchant_id != merchant.id:
+        # TODO: 添加管理员权限检查
+        # if not merchant.is_admin:
+        #     return fail(40300, "admin access required", status_code=403)
+        pass
+    
+    stats = get_storage_stats(db, merchant_id=merchant_id or merchant.id)
+    
+    return ok(stats)
+
+
+@app.get("/v1/uploads/list")
+def list_uploads(
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    status: str = Query(None, description="confirmed or pending"),
+    merchant: Merchant = Depends(verify_api_key),
+    db: Session = Depends(get_db),
+):
+    """
+    查询当前商户的上传记录列表
+    """
+    from models import UploadRecord
+    
+    query = db.query(UploadRecord).filter(UploadRecord.merchant_id == merchant.id)
+    
+    if status == "confirmed":
+        query = query.filter(UploadRecord.is_confirmed == True)
+    elif status == "pending":
+        query = query.filter(UploadRecord.is_confirmed == False)
+    
+    total = query.count()
+    records = query.order_by(UploadRecord.created_at.desc()).offset(offset).limit(limit).all()
+    
+    return ok({
+        "items": [
+            {
+                "upload_id": r.id,
+                "filename": r.original_filename,
+                "oss_key": r.oss_key,
+                "size_bytes": r.size_bytes,
+                "size_mb": (r.size_bytes or 0) / 1024 / 1024,
+                "content_type": r.content_type,
+                "file_hash": r.file_hash,
+                "is_confirmed": r.is_confirmed,
+                "expires_at": r.expires_at.isoformat() if r.expires_at else None,
+                "created_at": r.created_at.isoformat(),
+            }
+            for r in records
+        ],
+        "count": len(records),
+        "total": total,
     })

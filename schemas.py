@@ -169,6 +169,7 @@ class PresignedUploadRequest(BaseModel):
     filename: str
     content_type: Optional[str] = None
     purpose: str = "input"
+    file_hash: Optional[str] = Field(None, max_length=64, description="文件 SHA256 hash，用于去重")
 
 
 class UploadConfirmRequest(BaseModel):

@@ -193,12 +193,16 @@ class UploadRecord(Base):
     oss_key = Column(String(1024), nullable=False)
     content_type = Column(String(128), nullable=True)
     size_bytes = Column(BigInteger, nullable=True)
+    file_hash = Column(String(64), nullable=True, index=True)  # SHA256 hash，用于去重
     upload_type = Column(String(64), default="presigned")
     presigned_url = Column(Text, nullable=True)
     is_confirmed = Column(Boolean, default=False)
+    expires_at = Column(DateTime(timezone=True), nullable=True)  # 过期时间，用于自动清理
     created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
 
     __table_args__ = (
         Index("idx_upload_merchant_id", "merchant_id"),
         Index("idx_upload_oss_key", "oss_key"),
+        Index("idx_upload_merchant_hash", "merchant_id", "file_hash"),
+        Index("idx_upload_expires_at", "expires_at"),
     )

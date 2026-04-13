@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     CHANJING_APP_ID: str = "7ced058d"
     CHANJING_SECRET_KEY: str = "83e6b2f201564a21aa10cbbbcc79b33c"
     
+    # 文件存储策略配置
+    FILE_STORAGE_DAYS: int = 30  # 文件默认保留天数
+    FILE_MAX_SIZE_MB: int = 500  # 单文件最大大小 (MB)
+    FILE_ENABLE_DEDUPLICATION: bool = True  # 是否启用 hash 去重
+    
 
     BASE_TASK_DIR: str = os.path.abspath("./service_data")
 
