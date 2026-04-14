@@ -17,10 +17,23 @@ depends_on = None
 
 
 def upgrade():
-    # 创建枚举类型（如果不存在）
-    sa.Enum('active', 'suspended', 'deleted', name='merchant_status_enum').create(op.get_bind(), checkfirst=True)
-    sa.Enum('queued', 'processing', 'succeeded', 'failed', 'cancelled', 'timeout', name='task_status_enum').create(op.get_bind(), checkfirst=True)
-    sa.Enum('task_submit', 'task_success', 'task_refund', 'quota_purchase', 'admin_adjust', name='billing_type_enum').create(op.get_bind(), checkfirst=True)
+    # 创建枚举类型（如果不存在）- 使用原生 SQL 检查
+    conn = op.get_bind()
+    
+    # 检查并创建 merchant_status_enum
+    result = conn.execute(sa.text("SELECT 1 FROM pg_type WHERE typname = 'merchant_status_enum'")).fetchone()
+    if not result:
+        sa.Enum('active', 'suspended', 'deleted', name='merchant_status_enum').create(conn)
+    
+    # 检查并创建 task_status_enum
+    result = conn.execute(sa.text("SELECT 1 FROM pg_type WHERE typname = 'task_status_enum'")).fetchone()
+    if not result:
+        sa.Enum('queued', 'processing', 'succeeded', 'failed', 'cancelled', 'timeout', name='task_status_enum').create(conn)
+    
+    # 检查并创建 billing_type_enum
+    result = conn.execute(sa.text("SELECT 1 FROM pg_type WHERE typname = 'billing_type_enum'")).fetchone()
+    if not result:
+        sa.Enum('task_submit', 'task_success', 'task_refund', 'quota_purchase', 'admin_adjust', name='billing_type_enum').create(conn)
 
     # Merchants
     op.create_table(
