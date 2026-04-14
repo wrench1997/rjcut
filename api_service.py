@@ -43,6 +43,7 @@ from draft_utils import (
 )
 
 import json
+from typing import Optional
 from fastapi import FastAPI, Depends, Query, Request
 from fastapi.exceptions import RequestValidationError
 
