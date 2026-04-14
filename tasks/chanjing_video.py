@@ -149,9 +149,11 @@ def run_dh_create_person_task(task_id: str, payload: dict, trace_id: str, mercha
 
         _update_task(task_id, progress=25, stage="submitting_train_task")
         # 添加重试机制，等待文件在蝉镜服务端处理就绪
+        # 对于大文件（12MB+），服务端需要更长时间处理，增加重试次数和间隔
         train_resp = None
-        max_retries = 10
-        retry_delay = 3  # 秒
+        max_retries = 60  # 最多重试 60 次
+        retry_delay = 5   # 每次等待 5 秒
+        max_wait_time = max_retries * retry_delay  # 最多等待 300 秒（5 分钟）
         
         for attempt in range(max_retries):
             train_resp = api.create_customised_person(
@@ -179,7 +181,7 @@ def run_dh_create_person_task(task_id: str, payload: dict, trace_id: str, mercha
                     time.sleep(retry_delay)
                     continue
                 else:
-                    raise Exception(f"蝉镜训练接口报错：文件处理超时，请稍后重试。{train_resp}")
+                    raise Exception(f"蝉镜训练接口报错：文件处理超时（已等待 {max_wait_time} 秒），请稍后重试。{train_resp}")
             elif train_resp.get('code') != 0:
                 raise Exception(f"蝉镜训练接口报错：{train_resp}")
             else:
