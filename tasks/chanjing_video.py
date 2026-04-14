@@ -165,7 +165,12 @@ def run_dh_create_person_task(task_id: str, payload: dict, trace_id: str, mercha
             
             # 确保 train_resp 是字典
             if not isinstance(train_resp, dict):
-                raise Exception(f"蝉镜训练接口返回格式异常：{train_resp}")
+                api.logger.warning(f"蝉镜训练接口返回格式异常，等待重试：{train_resp}")
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                    continue
+                else:
+                    raise Exception(f"蝉镜训练接口返回格式异常：{train_resp}")
             
             # 如果是"文件未完成上传"错误，等待后重试
             if train_resp.get('code') == 50000 and '文件还未完成上传' in str(train_resp.get('msg', '')):
@@ -181,7 +186,9 @@ def run_dh_create_person_task(task_id: str, payload: dict, trace_id: str, mercha
                 # 成功
                 break
 
-        person_id = train_resp.get('data', {}).get('id')
+        # 安全获取 person_id
+        train_data = train_resp.get('data') if isinstance(train_resp, dict) else None
+        person_id = train_data.get('id') if isinstance(train_data, dict) else None
         if not person_id:
             raise Exception("未能获取到生成的 person_id")
 

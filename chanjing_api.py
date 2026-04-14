@@ -64,7 +64,7 @@ class ChanjingAPI:
             raise Exception(f"获取访问令牌错误: {response}")
     
     def _request(self, method, endpoint, params=None, data=None, headers=None):
-        """发送请求到API"""
+        """发送请求到 API"""
         url = f"{self.base_url}{endpoint}"
         
         if headers is None:
@@ -81,7 +81,7 @@ class ChanjingAPI:
             json_data = data
             request_data = None
         
-        # 调试模式下打印curl命令
+        # 调试模式下打印 curl 命令
         if self.debug:
             self._print_curl_command(method, url, headers, params, json_data or request_data)
         
@@ -94,7 +94,16 @@ class ChanjingAPI:
             json=json_data
         )
         
-        return response.json()
+        try:
+            result = response.json()
+            # 确保返回的是字典，如果不是则包装成字典
+            if not isinstance(result, dict):
+                self.logger.warning(f"API 返回非字典格式：{result}")
+                return {"code": -1, "msg": str(result), "data": None}
+            return result
+        except json.JSONDecodeError as e:
+            self.logger.error(f"JSON 解析失败：{response.text}")
+            return {"code": -1, "msg": f"JSON 解析失败：{str(e)}", "data": None}
     
     def _print_curl_command(self, method, url, headers, params=None, data=None):
         """将请求转换为curl命令格式，便于调试"""
