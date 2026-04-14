@@ -17,13 +17,18 @@ depends_on = None
 
 
 def upgrade():
+    # 创建枚举类型（如果不存在）
+    sa.Enum('active', 'suspended', 'deleted', name='merchant_status_enum').create(op.get_bind(), checkfirst=True)
+    sa.Enum('queued', 'processing', 'succeeded', 'failed', 'cancelled', 'timeout', name='task_status_enum').create(op.get_bind(), checkfirst=True)
+    sa.Enum('task_submit', 'task_success', 'task_refund', 'quota_purchase', 'admin_adjust', name='billing_type_enum').create(op.get_bind(), checkfirst=True)
+
     # Merchants
     op.create_table(
         'merchants',
         sa.Column('id', sa.String(64), primary_key=True),
         sa.Column('name', sa.String(256), nullable=False),
         sa.Column('email', sa.String(256), unique=True, nullable=True),
-        sa.Column('status', sa.Enum('active', 'suspended', 'deleted', name='merchant_status_enum'), nullable=False, server_default='active'),
+        sa.Column('status', sa.Enum('active', 'suspended', 'deleted', name='merchant_status_enum', create_type=False), nullable=False, server_default='active'),
         sa.Column('quota_total', sa.BigInteger(), nullable=False, server_default='0'),
         sa.Column('quota_used', sa.BigInteger(), nullable=False, server_default='0'),
         sa.Column('quota_reserved', sa.BigInteger(), nullable=False, server_default='0'),
@@ -57,7 +62,7 @@ def upgrade():
         sa.Column('trace_id', sa.String(64), nullable=True),
         sa.Column('client_ref_id', sa.String(256), nullable=True),
         sa.Column('task_type', sa.String(64), nullable=False, server_default='agent_compose'),
-        sa.Column('status', sa.Enum('queued', 'processing', 'succeeded', 'failed', 'cancelled', 'timeout', name='task_status_enum'), nullable=False, server_default='queued'),
+        sa.Column('status', sa.Enum('queued', 'processing', 'succeeded', 'failed', 'cancelled', 'timeout', name='task_status_enum', create_type=False), nullable=False, server_default='queued'),
         sa.Column('progress', sa.Integer(), nullable=False, server_default='0'),
         sa.Column('stage', sa.String(128), nullable=True),
         sa.Column('payload', sa.JSON(), nullable=True),
@@ -66,6 +71,7 @@ def upgrade():
         sa.Column('rq_job_id', sa.String(128), nullable=True),
         sa.Column('cost', sa.Integer(), nullable=False, server_default='0'),
         sa.Column('timeout_seconds', sa.Integer(), nullable=False, server_default='3600'),
+        sa.Column('charge_status', sa.String(32), nullable=False, server_default='none'),
         sa.Column('started_at', sa.DateTime(timezone=True), nullable=True),
         sa.Column('finished_at', sa.DateTime(timezone=True), nullable=True),
         sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
@@ -82,7 +88,7 @@ def upgrade():
         sa.Column('id', sa.String(64), primary_key=True),
         sa.Column('merchant_id', sa.String(64), sa.ForeignKey('merchants.id'), nullable=False),
         sa.Column('task_id', sa.String(64), sa.ForeignKey('tasks.id'), nullable=True),
-        sa.Column('billing_type', sa.Enum('task_submit', 'task_success', 'task_refund', 'quota_purchase', 'admin_adjust', name='billing_type_enum'), nullable=False),
+        sa.Column('billing_type', sa.Enum('task_submit', 'task_success', 'task_refund', 'quota_purchase', 'admin_adjust', name='billing_type_enum', create_type=False), nullable=False),
         sa.Column('amount', sa.Integer(), nullable=False),
         sa.Column('balance_after', sa.BigInteger(), nullable=False),
         sa.Column('description', sa.Text(), nullable=True),
@@ -108,8 +114,24 @@ def upgrade():
     op.create_index('idx_upload_merchant_id', 'upload_records', ['merchant_id'])
     op.create_index('idx_upload_oss_key', 'upload_records', ['oss_key'])
 
+    # Digital Human Custom Persons
+    op.create_table(
+        'dh_custom_persons',
+        sa.Column('id', sa.String(64), primary_key=True),
+        sa.Column('merchant_id', sa.String(64), sa.ForeignKey('merchants.id'), nullable=False),
+        sa.Column('chanjing_person_id', sa.String(128), nullable=False),
+        sa.Column('name', sa.String(256), nullable=False),
+        sa.Column('status', sa.Integer(), nullable=False, server_default='10'),
+        sa.Column('cover_url', sa.Text(), nullable=True),
+        sa.Column('source_task_id', sa.String(64), sa.ForeignKey('tasks.id'), nullable=True),
+        sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
+        sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
+    )
+    op.create_index('idx_dh_person_merchant_id', 'dh_custom_persons', ['merchant_id'])
+
 
 def downgrade():
+    op.drop_table('dh_custom_persons')
     op.drop_table('upload_records')
     op.drop_table('billing_records')
     op.drop_table('tasks')
