@@ -148,17 +148,34 @@ def run_dh_create_person_task(task_id: str, payload: dict, trace_id: str, mercha
         chanjing_file_id = api.upload_file(local_source, service="customised_person")
 
         _update_task(task_id, progress=25, stage="submitting_train_task")
-        train_resp = api.create_customised_person(
-            name=payload.get("name"),
-            file_id=chanjing_file_id,
-            train_type=payload.get("train_type", "both"),
-            language=payload.get("language", "cn"),
-            error_skip=payload.get("error_skip", False),
-            resolution_rate=payload.get("resolution_rate", 0)
-        )
-
-        if train_resp.get('code') != 0:
-            raise Exception(f"蝉镜训练接口报错：{train_resp}")
+        # 添加重试机制，等待文件在蝉镜服务端处理就绪
+        train_resp = None
+        max_retries = 10
+        retry_delay = 3  # 秒
+        
+        for attempt in range(max_retries):
+            train_resp = api.create_customised_person(
+                name=payload.get("name"),
+                file_id=chanjing_file_id,
+                train_type=payload.get("train_type", "both"),
+                language=payload.get("language", "cn"),
+                error_skip=payload.get("error_skip", False),
+                resolution_rate=payload.get("resolution_rate", 0)
+            )
+            
+            # 如果是"文件未完成上传"错误，等待后重试
+            if train_resp.get('code') == 50000 and '文件还未完成上传' in str(train_resp.get('msg', '')):
+                if attempt < max_retries - 1:
+                    api.logger.warning(f"文件未就绪，等待 {retry_delay}s 后重试 ({attempt + 1}/{max_retries})")
+                    time.sleep(retry_delay)
+                    continue
+                else:
+                    raise Exception(f"蝉镜训练接口报错：文件处理超时，请稍后重试。{train_resp}")
+            elif train_resp.get('code') != 0:
+                raise Exception(f"蝉镜训练接口报错：{train_resp}")
+            else:
+                # 成功
+                break
 
         person_id = train_resp.get('data', {}).get('id')
         if not person_id:

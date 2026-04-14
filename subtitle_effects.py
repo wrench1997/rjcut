@@ -35,8 +35,8 @@ def generate_word_ass(
     effect: str = "karaoke",
     font_name: str = "SimHei",
     font_size: int = 52,
-    res_x: int = 1920,
-    res_y: int = 1080,
+    res_x: int = 1080,   # 竖屏默认宽度
+    res_y: int = 1920,   # 竖屏默认高度
     margin_v: int = 50,
     margin_l: int = 10,
     margin_r: int = 10,
@@ -54,6 +54,10 @@ def generate_word_ass(
     # === 新增：智能粗体控制 ===
     bold: bool = True,
     auto_disable_bold_for_light_fonts: bool = True,
+    # === 新增：精确坐标控制 ===
+    position_x: Optional[int] = None,  # 精确 X 坐标（像素），优先级高于 alignment
+    position_y: Optional[int] = None,  # 精确 Y 坐标（像素），优先级高于 margin_v
+    use_relative_pos: bool = False,    # 是否使用相对坐标 (0-1 之间的小数)
 ) -> str:
     """
     根据逐字时间戳生成 ASS 字幕文件。
@@ -84,6 +88,16 @@ YCbCr Matrix: TV.709
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 """
 
+    # 计算最终坐标
+    if use_relative_pos:
+        # 相对坐标模式 (0-1)
+        final_x = int(position_x * res_x) if position_x is not None else None
+        final_y = int(position_y * res_y) if position_y is not None else None
+    else:
+        # 绝对像素坐标模式
+        final_x = position_x
+        final_y = position_y
+    
     # 根据特效类型定义样式
     if effect == "karaoke":
         header += (
@@ -128,17 +142,17 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             continue
 
         if effect == "karaoke":
-            events.extend(_eff_karaoke(seg, highlight_color))
+            events.extend(_eff_karaoke(seg, highlight_color, final_x, final_y, res_x, res_y))
         elif effect == "highlight":
-            events.extend(_eff_highlight(seg, highlight_color))
+            events.extend(_eff_highlight(seg, highlight_color, final_x, final_y, res_x, res_y))
         elif effect == "typewriter":
-            events.extend(_eff_typewriter(seg, highlight_color))
+            events.extend(_eff_typewriter(seg, highlight_color, final_x, final_y, res_x, res_y))
         elif effect == "bounce":
-            events.extend(_eff_bounce(seg, highlight_color))
+            events.extend(_eff_bounce(seg, highlight_color, final_x, final_y, res_x, res_y))
         elif effect == "ad":
-            events.extend(_eff_ad(seg, highlight_color, ad_keywords, max_chars_per_line))
+            events.extend(_eff_ad(seg, highlight_color, ad_keywords, max_chars_per_line, final_x, final_y, res_x, res_y))
         else:
-            events.extend(_eff_karaoke(seg, highlight_color))
+            events.extend(_eff_karaoke(seg, highlight_color, final_x, final_y, res_x, res_y))
 
     with open(output_path, "w", encoding="utf-8-sig") as f:
         f.write(header)
@@ -150,7 +164,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     return output_path
 
 
-def _eff_karaoke(seg: dict, hl_color: str) -> List[str]:
+def _eff_karaoke(seg: dict, hl_color: str, 
+                 pos_x: Optional[int] = None, pos_y: Optional[int] = None,
+                 res_x: int = 1920, res_y: int = 1080) -> List[str]:
     from video_utils import format_ass_time
     words = seg["words"]
     seg_start = seg["start"]
@@ -166,6 +182,10 @@ def _eff_karaoke(seg: dict, hl_color: str) -> List[str]:
         prev_end = w["end"]
 
     text = "{\\fad(150,300)}" + "".join(parts)
+    
+    # 添加精确坐标
+    if pos_x is not None and pos_y is not None:
+        text = "{\\pos(" + str(pos_x) + "," + str(pos_y) + ")}" + text
 
     return [
         f"Dialogue: 0,{format_ass_time(seg_start)},"
@@ -173,7 +193,9 @@ def _eff_karaoke(seg: dict, hl_color: str) -> List[str]:
     ]
 
 
-def _eff_highlight(seg: dict, hl_color: str) -> List[str]:
+def _eff_highlight(seg: dict, hl_color: str,
+                   pos_x: Optional[int] = None, pos_y: Optional[int] = None,
+                   res_x: int = 1920, res_y: int = 1080) -> List[str]:
     from video_utils import format_ass_time
     words = seg["words"]
     full_text = seg["text"]
@@ -187,6 +209,11 @@ def _eff_highlight(seg: dict, hl_color: str) -> List[str]:
     for w in words:
         positions.append(pos)
         pos += len(w["text"])
+
+    # 构建坐标前缀
+    pos_prefix = ""
+    if pos_x is not None and pos_y is not None:
+        pos_prefix = "{\\pos(" + str(pos_x) + "," + str(pos_y) + ")}"
 
     for i, w in enumerate(words):
         p = positions[i]
@@ -208,7 +235,7 @@ def _eff_highlight(seg: dict, hl_color: str) -> List[str]:
         line_text = "".join(line_parts)
 
         if i == 0:
-            line_text = "{\\fad(200,0)}" + line_text
+            line_text = "{\\fad(200,0)}" + pos_prefix + line_text
         if i == len(words) - 1:
             line_text = "{\\fad(0,300)}" + line_text
 
@@ -223,12 +250,19 @@ def _eff_highlight(seg: dict, hl_color: str) -> List[str]:
     return events
 
 
-def _eff_typewriter(seg: dict, hl_color: str) -> List[str]:
+def _eff_typewriter(seg: dict, hl_color: str,
+                    pos_x: Optional[int] = None, pos_y: Optional[int] = None,
+                    res_x: int = 1920, res_y: int = 1080) -> List[str]:
     from video_utils import format_ass_time
     words = seg["words"]
     seg_end = seg["end"]
     events = []
     hl_bgr = hl_color[4:]
+
+    # 构建坐标前缀
+    pos_prefix = ""
+    if pos_x is not None and pos_y is not None:
+        pos_prefix = "{\\pos(" + str(pos_x) + "," + str(pos_y) + ")}"
 
     for i, w in enumerate(words):
         prev_text = "".join(ww["text"] for ww in words[:i])
@@ -244,7 +278,7 @@ def _eff_typewriter(seg: dict, hl_color: str) -> List[str]:
         display = "".join(display_parts)
 
         if i == 0:
-            display = "{\\fad(150,0)}" + display
+            display = "{\\fad(150,0)}" + pos_prefix + display
 
         start_t = w["start"]
         end_t = words[i + 1]["start"] if i < len(words) - 1 else seg_end + 0.5
@@ -269,7 +303,9 @@ def _eff_typewriter(seg: dict, hl_color: str) -> List[str]:
     return events
 
 
-def _eff_bounce(seg: dict, hl_color: str) -> List[str]:
+def _eff_bounce(seg: dict, hl_color: str,
+                pos_x: Optional[int] = None, pos_y: Optional[int] = None,
+                res_x: int = 1920, res_y: int = 1080) -> List[str]:
     from video_utils import format_ass_time
     words = seg["words"]
     full_text = seg["text"]
@@ -282,6 +318,11 @@ def _eff_bounce(seg: dict, hl_color: str) -> List[str]:
     for w in words:
         positions.append(pos)
         pos += len(w["text"])
+
+    # 构建坐标前缀
+    pos_prefix = ""
+    if pos_x is not None and pos_y is not None:
+        pos_prefix = "{\\pos(" + str(pos_x) + "," + str(pos_y) + ")}"
 
     for i, w in enumerate(words):
         p = positions[i]
@@ -307,7 +348,7 @@ def _eff_bounce(seg: dict, hl_color: str) -> List[str]:
         line_text = "".join(line_parts)
 
         if i == 0:
-            line_text = "{\\fad(150,0)}" + line_text
+            line_text = "{\\fad(150,0)}" + pos_prefix + line_text
         if i == len(words) - 1:
             line_text = "{\\fad(0,300)}" + line_text
 
@@ -424,6 +465,8 @@ def _eff_ad(
     hl_color: str,
     ad_keywords: Optional[List[str]] = None,
     max_chars_per_line: int = 12,
+    pos_x: Optional[int] = None, pos_y: Optional[int] = None,
+    res_x: int = 1920, res_y: int = 1080,
 ) -> List[str]:
     from video_utils import format_ass_time
 
@@ -444,6 +487,11 @@ def _eff_ad(
 
     if not display_text:
         return events
+
+    # 构建坐标前缀
+    pos_prefix = ""
+    if pos_x is not None and pos_y is not None:
+        pos_prefix = "{\\pos(" + str(pos_x) + "," + str(pos_y) + ")}"
 
     for i, w in enumerate(words):
         p = positions[i]
@@ -487,7 +535,7 @@ def _eff_ad(
         line_text = "".join(line_parts)
 
         if i == 0:
-            line_text = "{\\fad(80,0)}" + line_text
+            line_text = "{\\fad(80,0)}" + pos_prefix + line_text
         if i == len(words) - 1:
             line_text = "{\\fad(0,120)}" + line_text
 
@@ -528,6 +576,10 @@ def burn_whisper_subtitle(
     corrections: Optional[Dict[str, str]] = None,
     corrections_file: Optional[str] = None,
     ad_keywords: Optional[List[str]] = None,
+    # === 新增：精确坐标控制 ===
+    position_x: Optional[int] = None,   # 精确 X 坐标（像素），如 960 表示水平居中 (1920 分辨率下)
+    position_y: Optional[int] = None,   # 精确 Y 坐标（像素），如 900 表示垂直方向 900px
+    use_relative_pos: bool = False,     # 是否使用相对坐标 (0-1 之间的小数)
 ) -> str:
     import subprocess
     import shutil
@@ -613,6 +665,9 @@ def burn_whisper_subtitle(
             max_chars_per_line=max_chars_per_line,
             bold=prefer_bold,  # 关键：不再无脑强制粗体
             auto_disable_bold_for_light_fonts=True,
+            position_x=position_x,
+            position_y=position_y,
+            use_relative_pos=use_relative_pos,
         )
 
         # ── 烧录 ASS ──

@@ -22,6 +22,15 @@ OUTPUT_DIR="./draft_output"
 PARTS_DIR="$OUTPUT_DIR/parts"
 FINAL_DIR="$OUTPUT_DIR/final"
 
+# --- 🆕 字幕精确坐标控制 ---
+# 可选值：
+#   - 留空：使用默认 alignment + margin 定位
+#   - 绝对像素：如 position_x=540, position_y=1500 (1080x1920 竖屏分辨率下)
+#   - 相对坐标：use_relative_pos=true, position_x=0.5, position_y=0.75
+SUBTITLE_POSITION_X=${SUBTITLE_POSITION_X:-""}
+SUBTITLE_POSITION_Y=${SUBTITLE_POSITION_Y:-""}
+SUBTITLE_USE_RELATIVE_POS=${SUBTITLE_USE_RELATIVE_POS:-"false"}
+
 if [ ! -f "$VIDEO_FILE" ]; then
   echo "❌ 找不到主视频文件：$VIDEO_FILE"
   exit 1
@@ -662,7 +671,10 @@ EOF
   },
   "subtitle": {
     "effect": "ad",
-    "font_size": 88
+    "font_size": 88,
+    "position_x": ${SUBTITLE_POSITION_X:-null},
+    "position_y": ${SUBTITLE_POSITION_Y:-null},
+    "use_relative_pos": ${SUBTITLE_USE_RELATIVE_POS:-false}
   },
   "audio": {
     "bgm_url": "$BGM_OSS_KEY",

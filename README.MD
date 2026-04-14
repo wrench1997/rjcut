@@ -200,6 +200,9 @@ Authorization: Bearer YOUR_API_KEY
 | margin_r | int | 否 | 10 | 右边距 |
 | offset_x | int | 否 | 0 | 水平偏移 |
 | offset_y | int | 否 | 0 | 垂直偏移 |
+| **position_x** | **int** | **否** | **null** | **🆕 精确 X 坐标（像素），优先级高于 position/offset_x** |
+| **position_y** | **int** | **否** | **null** | **🆕 精确 Y 坐标（像素），优先级高于 margin_v/offset_y** |
+| **use_relative_pos** | **bool** | **否** | **false** | **🆕 是否使用相对坐标 (0-1)，如 0.5 表示 50% 位置** |
 
 ### callback
 | 字段 | 类型 | 必填 | 说明 |
@@ -502,6 +505,226 @@ X-Signature: SHA256(payload_json + secret)
 
 ---
 
+# 9. 🆕 字幕精确坐标控制
+
+为了更精细地控制字幕在视频中的位置，系统支持**像素级精确坐标**和**相对坐标**两种模式。
+
+## 9.7 API 调用示例
+
+### 示例 1：使用绝对像素坐标（1080x1920 竖屏视频）
+
+```bash
+curl -X POST "http://your-domain.com:8080/v1/tasks/agent-compose" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": {
+      "video_url": "https://cdn.example.com/input/video.mp4",
+      "script_url": "https://cdn.example.com/input/script.json"
+    },
+    "subtitle": {
+      "effect": "ad",
+      "font_size": 88,
+      "position_x": 540,
+      "position_y": 1500,
+      "use_relative_pos": false
+    }
+  }'
+```
+
+### 示例 2：使用相对坐标（推荐，适配不同分辨率）
+
+```bash
+curl -X POST "http://your-domain.com:8080/v1/tasks/agent-compose" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": {
+      "video_url": "https://cdn.example.com/input/video.mp4",
+      "script_url": "https://cdn.example.com/input/script.json"
+    },
+    "subtitle": {
+      "effect": "highlight",
+      "font_size": 72,
+      "position_x": 0.5,
+      "position_y": 0.7,
+      "use_relative_pos": true
+    }
+  }'
+```
+
+### 示例 3：Python SDK 调用
+
+```python
+import requests
+
+BASE_URL = "http://your-domain.com:8080"
+API_KEY = "YOUR_API_KEY"
+
+# 提交任务
+response = requests.post(
+    f"{BASE_URL}/v1/tasks/agent-compose",
+    headers={"Authorization": f"Bearer {API_KEY}"},
+    json={
+        "input": {
+            "video_url": "https://cdn.example.com/input/video.mp4",
+            "script_url": "https://cdn.example.com/input/script.json"
+        },
+        "subtitle": {
+            "effect": "karaoke",
+            "font_size": 64,
+            # 相对坐标：水平居中，垂直 75% 位置
+            "position_x": 0.5,
+            "position_y": 0.75,
+            "use_relative_pos": True
+        }
+    }
+)
+
+task_id = response.json()["data"]["task_id"]
+print(f"任务已提交：{task_id}")
+```
+
+### 示例 4：Shell 脚本环境变量配置
+
+```bash
+#!/bin/bash
+
+# 字幕位置配置
+export SUBTITLE_POSITION_X=0.5      # 水平居中
+export SUBTITLE_POSITION_Y=0.75     # 垂直 75% 位置
+export SUBTITLE_USE_RELATIVE_POS=true
+
+# 运行草稿任务
+./run_draft_full.sh ./input_video.mp4
+```
+
+## 9.1 为什么需要精确坐标？
+
+传统的 `alignment` + `margin` 定位方式存在以下限制：
+- ❌ 无法精确指定字幕的像素位置
+- ❌ 不同分辨率下位置不一致
+- ❌ 无法实现特殊的排版效果（如弧形、波浪等）
+
+新的精确坐标控制支持：
+- ✅ **像素级定位** - 直接指定 `(x, y)` 坐标
+- ✅ **相对坐标** - 使用 0-1 的小数，自动适配不同分辨率
+- ✅ **优先级覆盖** - 精确坐标优先级高于传统参数
+
+## 9.2 坐标系统说明
+
+```
+(0,0) ┌─────────────────────┐ (1080, 0)
+      │                     │
+      │                     │
+      │                     │
+      │     视频画面         │
+      │    (竖屏 1080x1920)   │
+      │                     │
+      │                     │
+      │                     │
+(0,1920) └─────────────────────┘ (1080, 1920)
+
+示例（1080x1920 竖屏分辨率）：
+  - 左上角：x=0, y=0
+  - 右上角：x=1080, y=0
+  - 左下角：x=0, y=1920
+  - 右下角：x=1080, y=1920
+  - 正中心：x=540, y=960
+```
+
+## 9.3 使用方式
+
+### 方式 1：绝对像素坐标
+
+直接指定字幕的像素坐标位置：
+
+```json
+{
+  "subtitle": {
+    "effect": "ad",
+    "font_size": 88,
+    
+    // 精确坐标控制（1080x1920 竖屏分辨率下）
+    "position_x": 540,   // 水平居中
+    "position_y": 1500,  // 垂直 1500px 位置（偏下，适合字幕）
+    "use_relative_pos": false
+  }
+}
+```
+
+### 方式 2：相对坐标（推荐）
+
+使用 0-1 之间的小数，自动适配不同分辨率：
+
+```json
+{
+  "subtitle": {
+    "effect": "ad",
+    "font_size": 88,
+    
+    // 相对坐标模式
+    "position_x": 0.5,   // 水平 50% 位置（居中）
+    "position_y": 0.75,  // 垂直 75% 位置
+    "use_relative_pos": true
+  }
+}
+```
+
+### 方式 3：常见位置预设（竖屏 1080x1920）
+
+| 位置描述 | position_x | position_y | 绝对坐标示例 | 说明 |
+|---------|-----------|-----------|-------------|------|
+| 顶部居中 | 0.5 | 0.1 | (540, 192) | 适合标题、品牌名 |
+| 中央居中 | 0.5 | 0.5 | (540, 960) | 适合强调文字 |
+| 底部居中 | 0.5 | 0.75 | (540, 1440) | 适合字幕（推荐） |
+| 底部居中 | 0.5 | 0.8 | (540, 1536) | 适合字幕（偏下） |
+| 左下角 | 0.1 | 0.75 | (108, 1440) | 适合标注 |
+| 右下角 | 0.9 | 0.75 | (972, 1440) | 适合水印 |
+
+## 9.4 Shell 脚本使用示例
+
+在 `run_draft_full.sh` 中配置：
+
+```bash
+# 绝对像素坐标
+export SUBTITLE_POSITION_X=960
+export SUBTITLE_POSITION_Y=800
+export SUBTITLE_USE_RELATIVE_POS=false
+
+# 或相对坐标
+export SUBTITLE_POSITION_X=0.5
+export SUBTITLE_POSITION_Y=0.75
+export SUBTITLE_USE_RELATIVE_POS=true
+
+./run_draft_full.sh
+```
+
+## 9.5 参数优先级
+
+当同时设置多种定位参数时，优先级如下：
+
+```
+精确坐标 (position_x/y) > 传统参数 (alignment/margin/offset)
+```
+
+即：
+- 如果设置了 `position_x` 和 `position_y`，则忽略 `alignment`、`margin_v`、`offset_x`、`offset_y`
+- 如果未设置精确坐标，则使用传统参数定位
+
+## 9.6 注意事项
+
+1. **坐标原点**：视频左上角为 `(0, 0)`
+2. **分辨率适配**：建议使用相对坐标，可自动适配不同分辨率
+3. **字幕边界**：确保坐标不会导致字幕超出画面
+4. **多行字幕**：当前坐标指字幕区域的基准位置
+
+---
+
+# 10. OpenCut 接入建议
+
+---
+
 # 9. OpenCut 接入建议
 
 OpenCut 或其他平台建议按以下流程接入：
@@ -519,7 +742,7 @@ OpenCut 或其他平台建议按以下流程接入：
 
 ---
 
-# 10. 常见错误码
+# 11. 常见错误码
 
 | code | 含义 |
 |---:|---|
@@ -542,7 +765,7 @@ OpenCut 或其他平台建议按以下流程接入：
 ---
 
 
-# 12. 部署说明
+# 13. 部署说明
 
 ## 安装依赖
 ```bash
@@ -562,7 +785,7 @@ API_KEYS=test_key_123 uvicorn api_service:app --host 0.0.0.0 --port 8080
 
 ---
 
-# 13. 完整调用示例
+# 14. 完整调用示例
 
 ## 1）提交任务
 ```bash
