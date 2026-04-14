@@ -1,0 +1,1717 @@
+basePath: /open/v1
+definitions:
+  common.AudioInfoRspItemV2:
+    properties:
+      duration:
+        type: number
+      path:
+        type: string
+      url:
+        type: string
+      watermark_url:
+        type: string
+    type: object
+  common.Keywords:
+    properties:
+      level:
+        type: integer
+      text:
+        type: string
+    type: object
+  common.SubtitlesRsp:
+    properties:
+      alt_subtitle:
+        description: 副语言
+        type: string
+      end_time:
+        description: 这里的单位是秒
+        type: number
+      key:
+        type: string
+      keywords:
+        items:
+          $ref: '#/definitions/common.Keywords'
+        type: array
+      start_time:
+        description: 这里的单位是秒
+        type: number
+      subtitle:
+        type: string
+      subtitle_tag:
+        description: 原带标签的文本
+        type: string
+      words:
+        items:
+          $ref: '#/definitions/common.SubtitlesWord'
+        type: array
+    type: object
+  common.SubtitlesWord:
+    properties:
+      endTime:
+        format: float64
+        type: number
+      startTime:
+        format: float64
+        type: number
+      text:
+        type: string
+    type: object
+  dto.CreateCustomAudioArg:
+    properties:
+      callback:
+        type: string
+      denoise_flag:
+        description: 降噪参数
+        type: boolean
+      language:
+        type: string
+      language_boost:
+        type: string
+      model_type:
+        type: string
+      name:
+        type: string
+      text:
+        type: string
+      url:
+        type: string
+    required:
+    - name
+    - url
+    type: object
+  dto.DeleteCustomAudioMan:
+    properties:
+      id:
+        type: string
+    type: object
+  dto.DeleteCustomBasePerson:
+    properties:
+      id:
+        type: string
+    type: object
+  dto.DoOpenCommonDpFigures:
+    properties:
+      bg_replace:
+        description: 是否支持替换背景
+        type: boolean
+      cover:
+        description: 封面
+        type: string
+      height:
+        description: 数字人高
+        type: integer
+      preview_video_url:
+        description: 原始预览视频位置
+        type: string
+      type:
+        type: string
+      width:
+        description: 数字人宽
+        type: integer
+    type: object
+  dto.DpOpenCommonAudioManListRsp:
+    properties:
+      list:
+        items:
+          $ref: '#/definitions/dto.DpOpenCommonAudioManRspData'
+        type: array
+      page_info:
+        $ref: '#/definitions/dto.PageInfo'
+    type: object
+  dto.DpOpenCommonAudioManRspData:
+    properties:
+      audition:
+        type: string
+      desc:
+        type: string
+      gender:
+        type: string
+      grade:
+        type: integer
+      id:
+        type: string
+      lang:
+        type: string
+      name:
+        type: string
+      pitch:
+        description: 语调
+        type: number
+      speed:
+        description: 语速
+        type: number
+    type: object
+  dto.DpOpenCommonDigitalPersonListRsp:
+    properties:
+      list:
+        items:
+          $ref: '#/definitions/dto.DpOpenCommonDigitalPersonRspData'
+        type: array
+      page_info:
+        $ref: '#/definitions/dto.PageInfo'
+    type: object
+  dto.DpOpenCommonDigitalPersonRspData:
+    properties:
+      audio_lang:
+        type: string
+      audio_man_id:
+        description: 声音id
+        type: string
+      audio_name:
+        type: string
+      audio_preview:
+        type: string
+      figures:
+        description: 数字人形象列表
+        items:
+          $ref: '#/definitions/dto.DoOpenCommonDpFigures'
+        type: array
+      gender:
+        type: string
+      id:
+        type: string
+      name:
+        description: 数字人名称
+        type: string
+    type: object
+  dto.DpOpenCreateVideo:
+    properties:
+      add_compliance_watermark:
+        description: 是否添加合规水印
+        type: boolean
+      audio:
+        properties:
+          file_id:
+            type: string
+          language:
+            type: string
+          language_boost:
+            type: string
+          tts:
+            properties:
+              audio_man:
+                description: 声音id
+                type: string
+              pitch:
+                type: number
+              speed:
+                type: number
+              text:
+                items:
+                  type: string
+                type: array
+            type: object
+          type:
+            description: 生成声音类型，当前默认tts表示通过tts文本生成。audio表示通过音频文件生成。
+            enum:
+            - tts
+            - audio
+            type: string
+          volume:
+            type: integer
+          wav_url:
+            type: string
+        required:
+        - type
+        type: object
+      bg:
+        allOf:
+        - $ref: '#/definitions/dto.DpOpenObjItem'
+        description: 背景设置
+      bg_color:
+        type: string
+      callback:
+        type: string
+      compliance_watermark_position:
+        type: integer
+      duration:
+        type: number
+      hide_subtitle:
+        type: boolean
+      model:
+        description: 0基础版、1高质版
+        type: integer
+      person:
+        properties:
+          backway:
+            description: 正反播 1正2反
+            type: integer
+          drive_mode:
+            description: 驱动模式。支持正常顺序驱动""，和随机帧动作驱动random。默认正常顺序驱动
+            type: string
+          figure_type:
+            type: string
+          height:
+            type: integer
+          id:
+            description: 数字人id
+            type: string
+          is_rgba_mode:
+            description: 是否驱动四通道webm 视频。注意事项：1. 需要数字人是 webm 格式四通道视频定制的 2. 2025年2月8号以及之后定制的数字人开始生效。
+              3. 该方式生成的数字人合成视频不含字幕以及背景
+            type: boolean
+          width:
+            type: integer
+          x:
+            description: x位置
+            type: integer
+          "y":
+            description: y位置
+            type: integer
+        type: object
+      resolution_rate:
+        description: 0:1080p 1:4k
+        type: integer
+      screen_height:
+        type: integer
+      screen_width:
+        type: integer
+      source:
+        $ref: '#/definitions/enums.DpOpenSourceType'
+      subtitle_config:
+        allOf:
+        - $ref: '#/definitions/dto.DpOpenSubtitleConfig'
+        description: 字幕设置
+    type: object
+  dto.DpOpenCustomListReq:
+    properties:
+      id:
+        type: string
+      page:
+        type: integer
+      page_size:
+        type: integer
+      source:
+        allOf:
+        - $ref: '#/definitions/enums.DpOpenSourceType'
+        description: 数字人来源 不传递默认为 API 来源
+    type: object
+  dto.DpOpenCustomSubmitReq:
+    properties:
+      auth_text:
+        description: 授权文案
+        type: string
+      auth_video:
+        type: string
+      auth_video_file_id:
+        description: 授权视频file_id
+        type: string
+      callback:
+        type: string
+      denoise_flag:
+        description: 降噪参数
+        type: boolean
+      error_skip:
+        description: 目前支持跳过声音克隆失败,跳过后定制数字人列表/详情的audio_id将为空值
+        type: boolean
+      file_id:
+        type: string
+      is_high_quality:
+        type: boolean
+      language:
+        type: string
+      language_boost:
+        type: string
+      material_video:
+        type: string
+      name:
+        type: string
+      resolution_rate:
+        description: 0:1080p，1:4k
+        type: integer
+      train_type:
+        type: string
+      version:
+        description: 版本，默认1.0，2.0(需要上传授权视频和授权文案)
+        type: string
+    required:
+    - name
+    type: object
+  dto.DpOpenCustomisedAudioManListRsp:
+    properties:
+      list:
+        items:
+          $ref: '#/definitions/dto.DpOpenCustomisedAudioManRsp'
+        type: array
+      page_info:
+        $ref: '#/definitions/dto.PageInfo'
+    type: object
+  dto.DpOpenCustomisedAudioManRsp:
+    properties:
+      audio_path:
+        type: string
+      err_msg:
+        type: string
+      id:
+        type: string
+      lang:
+        type: string
+      name:
+        type: string
+      progress:
+        type: integer
+      status:
+        type: integer
+      type:
+        type: string
+    type: object
+  dto.DpOpenCustomisedListRsp:
+    properties:
+      list:
+        items:
+          $ref: '#/definitions/dto.DpOpenCustomisedPersonItemRspData'
+        type: array
+      page_info:
+        $ref: '#/definitions/dto.PageInfo'
+    type: object
+  dto.DpOpenCustomisedPersonItemRspData:
+    properties:
+      audio_man_id:
+        type: string
+      create_time:
+        type: integer
+      err_reason:
+        type: string
+      height:
+        type: integer
+      height_4k:
+        type: integer
+      id:
+        type: string
+      is_open:
+        description: 是否启用 0禁用 1启用
+        type: integer
+      name:
+        type: string
+      pic_url:
+        type: string
+      preview_url:
+        type: string
+      progress:
+        type: integer
+      reason:
+        description: 禁用原因
+        type: string
+      status:
+        description: 0定制中 1已完成
+        type: integer
+      support_4k:
+        description: 是否支持合成4k视频
+        type: boolean
+      type:
+        description: 数字人固定person
+        type: string
+      width:
+        type: integer
+      width_4k:
+        type: integer
+    type: object
+  dto.DpOpenDeleteVideo:
+    properties:
+      id:
+        type: string
+    required:
+    - id
+    type: object
+  dto.DpOpenFileDeleteReq:
+    properties:
+      id:
+        type: string
+    type: object
+  dto.DpOpenFileItemRspData:
+    properties:
+      bytes:
+        type: integer
+      create_time:
+        type: integer
+      file_path:
+        type: string
+      id:
+        type: string
+      msg:
+        type: string
+      service:
+        type: string
+      status:
+        type: integer
+    type: object
+  dto.DpOpenFileListReq:
+    properties:
+      id:
+        type: string
+      order:
+        type: string
+      page:
+        type: integer
+      page_size:
+        type: integer
+      service:
+        type: string
+    type: object
+  dto.DpOpenFileListRsp:
+    properties:
+      list:
+        items:
+          $ref: '#/definitions/dto.DpOpenFileItemRspData'
+        type: array
+      page_info:
+        $ref: '#/definitions/dto.PageInfo'
+    type: object
+  dto.DpOpenFontData:
+    properties:
+      id:
+        type: string
+      name:
+        type: string
+      preview:
+        type: string
+      ttf_path:
+        type: string
+    type: object
+  dto.DpOpenObjItem:
+    properties:
+      file_id:
+        type: string
+      height:
+        type: integer
+      src_url:
+        type: string
+      width:
+        type: integer
+      x:
+        type: integer
+      "y":
+        type: integer
+    type: object
+  dto.DpOpenSubtitleAsrResult:
+    properties:
+      begin_time:
+        type: integer
+      end_time:
+        type: integer
+      text:
+        type: string
+    type: object
+  dto.DpOpenSubtitleConfig:
+    properties:
+      asr_type:
+        description: 0 自动生成 1 用户上传
+        type: integer
+      color:
+        type: string
+      disableTrack:
+        description: 不合并到轨道中
+        type: boolean
+      font_id:
+        type: string
+      font_size:
+        type: integer
+      height:
+        type: integer
+      show:
+        type: boolean
+      stroke_color:
+        type: string
+      stroke_width:
+        type: number
+      subtitles:
+        description: 用户上传的asr结果
+        items:
+          $ref: '#/definitions/dto.DpOpenSubtitleAsrResult'
+        type: array
+      width:
+        type: integer
+      x:
+        type: integer
+      "y":
+        type: integer
+    type: object
+  dto.DpOpenVideoListInfo:
+    properties:
+      audio_urls:
+        items:
+          type: string
+        type: array
+      create_time:
+        type: integer
+      duration:
+        type: integer
+      id:
+        type: string
+      msg:
+        type: string
+      preview_url:
+        type: string
+      progress:
+        type: integer
+      status:
+        type: integer
+      subtitle_data_url:
+        description: 字幕文件地址
+        type: string
+      video_url:
+        description: 视频地址
+        type: string
+    type: object
+  dto.DpOpenVideoListReq:
+    properties:
+      page:
+        type: integer
+      page_size:
+        type: integer
+    type: object
+  dto.DpOpenVideoListResp:
+    properties:
+      list:
+        items:
+          $ref: '#/definitions/dto.DpOpenVideoListInfo'
+        type: array
+      pageInfo:
+        $ref: '#/definitions/dto.PageInfo'
+    type: object
+  dto.LipSyncProjectCreateReq:
+    properties:
+      audio_file_id:
+        type: string
+      audio_type:
+        type: string
+      backway:
+        description: 指定数字人驱动到素材末尾的播放顺序，1正放，2倒放
+        type: integer
+      callback:
+        type: string
+      drive_mode:
+        type: string
+      model:
+        type: integer
+      screen_height:
+        type: integer
+      screen_width:
+        type: integer
+      tts_config:
+        $ref: '#/definitions/dto.LipSyncProjectTtsConfigReq'
+      video_file_id:
+        type: string
+      volume:
+        type: integer
+    type: object
+  dto.LipSyncProjectInfo:
+    properties:
+      create_time:
+        type: integer
+      duration:
+        type: integer
+      id:
+        type: string
+      msg:
+        type: string
+      preview_url:
+        type: string
+      progress:
+        type: integer
+      status:
+        type: integer
+      video_url:
+        type: string
+    type: object
+  dto.LipSyncProjectListReq:
+    properties:
+      page:
+        type: integer
+      page_size:
+        type: integer
+    type: object
+  dto.LipSyncProjectListResp:
+    properties:
+      list:
+        items:
+          $ref: '#/definitions/dto.LipSyncProjectInfo'
+        type: array
+      pageInfo:
+        $ref: '#/definitions/dto.PageInfo'
+    type: object
+  dto.LipSyncProjectTtsConfigReq:
+    properties:
+      audio_man_id:
+        type: string
+      pitch:
+        type: number
+      speed:
+        type: number
+      text:
+        items:
+          type: string
+        type: array
+    type: object
+  dto.OpenAccessTokenReq:
+    properties:
+      app_id:
+        type: string
+      secret_key:
+        type: string
+    required:
+    - app_id
+    - secret_key
+    type: object
+  dto.OpenAccessTokenResp:
+    properties:
+      access_token:
+        type: string
+      expire_in:
+        description: 过期时间
+        type: integer
+    type: object
+  dto.OpenAppInfo:
+    properties:
+      custom_person_limit:
+        type: integer
+      custom_person_nums:
+        type: integer
+      id:
+        type: string
+      name:
+        type: string
+      video_create_limit:
+        type: integer
+      video_create_seconds:
+        type: integer
+    type: object
+  dto.OpenAudioTaskStateReq:
+    properties:
+      task_id:
+        description: 语音合成任务id
+        type: string
+    type: object
+  dto.OpenAudioTaskStateRsp:
+    properties:
+      errMsg:
+        type: string
+      errReason:
+        type: string
+      focus_titles:
+        description: 自动字幕重点
+        items:
+          $ref: '#/definitions/common.SubtitlesRsp'
+        type: array
+      full:
+        $ref: '#/definitions/common.AudioInfoRspItemV2'
+      id:
+        type: string
+      key:
+        description: 前端用于定位
+        type: string
+      plain_text:
+        type: string
+      slice:
+        items:
+          $ref: '#/definitions/common.AudioInfoRspItemV2'
+        type: array
+      status:
+        type: integer
+      subtitles:
+        description: 这个会有延迟 用key来兜底
+        items:
+          $ref: '#/definitions/common.SubtitlesRsp'
+        type: array
+      text:
+        items:
+          type: string
+        type: array
+      type:
+        type: string
+    type: object
+  dto.OpenTextToSpeechReq:
+    properties:
+      aigc_watermark:
+        type: boolean
+      audio_man:
+        type: string
+      callback:
+        type: string
+      font_size:
+        type: integer
+      height:
+        type: integer
+      language_boost:
+        type: string
+      mss:
+        type: integer
+      pitch:
+        type: number
+      prompt_audio:
+        description: 通过文件上传接口得到
+        type: string
+      speed:
+        type: number
+      text:
+        $ref: '#/definitions/dto.TextToSpeechItem'
+      width:
+        type: integer
+    required:
+    - audio_man
+    - speed
+    type: object
+  dto.OpenTextToSpeechRes:
+    properties:
+      task_id:
+        type: string
+    type: object
+  dto.OpenUserDurationRsp:
+    properties:
+      bean_day30:
+        description: 近30天过期
+        type: integer
+      resi_total_bean:
+        description: 剩余蝉豆总蝉豆
+        type: integer
+    type: object
+  dto.PageInfo:
+    properties:
+      page:
+        type: integer
+      size:
+        type: integer
+      total_count:
+        type: integer
+      total_page:
+        type: integer
+    type: object
+  dto.TextToSpeechItem:
+    properties:
+      plain_text:
+        description: 原文本
+        type: string
+      text:
+        description: 富文本
+        type: string
+    required:
+    - text
+    type: object
+  echo.JSON:
+    properties:
+      code:
+        type: integer
+      data: {}
+      msg:
+        type: string
+      trace_id:
+        type: string
+    type: object
+  enums.DpOpenSourceType:
+    enum:
+    - 0
+    - 1
+    format: int32
+    type: integer
+    x-enum-comments:
+      DpOpenSourceTypeAPI: API 定制数字人
+      DpOpenSourceTypeWeb: Web 定制数字人
+    x-enum-descriptions:
+    - API 定制数字人
+    - Web 定制数字人
+    x-enum-varnames:
+    - DpOpenSourceTypeAPI
+    - DpOpenSourceTypeWeb
+host: open.chanjing.cc
+info:
+  contact: {}
+  description: 蝉镜数字人开放平台接口文档
+  title: 蝉镜开放平台 API
+  version: "1.0"
+paths:
+  /access_token:
+    post:
+      consumes:
+      - application/json
+      description: 通过 app_id 和 secret_key 获取接口调用凭证
+      parameters:
+      - description: 请求参数
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.OpenAccessTokenReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/echo.JSON'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.OpenAccessTokenResp'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/echo.JSON'
+      summary: 获取 Access Token
+      tags:
+      - 认证
+  /audio_task_state:
+    post:
+      consumes:
+      - application/json
+      description: 根据任务ID查询语音合成任务的当前状态
+      parameters:
+      - description: 任务状态查询参数
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.OpenAudioTaskStateReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 任务状态
+          schema:
+            allOf:
+            - $ref: '#/definitions/echo.JSON'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.OpenAudioTaskStateRsp'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/echo.JSON'
+      security:
+      - AccessToken: []
+      summary: 获取语音合成任务状态
+      tags:
+      - 语音生成
+  /common/create_upload_url:
+    get:
+      description: 获取OSS预签名URL，用于客户端直传文件
+      parameters:
+      - description: 服务类型
+        in: query
+        name: service
+        required: true
+        type: string
+      - description: 文件名
+        in: query
+        name: name
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 上传链接信息
+          schema:
+            $ref: '#/definitions/echo.JSON'
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/echo.JSON'
+      security:
+      - AccessToken: []
+      summary: 获取文件上传链接
+      tags:
+      - 文件管理
+  /common/delete_file:
+    post:
+      consumes:
+      - application/json
+      description: 根据文件ID删除已上传的文件
+      parameters:
+      - description: 删除参数
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.DpOpenFileDeleteReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 删除成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/echo.JSON'
+            - properties:
+                data:
+                  type: string
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/echo.JSON'
+      security:
+      - AccessToken: []
+      summary: 删除文件
+      tags:
+      - 文件管理
+  /common/file_detail:
+    get:
+      description: 根据文件ID获取单个文件的详细信息
+      parameters:
+      - description: 文件ID
+        in: query
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 文件详情
+          schema:
+            allOf:
+            - $ref: '#/definitions/echo.JSON'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.DpOpenFileItemRspData'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/echo.JSON'
+      security:
+      - AccessToken: []
+      summary: 获取文件详情
+      tags:
+      - 文件管理
+  /common/file_list:
+    post:
+      consumes:
+      - application/json
+      description: 分页获取当前用户上传的文件列表
+      parameters:
+      - description: 查询参数
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.DpOpenFileListReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 文件列表
+          schema:
+            allOf:
+            - $ref: '#/definitions/echo.JSON'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.DpOpenFileListRsp'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/echo.JSON'
+      security:
+      - AccessToken: []
+      summary: 获取文件列表
+      tags:
+      - 文件管理
+  /create_audio_task:
+    post:
+      consumes:
+      - application/json
+      description: 通过文本和声音配置创建语音合成任务
+      parameters:
+      - description: 语音合成参数
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.OpenTextToSpeechReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 返回任务信息
+          schema:
+            allOf:
+            - $ref: '#/definitions/echo.JSON'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.OpenTextToSpeechRes'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/echo.JSON'
+      security:
+      - AccessToken: []
+      summary: 创建语音合成任务
+      tags:
+      - 语音生成
+  /create_audio_task_v2:
+    post:
+      consumes:
+      - application/json
+      description: 语音合成任务V2版本，支持音色转换、取消字幕打轴等功能
+      parameters:
+      - description: 语音合成参数
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.OpenTextToSpeechReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 返回任务信息
+          schema:
+            allOf:
+            - $ref: '#/definitions/echo.JSON'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.OpenTextToSpeechRes'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/echo.JSON'
+      security:
+      - AccessToken: []
+      summary: 创建语音合成任务V2
+      tags:
+      - 语音生成
+  /create_customised_audio:
+    post:
+      consumes:
+      - application/json
+      description: 提交定制声音任务，通过音频URL进行声音克隆
+      parameters:
+      - description: 定制声音参数
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.CreateCustomAudioArg'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 返回定制声音ID
+          schema:
+            allOf:
+            - $ref: '#/definitions/echo.JSON'
+            - properties:
+                data:
+                  type: string
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/echo.JSON'
+      security:
+      - AccessToken: []
+      summary: 创建定制声音
+      tags:
+      - 定制声音
+  /create_customised_person:
+    post:
+      consumes:
+      - application/json
+      description: 提交定制基础数字人任务，支持通过素材视频或file_id上传
+      parameters:
+      - description: 定制数字人参数
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.DpOpenCustomSubmitReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 返回定制数字人ID
+          schema:
+            allOf:
+            - $ref: '#/definitions/echo.JSON'
+            - properties:
+                data:
+                  type: string
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/echo.JSON'
+      security:
+      - AccessToken: []
+      summary: 创建定制数字人
+      tags:
+      - 定制数字人
+  /create_video:
+    post:
+      consumes:
+      - application/json
+      description: 提交视频合成任务，包含数字人、音频、背景等配置
+      parameters:
+      - description: 视频创建参数
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.DpOpenCreateVideo'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 返回任务ID
+          schema:
+            allOf:
+            - $ref: '#/definitions/echo.JSON'
+            - properties:
+                data:
+                  type: string
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/echo.JSON'
+      security:
+      - AccessToken: []
+      summary: 创建合成视频任务
+      tags:
+      - 视频合成
+  /customised_audio:
+    get:
+      consumes:
+      - application/json
+      description: 根据ID获取单个定制声音的详细信息
+      parameters:
+      - description: 定制声音ID
+        in: query
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 定制声音详情
+          schema:
+            allOf:
+            - $ref: '#/definitions/echo.JSON'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.DpOpenCustomisedAudioManRsp'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/echo.JSON'
+      security:
+      - AccessToken: []
+      summary: 获取定制声音详情
+      tags:
+      - 定制声音
+  /customised_person:
+    get:
+      consumes:
+      - application/json
+      description: 根据ID获取单个定制数字人的详细信息
+      parameters:
+      - description: 定制数字人ID
+        in: query
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 定制数字人详情
+          schema:
+            allOf:
+            - $ref: '#/definitions/echo.JSON'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.DpOpenCustomisedPersonItemRspData'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/echo.JSON'
+      security:
+      - AccessToken: []
+      summary: 获取定制数字人详情
+      tags:
+      - 定制数字人
+  /delete_customised_audio:
+    post:
+      consumes:
+      - application/json
+      description: 根据ID删除定制声音
+      parameters:
+      - description: 删除参数
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.DeleteCustomAudioMan'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 返回被删除的定制声音ID
+          schema:
+            allOf:
+            - $ref: '#/definitions/echo.JSON'
+            - properties:
+                data:
+                  type: string
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/echo.JSON'
+      security:
+      - AccessToken: []
+      summary: 删除定制声音
+      tags:
+      - 定制声音
+  /delete_customised_person:
+    post:
+      consumes:
+      - application/json
+      description: 根据ID删除定制数字人
+      parameters:
+      - description: 删除参数
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.DeleteCustomBasePerson'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 返回被删除的数字人ID
+          schema:
+            allOf:
+            - $ref: '#/definitions/echo.JSON'
+            - properties:
+                data:
+                  type: string
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/echo.JSON'
+      security:
+      - AccessToken: []
+      summary: 删除定制数字人
+      tags:
+      - 定制数字人
+  /delete_video:
+    post:
+      consumes:
+      - application/json
+      description: 根据视频ID删除已创建的视频任务
+      parameters:
+      - description: 删除视频参数
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.DpOpenDeleteVideo'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 返回被删除的视频ID
+          schema:
+            allOf:
+            - $ref: '#/definitions/echo.JSON'
+            - properties:
+                data:
+                  type: string
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/echo.JSON'
+      security:
+      - AccessToken: []
+      summary: 删除视频
+      tags:
+      - 视频合成
+  /font_list:
+    get:
+      description: 获取平台支持的字体列表
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 字体列表
+          schema:
+            allOf:
+            - $ref: '#/definitions/echo.JSON'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/dto.DpOpenFontData'
+                  type: array
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/echo.JSON'
+      security:
+      - AccessToken: []
+      summary: 获取字体列表
+      tags:
+      - 公共资源
+  /list_common_audio:
+    get:
+      description: 分页获取平台提供的公共声音人资源
+      parameters:
+      - description: 页码
+        in: query
+        name: page
+        type: integer
+      - description: 每页数量
+        in: query
+        name: size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 公共声音人列表
+          schema:
+            allOf:
+            - $ref: '#/definitions/echo.JSON'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.DpOpenCommonAudioManListRsp'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/echo.JSON'
+      security:
+      - AccessToken: []
+      summary: 获取公共声音人列表
+      tags:
+      - 公共资源
+  /list_common_dp:
+    get:
+      description: 分页获取平台提供的公共数字人资源
+      parameters:
+      - description: 页码
+        in: query
+        name: page
+        type: integer
+      - description: 每页数量
+        in: query
+        name: size
+        type: integer
+      - description: 来源
+        in: query
+        name: source
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 公共数字人列表
+          schema:
+            allOf:
+            - $ref: '#/definitions/echo.JSON'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.DpOpenCommonDigitalPersonListRsp'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/echo.JSON'
+      security:
+      - AccessToken: []
+      summary: 获取公共数字人列表
+      tags:
+      - 公共资源
+  /list_customised_audio:
+    post:
+      consumes:
+      - application/json
+      description: 分页获取当前用户的定制声音列表
+      parameters:
+      - description: 分页查询参数
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.DpOpenCustomListReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 定制声音列表
+          schema:
+            allOf:
+            - $ref: '#/definitions/echo.JSON'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.DpOpenCustomisedAudioManListRsp'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/echo.JSON'
+      security:
+      - AccessToken: []
+      summary: 获取定制声音列表
+      tags:
+      - 定制声音
+  /list_customised_person:
+    post:
+      consumes:
+      - application/json
+      description: 分页获取当前用户的定制数字人列表
+      parameters:
+      - description: 分页查询参数
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.DpOpenCustomListReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 定制数字人列表
+          schema:
+            allOf:
+            - $ref: '#/definitions/echo.JSON'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.DpOpenCustomisedListRsp'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/echo.JSON'
+      security:
+      - AccessToken: []
+      summary: 获取定制数字人列表
+      tags:
+      - 定制数字人
+  /user_duration:
+    get:
+      description: 查询当前用户的蝉豆余额及近30天过期数量
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 蝉豆余额信息
+          schema:
+            allOf:
+            - $ref: '#/definitions/echo.JSON'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.OpenUserDurationRsp'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/echo.JSON'
+      security:
+      - AccessToken: []
+      summary: 获取用户蝉豆余额
+      tags:
+      - 用户信息
+  /user_info:
+    get:
+      description: 获取当前开放平台用户的基本信息
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 用户信息
+          schema:
+            allOf:
+            - $ref: '#/definitions/echo.JSON'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.OpenAppInfo'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/echo.JSON'
+      security:
+      - AccessToken: []
+      summary: 获取用户信息
+      tags:
+      - 用户信息
+  /video:
+    get:
+      consumes:
+      - application/json
+      description: 根据视频ID获取单个视频合成任务的详细信息
+      parameters:
+      - description: 视频任务ID
+        in: query
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 视频详情
+          schema:
+            allOf:
+            - $ref: '#/definitions/echo.JSON'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.DpOpenVideoListInfo'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/echo.JSON'
+      security:
+      - AccessToken: []
+      summary: 获取视频详情
+      tags:
+      - 视频合成
+  /video_lip_sync/create:
+    post:
+      consumes:
+      - application/json
+      description: 提交对口型视频合成任务，将音频与视频中的人物口型进行匹配
+      parameters:
+      - description: 对口型任务参数
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.LipSyncProjectCreateReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 返回任务ID
+          schema:
+            allOf:
+            - $ref: '#/definitions/echo.JSON'
+            - properties:
+                data:
+                  type: string
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/echo.JSON'
+      security:
+      - AccessToken: []
+      summary: 创建对口型视频
+      tags:
+      - 对口型
+  /video_lip_sync/detail:
+    get:
+      consumes:
+      - application/json
+      description: 根据ID获取单个对口型视频任务的详细信息
+      parameters:
+      - description: 对口型视频任务ID
+        in: query
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 对口型视频详情
+          schema:
+            allOf:
+            - $ref: '#/definitions/echo.JSON'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.LipSyncProjectInfo'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/echo.JSON'
+      security:
+      - AccessToken: []
+      summary: 获取对口型视频详情
+      tags:
+      - 对口型
+  /video_lip_sync/list:
+    post:
+      consumes:
+      - application/json
+      description: 分页获取当前用户的对口型视频任务列表
+      parameters:
+      - description: 分页参数
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.LipSyncProjectListReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 对口型视频列表
+          schema:
+            allOf:
+            - $ref: '#/definitions/echo.JSON'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.LipSyncProjectListResp'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/echo.JSON'
+      security:
+      - AccessToken: []
+      summary: 获取对口型视频列表
+      tags:
+      - 对口型
+  /video_list:
+    post:
+      consumes:
+      - application/json
+      description: 分页获取当前用户的视频合成任务列表
+      parameters:
+      - description: 分页参数
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.DpOpenVideoListReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 视频列表
+          schema:
+            allOf:
+            - $ref: '#/definitions/echo.JSON'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.DpOpenVideoListResp'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/echo.JSON'
+      security:
+      - AccessToken: []
+      summary: 获取视频列表
+      tags:
+      - 视频合成
+securityDefinitions:
+  AccessToken:
+    in: header
+    name: access_token
+    type: apiKey
+swagger: "2.0"
