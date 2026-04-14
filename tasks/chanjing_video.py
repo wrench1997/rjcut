@@ -163,6 +163,10 @@ def run_dh_create_person_task(task_id: str, payload: dict, trace_id: str, mercha
                 resolution_rate=payload.get("resolution_rate", 0)
             )
             
+            # 确保 train_resp 是字典
+            if not isinstance(train_resp, dict):
+                raise Exception(f"蝉镜训练接口返回格式异常：{train_resp}")
+            
             # 如果是"文件未完成上传"错误，等待后重试
             if train_resp.get('code') == 50000 and '文件还未完成上传' in str(train_resp.get('msg', '')):
                 if attempt < max_retries - 1:
