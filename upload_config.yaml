@@ -43,6 +43,8 @@ include:
   #- 草稿模式测试.MD
   #- script.json
   # - corrections.json
+  - alembic/versions/001_initial.py
+  - alembic/versions/002_add_file_hash_and_expires.py
   - run_draft_full.sh
   - task_runner.py
   - cut_transition.py
