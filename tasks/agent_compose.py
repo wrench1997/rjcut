@@ -24,6 +24,7 @@ from tasks.components import (
     TaskContext,
     build_download_chain,
     UploadFileComponent,
+    FileManagerComponent,
 )
 from tasks import register_task
 
@@ -176,12 +177,12 @@ def run_agent_compose_task(task_id: str, payload: dict, trace_id: str, merchant_
             "ass_file": ass_file,
         }
 
-        uploader = UploadFileComponent()
+        # 使用统一的文件管理组件上传
+        file_manager = FileManagerComponent()
+        uploaded_files = file_manager.upload_task_outputs(task_id, merchant_id, raw_paths)
+        
         result = {
-            "files": {
-                k: uploader.build_oss_file_entry(task_id, k, v, merchant_id)
-                for k, v in raw_paths.items()
-            }
+            "files": uploaded_files
         }
 
         with get_db_session() as db:
@@ -218,10 +219,9 @@ def run_agent_compose_task(task_id: str, payload: dict, trace_id: str, merchant_
         _handle_failed_task(task_id, error_msg, payload, trace_id)
     
     finally:
-        try:
-            shutil.rmtree(task_dir, ignore_errors=True)
-        except Exception:
-            pass
+        # 使用统一的文件清理方法
+        file_manager = FileManagerComponent()
+        file_manager.cleanup_task_dir(task_dir, ignore_errors=True)
 
 
 def update_task(task_id: str, **kwargs):

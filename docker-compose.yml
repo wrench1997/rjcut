@@ -163,7 +163,8 @@ services:
       <<: *common-env
     volumes:
       - ./:/app
-      - ./fonts:/app/fonts:ro    # ← 新增：显式只读挂载 fonts 目录
+      - /opt/rjcut/service_data:/app/service_data   # 持久化任务数据目录
+      - ./fonts:/app/fonts:ro    # 字体文件只读挂载
     working_dir: /app          # 强制工作目录
     depends_on:
       postgres:
@@ -194,6 +195,8 @@ services:
       <<: *common-env
     volumes:
       - ./:/app
+      - /opt/rjcut/service_data:/app/service_data   # 持久化任务数据目录
+      - ./fonts:/app/fonts:ro    # 字体文件只读挂载
     working_dir: /app          # 强制工作目录
     depends_on:
       postgres:

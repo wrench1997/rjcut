@@ -18,7 +18,7 @@ from quota import confirm_quota, refund_quota
 from oss import download_file_from_oss, is_oss_key
 from chanjing_api import ChanjingAPI
 from tasks import register_task
-from tasks.components import TaskContext
+from tasks.components import TaskContext, FileManagerComponent
 
 settings = get_settings()
 
@@ -91,11 +91,13 @@ def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merch
         local_result = os.path.join(task_dir, "final.mp4")
         api.download_video(chanjing_video_url, local_result)
 
-        uploader = _get_uploader()
+        # 使用统一的文件管理组件上传
+        file_manager = FileManagerComponent()
+        output_paths = {"final_video": local_result}
+        uploaded_files = file_manager.upload_task_outputs(task_id, merchant_id, output_paths)
+        
         result = {
-            "files": {
-                "final_video": uploader.build_oss_file_entry(task_id, "final_video", local_result, merchant_id)
-            }
+            "files": uploaded_files
         }
 
         with get_db_session() as db:
@@ -121,7 +123,9 @@ def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merch
         _handle_failed_task(task_id, error_msg, payload, trace_id)
     
     finally:
-        shutil.rmtree(task_dir, ignore_errors=True)
+        # 使用统一的文件清理方法
+        file_manager = FileManagerComponent()
+        file_manager.cleanup_task_dir(task_dir, ignore_errors=True)
 
 
 @register_task("dh_create_person")
@@ -223,7 +227,9 @@ def run_dh_create_person_task(task_id: str, payload: dict, trace_id: str, mercha
         _handle_failed_task(task_id, error_msg, payload, trace_id)
     
     finally:
-        shutil.rmtree(task_dir, ignore_errors=True)
+        # 使用统一的文件清理方法
+        file_manager = FileManagerComponent()
+        file_manager.cleanup_task_dir(task_dir, ignore_errors=True)
 
 
 def _update_task(task_id: str, **kwargs):
@@ -262,9 +268,10 @@ def _download_input_file(url_or_key: str, output_path: str):
     return output_path
 
 
-def _get_uploader():
-    from tasks.components import UploadFileComponent
-    return UploadFileComponent()
+# 注意：_get_uploader 函数已废弃，使用 FileManagerComponent 替代
+# def _get_uploader():
+#     from tasks.components import UploadFileComponent
+#     return UploadFileComponent()
 
 
 def _handle_cancelled_task(task_id: str, error_msg: str):

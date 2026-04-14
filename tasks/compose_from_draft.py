@@ -21,6 +21,7 @@ from oss import download_file_from_oss, is_oss_key
 from tasks.components import (
     TaskContext,
     UploadFileComponent,
+    FileManagerComponent,
 )
 from tasks import register_task
 
@@ -217,15 +218,19 @@ def run_compose_from_draft_task(task_id: str, payload: dict, trace_id: str, merc
 
         _update_task(task_id, progress=90, stage="uploading_results")
 
-        uploader = UploadFileComponent()
-        result_files = {
-            "final_video": uploader.build_oss_file_entry(task_id, "final_video", final_output, merchant_id),
+        # 使用统一的文件管理组件上传
+        file_manager = FileManagerComponent()
+        
+        output_paths = {
+            "final_video": final_output,
         }
-
+        
         if payload.get("output", {}).get("need_ass", True):
-            result_files["ass_file"] = uploader.build_oss_file_entry(task_id, "ass_file", ass_file, merchant_id)
-
-        result_files["resync_json"] = uploader.build_oss_file_entry(task_id, "resync_json", resync_json, merchant_id)
+            output_paths["ass_file"] = ass_file
+        
+        output_paths["resync_json"] = resync_json
+        
+        result_files = file_manager.upload_task_outputs(task_id, merchant_id, output_paths)
 
         result = {
             "files": result_files,
@@ -266,10 +271,9 @@ def run_compose_from_draft_task(task_id: str, payload: dict, trace_id: str, merc
         _handle_failed_task(task_id, error_msg, payload, trace_id)
     
     finally:
-        try:
-            shutil.rmtree(task_dir, ignore_errors=True)
-        except Exception:
-            pass
+        # 使用统一的文件清理方法
+        file_manager = FileManagerComponent()
+        file_manager.cleanup_task_dir(task_dir, ignore_errors=True)
 
 
 def _restore_part_files(parts: dict, input_dir: str):

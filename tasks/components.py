@@ -417,6 +417,251 @@ class UploadFileComponent(Component):
 
 
 # ═══════════════════════════════════════════════
+#  统一文件管理组件
+# ═══════════════════════════════════════════════
+
+class FileManagerComponent(Component):
+    """
+    统一文件管理组件 - 处理文件上传、清理、生命周期管理
+    
+    提供统一的文件管理接口，避免代码重复：
+    - 上传任务产物到 OSS
+    - 上传切片文件
+    - 上传场景素材
+    - 清理临时文件
+    """
+    
+    def __init__(self):
+        super().__init__("file_manager")
+        self.uploader = UploadFileComponent()
+    
+    def process(self, context: TaskContext) -> TaskContext:
+        # 文件管理组件通常作为后置处理
+        return context
+    
+    # ───────────────────────────────────────────────
+    #  文件上传方法
+    # ───────────────────────────────────────────────
+    
+    def upload_task_outputs(
+        self, 
+        task_id: str, 
+        merchant_id: str, 
+        output_paths: Dict[str, str]
+    ) -> Dict[str, Any]:
+        """
+        上传任务产物到 OSS
+        
+        Args:
+            task_id: 任务 ID
+            merchant_id: 商户 ID
+            output_paths: 文件路径字典 {file_key: local_path}
+        
+        Returns:
+            上传结果字典 {file_key: oss_entry}
+        """
+        result = {}
+        for file_key, local_path in output_paths.items():
+            result[file_key] = self.uploader.build_oss_file_entry(
+                task_id, file_key, local_path, merchant_id
+            )
+        return result
+    
+    def upload_parts(
+        self, 
+        parts_dir: str, 
+        task_id: str, 
+        merchant_id: str
+    ) -> Dict[str, Any]:
+        """
+        上传视频切片文件
+        
+        Args:
+            parts_dir: 切片文件目录
+            task_id: 任务 ID
+            merchant_id: 商户 ID
+        
+        Returns:
+            切片文件字典 {part_001: oss_entry, ...}
+        """
+        import re
+        parts = {}
+        
+        if not parts_dir or not os.path.isdir(parts_dir):
+            return parts
+        
+        candidates = []
+        for name in sorted(os.listdir(parts_dir)):
+            local_path = os.path.join(parts_dir, name)
+            if not os.path.isfile(local_path):
+                continue
+            
+            lower_name = name.lower()
+            if not lower_name.endswith(".mp4"):
+                continue
+            
+            m = re.search(r'part[_]?(\d+)\.mp4$', lower_name)
+            if not m:
+                continue
+            
+            part_index = int(m.group(1))
+            candidates.append((part_index, name, local_path))
+        
+        for part_index, name, local_path in sorted(candidates, key=lambda x: x[0]):
+            file_key = f"part_{part_index:03d}"
+            entry = self.uploader.build_oss_file_entry(
+                task_id, file_key, local_path, merchant_id
+            )
+            entry["filename"] = name
+            parts[file_key] = entry
+        
+        return parts
+    
+    def upload_scene_assets(
+        self, 
+        scene_dir: str, 
+        task_id: str, 
+        merchant_id: str,
+        max_retries: int = 3
+    ) -> Dict[str, Any]:
+        """
+        上传场景素材到 OSS（使用 MinIO 内部复制）
+        
+        Args:
+            scene_dir: 场景素材目录
+            task_id: 任务 ID
+            merchant_id: 商户 ID
+            max_retries: 最大重试次数
+        
+        Returns:
+            场景素材字典 {filename: asset_info}
+        """
+        scene_assets = {}
+        
+        if not scene_dir or not os.path.isdir(scene_dir):
+            return scene_assets
+        
+        for name in os.listdir(scene_dir):
+            local_path = os.path.join(scene_dir, name)
+            if not os.path.isfile(local_path):
+                continue
+            
+            src_oss_key = f"{merchant_id}/scenes/{name}"
+            dst_oss_key = f"{merchant_id}/tasks/{task_id}/scene_assets/{name}"
+            mime = mimetypes.guess_type(local_path)[0] or "application/octet-stream"
+            
+            success = False
+            for attempt in range(max_retries):
+                try:
+                    copy_file_in_oss(src_oss_key, dst_oss_key)
+                    
+                    scene_assets[name] = {
+                        "oss_key": dst_oss_key,
+                        "filename": name,
+                        "exists": True,
+                        "size": os.path.getsize(local_path),
+                        "mime_type": mime,
+                    }
+                    
+                    print(f"✅ 场景素材复制成功：{name} (尝试 {attempt + 1}/{max_retries})")
+                    success = True
+                    break
+                    
+                except Exception as e:
+                    print(f"⚠️  场景素材复制失败 (尝试 {attempt + 1}/{max_retries}): {name}")
+                    print(f"    错误：{e}")
+                    
+                    if attempt < max_retries - 1:
+                        wait_time = 2 ** attempt
+                        print(f"    等待 {wait_time} 秒后重试...")
+                        time.sleep(wait_time)
+                    else:
+                        print(f"❌ 场景素材 {name} 复制失败，已跳过")
+            
+            if not success:
+                print(f"⚠️  警告：场景素材 {name} 未能成功复制到任务目录")
+        
+        return scene_assets
+    
+    # ───────────────────────────────────────────────
+    #  文件清理方法
+    # ───────────────────────────────────────────────
+    
+    def cleanup_task_dir(self, task_dir: str, ignore_errors: bool = True) -> bool:
+        """
+        清理任务临时目录
+        
+        Args:
+            task_dir: 任务目录路径
+            ignore_errors: 是否忽略错误
+        
+        Returns:
+            是否成功清理
+        """
+        try:
+            shutil.rmtree(task_dir, ignore_errors=ignore_errors)
+            return True
+        except Exception as e:
+            if not ignore_errors:
+                print(f"❌ 清理任务目录失败：{task_dir}, 错误：{e}")
+            return False
+    
+    def cleanup_expired_files(
+        self, 
+        db_session, 
+        batch_size: int = 100
+    ) -> Dict[str, Any]:
+        """
+        清理过期的文件
+        
+        Args:
+            db_session: 数据库会话
+            batch_size: 每批处理的记录数
+        
+        Returns:
+            清理统计信息
+        """
+        from oss import delete_expired_files
+        return delete_expired_files(db_session, batch_size)
+    
+    # ───────────────────────────────────────────────
+    #  辅助方法
+    # ───────────────────────────────────────────────
+    
+    def attach_part_files_to_script(
+        self, 
+        editable_script: dict, 
+        parts: dict
+    ) -> dict:
+        """
+        将切片文件信息附加到可编辑脚本
+        
+        Args:
+            editable_script: 可编辑脚本字典
+            parts: 切片文件字典
+        
+        Returns:
+            更新后的脚本字典
+        """
+        if not editable_script:
+            return {"segments": []}
+        
+        segments = editable_script.get("segments") or []
+        sorted_part_keys = sorted(parts.keys())
+        
+        for idx, seg in enumerate(segments):
+            part_filename = None
+            if idx < len(sorted_part_keys):
+                part_key = sorted_part_keys[idx]
+                part_info = parts.get(part_key) or {}
+                part_filename = part_info.get("filename") or f"{part_key}.mp4"
+            seg["part_file"] = part_filename
+        
+        editable_script["segments"] = segments
+        return editable_script
+
+
+# ═══════════════════════════════════════════════
 #  组件构建器
 # ═══════════════════════════════════════════════
 

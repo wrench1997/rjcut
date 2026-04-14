@@ -4,6 +4,7 @@ import hashlib
 import mimetypes
 from datetime import timedelta, datetime, timezone
 from functools import lru_cache
+from typing import List, Dict, Any
 
 from minio import Minio
 from minio.error import S3Error
@@ -269,7 +270,7 @@ def copy_file_in_oss(src_oss_key: str, dst_oss_key: str):
     """
     from minio.commonconfig import CopySource
     
-    settings = get_settings()  # ⭐ 正确获取 settings
+    settings = get_settings()
     client = get_minio_client()
     
     client.copy_object(
@@ -277,3 +278,115 @@ def copy_file_in_oss(src_oss_key: str, dst_oss_key: str):
         object_name=dst_oss_key,
         source=CopySource(settings.MINIO_BUCKET, src_oss_key),
     )
+
+
+def batch_delete_files(oss_keys: List[str]) -> Dict[str, Any]:
+    """
+    批量删除 OSS 文件
+    
+    Args:
+        oss_keys: OSS key 列表
+    
+    Returns:
+        删除结果统计
+    """
+    settings = get_settings()
+    client = get_minio_client()
+    
+    success_count = 0
+    failed_count = 0
+    errors = []
+    
+    for oss_key in oss_keys:
+        try:
+            client.remove_object(settings.MINIO_BUCKET, oss_key)
+            success_count += 1
+        except Exception as e:
+            failed_count += 1
+            errors.append({"oss_key": oss_key, "error": str(e)})
+    
+    return {
+        "success_count": success_count,
+        "failed_count": failed_count,
+        "errors": errors,
+    }
+
+
+def get_file_list(
+    db_session, 
+    merchant_id: str = None, 
+    limit: int = 100, 
+    offset: int = 0
+) -> Dict[str, Any]:
+    """
+    获取文件列表（支持分页）
+    
+    Args:
+        db_session: 数据库会话
+        merchant_id: 可选，商户 ID
+        limit: 每页数量
+        offset: 偏移量
+    
+    Returns:
+        文件列表和分页信息
+    """
+    from models import UploadRecord
+    from sqlalchemy import func
+    
+    query = db_session.query(UploadRecord).filter(UploadRecord.is_confirmed == True)
+    
+    if merchant_id:
+        query = query.filter(UploadRecord.merchant_id == merchant_id)
+    
+    total = query.count()
+    files = query.order_by(UploadRecord.created_at.desc()).limit(limit).offset(offset).all()
+    
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "has_more": offset + limit < total,
+        "files": [
+            {
+                "id": f.id,
+                "merchant_id": f.merchant_id,
+                "oss_key": f.oss_key,
+                "filename": f.filename,
+                "size_bytes": f.size_bytes,
+                "mime_type": f.mime_type,
+                "created_at": f.created_at.isoformat(),
+                "expires_at": f.expires_at.isoformat() if f.expires_at else None,
+            }
+            for f in files
+        ],
+    }
+
+
+def get_merchant_storage_usage(db_session, merchant_id: str) -> Dict[str, Any]:
+    """
+    获取商户存储使用情况
+    
+    Args:
+        db_session: 数据库会话
+        merchant_id: 商户 ID
+    
+    Returns:
+        存储使用统计
+    """
+    from models import UploadRecord
+    from sqlalchemy import func
+    
+    result = db_session.query(
+        func.count(UploadRecord.id).label("total_files"),
+        func.sum(UploadRecord.size_bytes).label("total_bytes"),
+    ).filter(
+        UploadRecord.merchant_id == merchant_id,
+        UploadRecord.is_confirmed == True,
+    ).first()
+    
+    return {
+        "total_files": result.total_files or 0,
+        "total_bytes": result.total_bytes or 0,
+        "total_mb": (result.total_bytes or 0) / 1024 / 1024,
+        "total_gb": (result.total_bytes or 0) / 1024 / 1024 / 1024,
+    }
