@@ -17,23 +17,19 @@ depends_on = None
 
 
 def upgrade():
-    # 创建枚举类型（如果不存在）- 使用原生 SQL 创建
+    # 创建枚举类型 - 先删除已存在的类型（如果有），然后重新创建
+    # 使用 CASCADE 以处理可能被依赖的情况
     conn = op.get_bind()
     
-    # 检查并创建 merchant_status_enum
-    result = conn.execute(sa.text("SELECT 1 FROM pg_type WHERE typname = 'merchant_status_enum'")).fetchone()
-    if not result:
-        conn.execute(sa.text("CREATE TYPE merchant_status_enum AS ENUM ('active', 'suspended', 'deleted')"))
+    # 删除已存在的枚举类型（如果存在）
+    conn.execute(sa.text("DROP TYPE IF EXISTS merchant_status_enum CASCADE"))
+    conn.execute(sa.text("DROP TYPE IF EXISTS task_status_enum CASCADE"))
+    conn.execute(sa.text("DROP TYPE IF EXISTS billing_type_enum CASCADE"))
     
-    # 检查并创建 task_status_enum
-    result = conn.execute(sa.text("SELECT 1 FROM pg_type WHERE typname = 'task_status_enum'")).fetchone()
-    if not result:
-        conn.execute(sa.text("CREATE TYPE task_status_enum AS ENUM ('queued', 'processing', 'succeeded', 'failed', 'cancelled', 'timeout')"))
-    
-    # 检查并创建 billing_type_enum
-    result = conn.execute(sa.text("SELECT 1 FROM pg_type WHERE typname = 'billing_type_enum'")).fetchone()
-    if not result:
-        conn.execute(sa.text("CREATE TYPE billing_type_enum AS ENUM ('task_submit', 'task_success', 'task_refund', 'quota_purchase', 'admin_adjust')"))
+    # 创建枚举类型
+    conn.execute(sa.text("CREATE TYPE merchant_status_enum AS ENUM ('active', 'suspended', 'deleted')"))
+    conn.execute(sa.text("CREATE TYPE task_status_enum AS ENUM ('queued', 'processing', 'succeeded', 'failed', 'cancelled', 'timeout')"))
+    conn.execute(sa.text("CREATE TYPE billing_type_enum AS ENUM ('task_submit', 'task_success', 'task_refund', 'quota_purchase', 'admin_adjust')"))
 
     # Merchants
     op.create_table(
@@ -41,7 +37,7 @@ def upgrade():
         sa.Column('id', sa.String(64), primary_key=True),
         sa.Column('name', sa.String(256), nullable=False),
         sa.Column('email', sa.String(256), unique=True, nullable=True),
-        sa.Column('status', sa.String(32), nullable=False, server_default='active'),
+        sa.Column('status', sa.Enum('active', 'suspended', 'deleted', name='merchant_status_enum', create_type=False), nullable=False, server_default='active'),
         sa.Column('quota_total', sa.BigInteger(), nullable=False, server_default='0'),
         sa.Column('quota_used', sa.BigInteger(), nullable=False, server_default='0'),
         sa.Column('quota_reserved', sa.BigInteger(), nullable=False, server_default='0'),
@@ -75,7 +71,7 @@ def upgrade():
         sa.Column('trace_id', sa.String(64), nullable=True),
         sa.Column('client_ref_id', sa.String(256), nullable=True),
         sa.Column('task_type', sa.String(64), nullable=False, server_default='agent_compose'),
-        sa.Column('status', sa.String(32), nullable=False, server_default='queued'),
+        sa.Column('status', sa.Enum('queued', 'processing', 'succeeded', 'failed', 'cancelled', 'timeout', name='task_status_enum', create_type=False), nullable=False, server_default='queued'),
         sa.Column('progress', sa.Integer(), nullable=False, server_default='0'),
         sa.Column('stage', sa.String(128), nullable=True),
         sa.Column('payload', sa.JSON(), nullable=True),
@@ -101,7 +97,7 @@ def upgrade():
         sa.Column('id', sa.String(64), primary_key=True),
         sa.Column('merchant_id', sa.String(64), sa.ForeignKey('merchants.id'), nullable=False),
         sa.Column('task_id', sa.String(64), sa.ForeignKey('tasks.id'), nullable=True),
-        sa.Column('billing_type', sa.String(32), nullable=False),
+        sa.Column('billing_type', sa.Enum('task_submit', 'task_success', 'task_refund', 'quota_purchase', 'admin_adjust', name='billing_type_enum', create_type=False), nullable=False),
         sa.Column('amount', sa.Integer(), nullable=False),
         sa.Column('balance_after', sa.BigInteger(), nullable=False),
         sa.Column('description', sa.Text(), nullable=True),
