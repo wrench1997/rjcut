@@ -187,10 +187,13 @@ def run_dh_create_person_task(task_id: str, payload: dict, trace_id: str, mercha
                 break
 
         # 安全获取 person_id
-        train_data = train_resp.get('data') if isinstance(train_resp, dict) else None
-        person_id = train_data.get('id') if isinstance(train_data, dict) else None
+        # 注意：蝉镜 API 的 create_customised_person 接口返回的 data 字段直接就是 person_id 字符串
+        person_id = None
+        if isinstance(train_resp, dict) and isinstance(train_resp.get('data'), str):
+            person_id = train_resp['data']
+        
         if not person_id:
-            raise Exception("未能获取到生成的 person_id")
+            raise Exception(f"未能获取到生成的 person_id，API 返回：{train_resp}")
 
         _update_task(task_id, progress=30, stage="training")
         is_success = False
