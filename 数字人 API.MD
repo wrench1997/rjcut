@@ -1016,6 +1016,63 @@ if __name__ == "__main__":
 
 ---
 
+## 常见问题
+
+### 如何使用自定义数字人的原生声音？
+
+当你训练完成一个自定义数字人后，蝉镜平台会为该数字人生成一个**专属的原生声音**（`audio_man_id`）。要使用这个原生声音而不是公共声音（如女声），有以下两种方法：
+
+#### 方法 1：从数字人详情中获取原生声音 ID
+
+```python
+# 1. 获取数字人详情
+person_detail = api.get_customised_person_status(person_id)
+
+# 2. 提取原生声音 ID
+if person_detail.get('code') == 0:
+    native_audio_id = person_detail['data'].get('audio_man_id')
+    print(f"原生声音 ID: {native_audio_id}")
+
+# 3. 使用该声音 ID 创建视频
+video_response = api.create_video(
+    digital_person_id=person_id,
+    text=["你好，这是使用原生声音的视频。"],
+    audio_man_id=native_audio_id,  # 使用原生声音 ID
+    speed=1.0,
+    pitch=1.0
+)
+```
+
+#### 方法 2：在创建视频时不指定 audio_man_id（推荐）
+
+如果你的系统已经配置好自动使用数字人原生声音的逻辑，可以在创建视频时**不传 `audio_man_id` 参数**或**传空值**，系统会自动使用该数字人的原生声音：
+
+```python
+video_response = api.create_video(
+    digital_person_id=person_id,
+    text=["你好，这是使用原生声音的视频。"],
+    audio_man_id=None,  # 不指定，使用数字人原生声音
+    # 或者完全省略 audio_man_id 参数
+)
+```
+
+> **注意**: 方法 2 需要后端系统支持自动获取数字人原生声音的功能。如果未配置，建议使用方法 1 手动获取。
+
+#### 为什么我的 audio_man_id 是女声？
+
+如果你在创建视频时传入的 `audio_man_id` 是一个公共声音 ID（如 `audio_001`），那么即使你使用了自定义数字人，声音也会是那个公共声音（可能是女声）。
+
+**正确做法**：
+- 训练完成后，通过 `get_customised_person_status` 接口获取数字人详情
+- 从响应中提取 `data.audio_man_id` 字段
+- 使用该 ID 作为 `audio_man_id` 参数
+
+---
+
+## 相关文档
+
+---
+
 ## 相关文档
 
 - [chanjing-openapi.yaml](./chanjing-openapi.yaml) - OpenAPI 规范文件
