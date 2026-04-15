@@ -200,23 +200,56 @@ def run_dh_create_person_task(task_id: str, payload: dict, trace_id: str, mercha
         _update_task(task_id, progress=30, stage="training")
         is_success = False
 
-        for _ in range(480):
+        # 启用调试模式以获取详细日志
+        api.set_debug(True)
+        api.logger.info(f"开始监控数字人训练状态，person_id: {person_id}")
+
+        for i in range(480):
             if _is_task_cancelled(task_id):
                 raise InterruptedError("task cancelled")
 
             status_resp = api.get_customised_person_status(person_id)
+            api.logger.info(f"第 {i+1} 次轮询 - 完整响应：{json.dumps(status_resp, ensure_ascii=False, indent=2)}")
+            
             if status_resp.get('code') == 0:
                 data = status_resp.get('data', {})
                 status = data.get('status')
+                
+                api.logger.info(f"当前状态码：{status}, 进度：{data.get('progress', 'N/A')}")
 
                 if status == 30:
                     is_success = True
                     _update_task(task_id, progress=99)
                     break
                 elif status in (40, -1, 2):
-                    raise Exception(f"数字人训练失败：{data.get('msg', '模型不符合要求或未知错误')}")
+                    # 收集所有可能的错误信息字段（根据 openapi 定义）
+                    api.logger.error(f"=== 数字人训练失败详细信息 ===")
+                    api.logger.error(f"person_id: {person_id}")
+                    api.logger.error(f"status: {status}")
+                    api.logger.error(f"progress: {data.get('progress')}")
+                    api.logger.error(f"msg: {data.get('msg')}")
+                    api.logger.error(f"err_reason: {data.get('err_reason')}")
+                    api.logger.error(f"reason: {data.get('reason')}")
+                    api.logger.error(f"trace_id: {status_resp.get('trace_id')}")
+                    api.logger.error(f"完整响应：{json.dumps(status_resp, ensure_ascii=False, indent=2)}")
+                    
+                    # 构建详细的错误消息
+                    error_msg_parts = []
+                    if data.get('msg'):
+                        error_msg_parts.append(f"错误：{data.get('msg')}")
+                    if data.get('err_reason'):
+                        error_msg_parts.append(f"原因：{data.get('err_reason')}")
+                    if data.get('reason'):
+                        error_msg_parts.append(f"说明：{data.get('reason')}")
+                    if status_resp.get('trace_id'):
+                        error_msg_parts.append(f"追踪 ID: {status_resp.get('trace_id')}")
+                    
+                    detailed_error = " | ".join(error_msg_parts) if error_msg_parts else "模型不符合要求或未知错误"
+                    raise Exception(f"数字人训练失败：{detailed_error} [trace_id: {status_resp.get('trace_id', 'N/A')}]")
 
-                _update_task(task_id, progress=min(90, 30 + (_ // 8)))
+                _update_task(task_id, progress=min(90, 30 + (i // 8)))
+            else:
+                api.logger.warning(f"状态查询接口返回异常：{json.dumps(status_resp, ensure_ascii=False)}")
             time.sleep(30)
 
         if not is_success:
