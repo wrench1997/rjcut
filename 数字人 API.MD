@@ -2,12 +2,20 @@
 
 ## 概述
 
-本文档介绍如何使用蝉镜开放平台 API 进行数字人视频合成、自定义数字人训练等操作。
+本文档介绍如何使用蝉镜开放平台 API 进行数字人视频合成、自定义数字人训练、视频管理等操作。
 
 **API 基础信息：**
 - **Base URL**: `https://www.chanjing.cc/api/open/v1`
 - **Host**: `open.chanjing.cc`
 - **认证方式**: Access Token (通过 `access_token` 请求头传递)
+
+**主要功能：**
+- 🎭 公共/定制数字人管理
+- 🎬 视频合成与管理
+- 🎤 公共/定制声音模型
+- 📁 文件上传与管理
+- 👄 对口型功能
+- 🔊 语音生成
 
 ---
 
@@ -19,10 +27,12 @@
 4. [定制数字人](#定制数字人)
 5. [定制声音](#定制声音)
 6. [视频合成](#视频合成)
-7. [对口型](#对口型)
-8. [语音生成](#语音生成)
-9. [用户信息](#用户信息)
-10. [Python SDK 使用示例](#python-sdk-使用示例)
+7. [视频管理](#视频管理)
+8. [对口型](#对口型)
+9. [语音生成](#语音生成)
+10. [用户信息](#用户信息)
+11. [错误码说明](#错误码说明)
+12. [Python SDK 使用示例](#python-sdk-使用示例)
 
 ---
 
@@ -254,11 +264,47 @@ with open('video.mp4', 'rb') as f:
 **接口**: `POST /list_customised_person`
 
 **请求参数**:
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| page | integer | 否 | 页码，默认 1 |
+| page_size | integer | 否 | 每页数量，默认 10 |
+| source | integer | 否 | 来源：0=API 定制，1=Web 定制 |
+
+**请求示例**:
 ```json
 {
   "page": 1,
   "page_size": 10,
   "source": 0
+}
+```
+
+**响应示例**:
+```json
+{
+  "code": 0,
+  "data": {
+    "list": [
+      {
+        "id": "person_abc123",
+        "name": "我的数字人",
+        "status": 2,
+        "progress": 100,
+        "pic_url": "https://...",
+        "preview_url": "https://...",
+        "audio_man_id": "audio_custom_001",
+        "type": "person",
+        "width": 1080,
+        "height": 1920,
+        "create_time": 1712345678
+      }
+    ],
+    "page_info": {
+      "page": 1,
+      "page_size": 10,
+      "total_count": 5
+    }
+  }
 }
 ```
 
@@ -301,9 +347,22 @@ with open('video.mp4', 'rb') as f:
 **接口**: `POST /delete_customised_person`
 
 **请求参数**:
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| id | string | 是 | 数字人 ID |
+
+**请求示例**:
 ```json
 {
   "id": "person_abc123"
+}
+```
+
+**响应示例**:
+```json
+{
+  "code": 0,
+  "msg": "success"
 }
 ```
 
@@ -488,6 +547,12 @@ with open('video.mp4', 'rb') as f:
 **接口**: `POST /video_list`
 
 **请求参数**:
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| page | integer | 否 | 页码，默认 1 |
+| page_size | integer | 否 | 每页数量，默认 10 |
+
+**请求示例**:
 ```json
 {
   "page": 1,
@@ -534,14 +599,154 @@ with open('video.mp4', 'rb') as f:
 | 2 | 处理中 |
 | 40 | 失败 |
 
+### 获取视频详情
+
+**接口**: `GET /video?id={video_id}`
+
+**响应示例**:
+```json
+{
+  "code": 0,
+  "data": {
+    "id": "video_abc123",
+    "status": 1,
+    "progress": 100,
+    "duration": 30,
+    "video_url": "https://...",
+    "preview_url": "https://...",
+    "audio_urls": ["https://..."],
+    "subtitle_data_url": "https://...",
+    "create_time": 1712345678,
+    "msg": "success"
+  }
+}
+```
+
 ### 删除视频
 
 **接口**: `POST /delete_video`
 
 **请求参数**:
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| id | string | 是 | 视频 ID |
+
+**请求示例**:
 ```json
 {
   "id": "video_abc123"
+}
+```
+
+**响应示例**:
+```json
+{
+  "code": 0,
+  "msg": "success"
+}
+```
+
+---
+
+## 视频管理
+
+### 获取视频列表
+
+**接口**: `POST /video_list`
+
+**请求参数**:
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| page | integer | 否 | 页码，默认 1 |
+| page_size | integer | 否 | 每页数量，默认 10 |
+
+**请求示例**:
+```json
+{
+  "page": 1,
+  "page_size": 10
+}
+```
+
+**响应示例**:
+```json
+{
+  "code": 0,
+  "data": {
+    "list": [
+      {
+        "id": "video_abc123",
+        "status": 1,
+        "progress": 100,
+        "duration": 30,
+        "video_url": "https://...",
+        "preview_url": "https://...",
+        "audio_urls": ["https://..."],
+        "subtitle_data_url": "https://...",
+        "create_time": 1712345678,
+        "msg": "success"
+      }
+    ],
+    "pageInfo": {
+      "page": 1,
+      "size": 10,
+      "total_count": 50
+    }
+  }
+}
+```
+
+### 获取视频详情
+
+**接口**: `GET /video?id={video_id}`
+
+**响应示例**:
+```json
+{
+  "code": 0,
+  "data": {
+    "id": "video_abc123",
+    "status": 1,
+    "progress": 100,
+    "duration": 30,
+    "video_url": "https://...",
+    "preview_url": "https://...",
+    "audio_urls": ["https://..."],
+    "subtitle_data_url": "https://...",
+    "create_time": 1712345678,
+    "msg": "success"
+  }
+}
+```
+
+**视频状态码说明**:
+| 状态码 | 说明 |
+|--------|------|
+| 1 | 已完成 |
+| 2 | 处理中 |
+| 40 | 失败 |
+
+### 删除视频
+
+**接口**: `POST /delete_video`
+
+**请求参数**:
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| id | string | 是 | 视频 ID |
+
+**请求示例**:
+```json
+{
+  "id": "video_abc123"
+}
+```
+
+**响应示例**:
+```json
+{
+  "code": 0,
+  "msg": "success"
 }
 ```
 
@@ -698,6 +903,35 @@ with open('video.mp4', 'rb') as f:
 
 ## Python SDK 使用示例
 
+### SDK 方法总览
+
+`ChanjingAPI` 类提供以下主要方法：
+
+**认证与配置：**
+- `__init__(app_id, secret_key)` - 初始化客户端
+- `set_debug(debug)` - 启用/禁用调试模式
+- `get_access_token()` - 获取访问令牌
+
+**文件管理：**
+- `upload_file(file_path, service)` - 上传文件并获取文件 ID
+
+**数字人管理：**
+- `list_common_digital_persons(page, size)` - 获取公共数字人列表
+- `create_customised_person(name, file_id, ...)` - 创建定制数字人
+- `get_customised_person_status(person_id)` - 获取数字人状态
+- `list_customised_persons(page, page_size, source)` - 获取定制数字人列表
+
+**声音管理：**
+- `list_common_audio_mans(page, size)` - 获取公共声音列表
+
+**视频管理：**
+- `create_video(digital_person_id, text, audio_man_id, ...)` - 创建视频合成任务
+- `get_video_status(video_id)` - 获取视频状态
+- `get_video_list(page, page_size)` - 获取视频列表
+- `get_video_detail(video_id)` - 获取视频详情
+- `delete_video(video_id)` - 删除视频
+- `download_video(video_url, output_path)` - 下载视频
+
 ### 初始化
 
 ```python
@@ -709,7 +943,7 @@ api = ChanjingAPI(
     secret_key="your_secret_key"
 )
 
-# 启用调试模式（可选）
+# 启用调试模式（可选，会打印 curl 命令）
 api.set_debug(True)
 ```
 
@@ -917,7 +1151,87 @@ def callback():
     return jsonify({"status": "ok"})
 ```
 
-### 示例 7：完整工作流（项目实战）
+### 示例 7：获取公共数字人列表
+
+```python
+# 获取公共数字人列表
+public_persons = api.list_common_digital_persons(page=1, size=20)
+
+if public_persons.get('code') == 0:
+    persons = public_persons['data'].get('list', [])
+    for person in persons:
+        print(f"公共数字人：{person['name']}, ID: {person['id']}")
+        # 获取该数字人关联的默认声音 ID
+        print(f"  默认声音：{person.get('audio_man_id')}")
+```
+
+### 示例 8：获取定制数字人列表
+
+```python
+# 获取定制数字人列表
+persons_resp = api.list_customised_persons(page=1, page_size=10, source=0)
+
+if persons_resp.get('code') == 0:
+    persons = persons_resp['data'].get('list', [])
+    for person in persons:
+        print(f"数字人：{person['name']}, ID: {person['id']}, 状态：{person['status']}")
+        # 状态说明：1=制作中，2=成功，4=失败
+```
+
+### 示例 9：获取公共声音列表
+
+```python
+# 获取公共声音模型列表
+audios_resp = api.list_common_audio_mans(page=1, size=20)
+
+if audios_resp.get('code') == 0:
+    audios = audios_resp['data'].get('list', [])
+    for audio in audios:
+        print(f"声音：{audio['name']}, ID: {audio['id']}, 语言：{audio.get('lang')}")
+        # 可以试听
+        print(f"  试听：{audio.get('audition')}")
+```
+
+### 示例 10：获取视频列表
+
+```python
+# 获取视频列表
+videos_resp = api.get_video_list(page=1, page_size=10)
+
+if videos_resp.get('code') == 0:
+    videos = videos_resp['data'].get('list', [])
+    for video in videos:
+        print(f"视频 ID: {video['id']}, 状态：{video['status']}, 时长：{video.get('duration')}秒")
+        # 状态说明：1=已完成，2=处理中，40=失败
+```
+
+### 示例 11：获取视频详情
+
+```python
+# 获取视频详情
+video_detail = api.get_video_detail(video_id="video_abc123")
+
+if video_detail.get('code') == 0:
+    data = video_detail['data']
+    print(f"视频状态：{data.get('status')}")
+    print(f"进度：{data.get('progress')}%")
+    print(f"视频 URL: {data.get('video_url')}")
+    print(f"时长：{data.get('duration')}秒")
+```
+
+### 示例 12：删除视频
+
+```python
+# 删除视频
+delete_resp = api.delete_video(video_id="video_abc123")
+
+if delete_resp.get('code') == 0:
+    print("视频删除成功")
+else:
+    print(f"删除失败：{delete_resp.get('msg')}")
+```
+
+### 示例 13：完整工作流（项目实战）
 
 ```python
 import os
@@ -996,13 +1310,35 @@ if __name__ == "__main__":
 
 ## 错误码说明
 
+### 通用状态码
+
 | 错误码 | 说明 |
 |--------|------|
 | 0 | 成功 |
-| 400 | 参数错误 |
-| 401 | 认证失败 |
-| 50000 | 文件未完成上传 |
-| 其他 | 参考具体接口返回的 msg 字段 |
+| 400 | 传入参数格式错误 |
+| 10400 | AccessToken 验证失败或 APP 状态有误 |
+| 40000 | 参数错误 |
+| 40001 | 超出 QPS 限制 |
+| 40002 | 定制数字人数量到达上限 |
+| 50000 | 系统内部错误 |
+| 51000 | 系统错误 |
+
+### 数字人状态码
+
+| 状态码 | 说明 |
+|--------|------|
+| 1 | 制作中 |
+| 2 | 成功 |
+| 4 | 失败 |
+| 5 | 系统错误 |
+
+### 视频状态码
+
+| 状态码 | 说明 |
+|--------|------|
+| 1 | 已完成 |
+| 2 | 处理中 |
+| 40 | 失败 |
 
 ---
 
