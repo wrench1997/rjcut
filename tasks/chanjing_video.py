@@ -77,10 +77,11 @@ def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merch
                 mapped_progress = 10 + int(progress * 0.8)
                 _update_task(task_id, progress=mapped_progress)
 
-                if status in (1, 30):
+                # 根据蝉镜 OpenAPI：status 1=已完成，2=处理中，40/-1=失败
+                if status == 1:
                     chanjing_video_url = data.get('video_url')
                     break
-                elif status in (2, 40, -1):
+                elif status in (40, -1):
                     raise Exception(f"蝉镜渲染失败：{data.get('msg', '未知错误')}")
             time.sleep(10)
 
@@ -218,9 +219,10 @@ def run_dh_create_person_task(task_id: str, payload: dict, trace_id: str, mercha
                 
                 api.logger.info(f"当前状态码：{status}, 进度：{progress}")
 
-                # status: 0=定制中，1=已完成 (API 文档定义)，2=已完成 (实际返回)
-                # 当 status=2 且 progress=100 时，表示训练成功
-                if status in (1, 2, 30) or (status == 2 and progress == 100):
+                # 根据蝉镜 OpenAPI 文档 (dto.DpOpenCustomisedPersonItemRspData):
+                # status: 0=定制中，1=已完成
+                # 实际返回中 status=2 且 progress=100 也表示完成
+                if status == 1 or (status == 2 and progress == 100):
                     is_success = True
                     _update_task(task_id, progress=99)
                     break
