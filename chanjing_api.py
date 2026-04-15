@@ -350,15 +350,36 @@ class ChanjingAPI:
 
 
 
-# ================ 在 apps/digital_human/chanjing_api.py 中添加 ================
-# 找到 get_video_detail 方法下方，添加以下代码：
 
     def delete_video(self, video_id: str) -> Dict[str, Any]:
-        """删除视频合成任务"""
         endpoint = "/delete_video"
         data = {"id": video_id}
         
         self.logger.info(f"正在删除视频 {video_id}...")
+        return self._request("POST", endpoint, data=data)
+    
+    def delete_customised_person(self, person_id: str) -> Dict[str, Any]:
+        """删除定制数字人"""
+        endpoint = "/delete_customised_person"
+        data = {"id": person_id}
+        
+        self.logger.info(f"正在删除定制数字人 {person_id}...")
+        return self._request("POST", endpoint, data=data)
+    
+    def delete_customised_audio(self, audio_id: str) -> Dict[str, Any]:
+        """删除定制声音"""
+        endpoint = "/delete_customised_audio"
+        data = {"id": audio_id}
+        
+        self.logger.info(f"正在删除定制声音 {audio_id}...")
+        return self._request("POST", endpoint, data=data)
+    
+    def delete_file(self, file_id: str) -> Dict[str, Any]:
+        """删除文件"""
+        endpoint = "/common/delete_file"
+        data = {"id": file_id}
+        
+        self.logger.info(f"正在删除文件 {file_id}...")
         return self._request("POST", endpoint, data=data)
     
 

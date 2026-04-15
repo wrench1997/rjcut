@@ -1,1081 +1,815 @@
-# 蝉镜数字人 API 文档
+# RJCut 数字人 API 文档
 
 ## 概述
 
-本文档介绍如何使用蝉镜开放平台 API 进行数字人视频合成、自定义数字人训练、视频管理等操作。
+本文档介绍 RJCut 平台提供的数字人视频合成 API。本 API 基于蝉镜开放平台构建，但提供了独立的商户管理、配额控制、任务调度等功能。
 
 **API 基础信息：**
-- **Base URL**: `https://www.chanjing.cc/api/open/v1`
-- **Host**: `open.chanjing.cc`
-- **认证方式**: Access Token (通过 `access_token` 请求头传递)
+- **Base URL**: `http://your-server:8000`
+- **认证方式**: API Key (通过 `X-API-Key` 请求头传递)
+- **数据隔离**: 每个商户的数字人资源独立管理，互不可见
 
 **主要功能：**
-- 🎭 公共/定制数字人管理
-- 🎬 视频合成与管理
-- 🎤 公共/定制声音模型
-- 📁 文件上传与管理
-- 👄 对口型功能
-- 🔊 语音生成
+- 🎭 公共/自定义数字人管理
+- 🎬 异步视频合成任务
+- 🎤 声音模型选择
+- 📊 任务状态查询与回调
+- 💰 配额与并发控制
 
 ---
 
 ## 目录
 
 1. [认证](#认证)
-2. [文件管理](#文件管理)
-3. [公共资源](#公共资源)
-4. [定制数字人](#定制数字人)
-5. [定制声音](#定制声音)
-6. [视频合成](#视频合成)
-7. [视频管理](#视频管理)
-8. [对口型](#对口型)
-9. [语音生成](#语音生成)
-10. [用户信息](#用户信息)
-11. [错误码说明](#错误码说明)
-12. [Python SDK 使用示例](#python-sdk-使用示例)
+2. [数字人资源](#数字人资源)
+3. [声音资源](#声音资源)
+4. [视频生成任务](#视频生成任务)
+5. [自定义数字人训练](#自定义数字人训练)
+6. [删除操作](#删除操作)
+7. [任务查询](#任务查询)
+8. [错误码说明](#错误码说明)
+9. [使用示例](#使用示例)
 
 ---
 
 ## 认证
 
-### 获取 Access Token
+所有 API 调用都需要在请求头中携带商户的 API Key。
 
-所有 API 调用（除获取 Token 接口外）都需要在请求头中携带 `access_token`。
-
-**接口**: `POST /access_token`
-
-**请求参数**:
-```json
-{
-  "app_id": "你的 app_id",
-  "secret_key": "你的 secret_key"
-}
+**请求头格式**:
+```
+X-API-Key: your_api_key_here
 ```
 
-**响应示例**:
-```json
-{
-  "code": 0,
-  "msg": "success",
-  "data": {
-    "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-    "expire_in": 7200
-  },
-  "trace_id": "abc123..."
-}
-```
+**获取 API Key**: 联系管理员创建商户账户并获取 API Key。
 
 ---
 
-## 文件管理
-
-### 获取文件上传链接
-
-**接口**: `GET /common/create_upload_url`
-
-**请求参数**:
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| service | string | 是 | 服务类型：`customised_person`（定制数字人）、`background`（背景）、`audio`（音频）等 |
-| name | string | 否 | 文件名 |
-
-**响应示例**:
-```json
-{
-  "code": 0,
-  "data": {
-    "sign_url": "https://oss.example.com/upload?signature=xxx",
-    "file_id": "file_abc123"
-  }
-}
-```
-
-### 上传文件
-
-使用获取到的 `sign_url` 进行 PUT 上传：
-
-```python
-import requests
-
-with open('video.mp4', 'rb') as f:
-    response = requests.put(sign_url, data=f, headers={'Content-Type': 'video/mp4'})
-```
-
-### 获取文件列表
-
-**接口**: `POST /common/file_list`
-
-**请求参数**:
-```json
-{
-  "page": 1,
-  "page_size": 10,
-  "service": "customised_person",
-  "order": "desc"
-}
-```
-
-### 获取文件详情
-
-**接口**: `GET /common/file_detail?id={file_id}`
-
-### 删除文件
-
-**接口**: `POST /common/delete_file`
-
-**请求参数**:
-```json
-{
-  "id": "file_abc123"
-}
-```
-
----
-
-## 公共资源
+## 数字人资源
 
 ### 获取公共数字人列表
 
-**接口**: `GET /list_common_dp`
+获取平台提供的公共数字人模型列表（所有商户共享）。
 
-**请求参数**:
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| page | integer | 否 | 页码，默认 1 |
-| size | integer | 否 | 每页数量，默认 20 |
-| source | integer | 否 | 来源：0=API 定制，1=Web 定制 |
+**接口**: `GET /v1/dh/persons/common`
 
 **响应示例**:
 ```json
 {
   "code": 0,
-  "data": {
-    "list": [
-      {
-        "id": "dp_001",
-        "name": "知性女主播",
-        "gender": "female",
-        "audio_lang": "cn",
-        "audio_man_id": "audio_001",
-        "audio_name": "知性女声",
-        "audio_preview": "https://...",
-        "figures": [
-          {
-            "type": "whole_body",
-            "width": 1080,
-            "height": 1920,
-            "preview_video_url": "https://...",
-            "bg_replace": true
-          }
-        ]
-      }
-    ],
-    "page_info": {
-      "page": 1,
-      "size": 20,
-      "total_count": 50
+  "message": "ok",
+  "data": [
+    {
+      "id": "dp_001",
+      "name": "知性女主播",
+      "gender": "female",
+      "audio_lang": "cn",
+      "audio_man_id": "audio_001",
+      "audio_name": "知性女声",
+      "audio_preview": "https://...",
+      "figures": [
+        {
+          "type": "whole_body",
+          "width": 1080,
+          "height": 1920,
+          "preview_video_url": "https://...",
+          "bg_replace": true
+        }
+      ]
     }
-  }
+  ]
 }
 ```
-
-### 获取公共声音人列表
-
-**接口**: `GET /list_common_audio`
-
-**请求参数**:
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| page | integer | 否 | 页码 |
-| size | integer | 否 | 每页数量 |
-
-**响应示例**:
-```json
-{
-  "code": 0,
-  "data": {
-    "list": [
-      {
-        "id": "audio_001",
-        "name": "知性女声",
-        "gender": "female",
-        "lang": "cn",
-        "audition": "https://...",
-        "desc": "温柔知性的女声",
-        "speed": 1.0,
-        "pitch": 1.0,
-        "grade": 1
-      }
-    ]
-  }
-}
-```
-
-### 获取字体列表
-
-**接口**: `GET /font_list`
 
 ---
 
-## 定制数字人
+### 获取自定义数字人列表
 
-### 创建定制数字人
+获取当前商户自己训练的私有数字人列表（数据隔离，其他商户不可见）。
 
-**接口**: `POST /create_customised_person`
+**接口**: `GET /v1/dh/persons/custom`
+
+**响应示例**:
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": [
+    {
+      "id": "person_abc123",
+      "name": "我的数字人",
+      "status": 30,
+      "cover_url": "https://...",
+      "created_at": "2026-04-15T10:30:00Z"
+    }
+  ]
+}
+```
+
+**状态码说明**:
+| 状态码 | 说明 |
+|--------|------|
+| 10 | 训练中 |
+| 30 | 成功 |
+| 40 | 失败 |
+
+---
+
+### 获取自定义数字人详情
+
+从蝉镜 API 拉取单个自定义数字人的详细信息，并同步到本地数据库。
+
+**接口**: `GET /v1/dh/persons/custom/{person_id}`
+
+**路径参数**:
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| person_id | string | 数字人 ID |
+
+**响应示例**:
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "id": "person_abc123",
+    "name": "我的数字人",
+    "status": 1,
+    "status_text": "已完成",
+    "progress": 100,
+    "cover_url": "https://...",
+    "video_url": "https://...",
+    "audio_man_id": "audio_custom_001",
+    "created_at": "2026-04-15T10:30:00Z"
+  }
+}
+```
+
+---
+
+### 同步自定义数字人
+
+从蝉镜平台同步所有自定义数字人信息到本地数据库。
+
+**接口**: `POST /v1/dh/persons/custom/sync`
+
+**响应示例**:
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "synced_count": 5,
+    "total": 5
+  }
+}
+```
+
+---
+
+### 删除自定义数字人
+
+删除当前商户的自定义数字人（同时删除蝉镜平台和本地记录）。
+
+**接口**: `POST /v1/dh/persons/custom/{person_id}/delete`
+
+**路径参数**:
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| person_id | string | 数字人 ID |
+
+**响应示例**:
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "person_id": "person_abc123"
+  }
+}
+```
+
+**注意事项**:
+- 删除后无法恢复，请谨慎操作
+- 如果该数字人正在被使用，建议先停止相关任务
+- 删除操作会同时删除蝉镜平台和本地数据库的记录
+
+---
+
+## 声音资源
+
+### 获取声音列表
+
+获取公共声音模型列表。
+
+**接口**: `GET /v1/dh/voices`
+
+**响应示例**:
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": [
+    {
+      "id": "audio_001",
+      "name": "知性女声",
+      "gender": "female",
+      "lang": "cn",
+      "audition": "https://...",
+      "desc": "温柔知性的女声",
+      "speed": 1.0,
+      "pitch": 1.0
+    }
+  ]
+}
+```
+
+---
+
+### 删除定制声音
+
+删除定制声音（调用蝉镜 API）。
+
+**接口**: `POST /v1/dh/voices/{audio_id}/delete`
+
+**路径参数**:
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| audio_id | string | 声音 ID |
+
+**响应示例**:
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "audio_id": "audio_custom_001"
+  }
+}
+```
+
+---
+
+## 视频生成任务
+
+### 创建视频生成任务
+
+创建异步视频合成任务。
+
+**接口**: `POST /v1/dh/tasks/generate`
+
+**请求参数**:
+```json
+{
+  "text": "你好，欢迎观看我的视频。",
+  "person_id": "person_abc123",
+  "audio_man_id": "audio_001",
+  "figure_type": "sit_body",
+  "drive_mode": "random",
+  "bg_type": "color",
+  "bg_color": "#EDEDED",
+  "bg_file_oss_key": null,
+  "client_ref_id": "client_ref_001",
+  "timeout_seconds": 3600,
+  "hide_subtitle": true
+}
+```
+
+**参数说明**:
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| text | string | 是 | - | 要合成的文本内容 |
+| person_id | string | 否 | null | 数字人 ID（公共或自定义） |
+| audio_man_id | string | 否 | null | 声音 ID，为空时自动使用数字人原生声音 |
+| figure_type | string | 否 | sit_body | 形象类型：`sit_body`（坐姿）、`whole_body`（全身）等 |
+| drive_mode | string | 否 | random | 驱动模式：`normal`（顺序）、`random`（随机） |
+| bg_type | string | 否 | color | 背景类型：`color`（纯色）、`image`（图片） |
+| bg_color | string | 否 | #EDEDED | 纯色背景颜色（HEX 格式） |
+| bg_file_oss_key | string | 否 | null | 背景图片的 OSS 路径（当 bg_type=image 时） |
+| client_ref_id | string | 否 | null | 客户端自定义参考 ID |
+| timeout_seconds | integer | 否 | 3600 | 任务超时时间（秒） |
+| hide_subtitle | boolean | 否 | true | 是否隐藏字幕 |
+
+**响应示例**:
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "task_id": "task_dh_abc123",
+    "status": "queued"
+  }
+}
+```
+
+---
+
+## 自定义数字人训练
+
+### 创建自定义数字人训练任务
+
+上传素材视频并训练自定义数字人。
+
+**接口**: `POST /v1/dh/tasks/create-person`
 
 **请求参数**:
 ```json
 {
   "name": "我的数字人",
-  "file_id": "file_abc123",
+  "source_video_oss_key": "merchant_001/videos/source.mp4",
   "train_type": "both",
   "language": "cn",
   "error_skip": false,
   "resolution_rate": 0,
-  "version": "1.0",
-  "denoise_flag": true,
-  "callback": "https://your-callback.com/notify"
-}
-```
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| name | string | 是 | 数字人名称 |
-| file_id | string | 是 | 素材视频文件 ID |
-| train_type | string | 否 | 训练类型：`both`（声音 + 形象）、`voice`（仅声音）、`image`（仅形象） |
-| language | string | 否 | 语言：`cn`（中文）、`en`（英文） |
-| error_skip | boolean | 否 | 是否跳过声音克隆失败 |
-| resolution_rate | integer | 否 | 分辨率：0=1080p，1=4k |
-| version | string | 否 | 版本：默认 1.0，2.0 需要上传授权视频和文案 |
-| denoise_flag | boolean | 否 | 是否降噪 |
-| callback | string | 否 | 回调 URL |
-
-**响应示例**:
-```json
-{
-  "code": 0,
-  "data": "person_abc123",
-  "msg": "success"
-}
-```
-
-### 获取定制数字人列表
-
-**接口**: `POST /list_customised_person`
-
-**请求参数**:
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| page | integer | 否 | 页码，默认 1 |
-| page_size | integer | 否 | 每页数量，默认 10 |
-| source | integer | 否 | 来源：0=API 定制，1=Web 定制 |
-
-**请求示例**:
-```json
-{
-  "page": 1,
-  "page_size": 10,
-  "source": 0
-}
-```
-
-**响应示例**:
-```json
-{
-  "code": 0,
-  "data": {
-    "list": [
-      {
-        "id": "person_abc123",
-        "name": "我的数字人",
-        "status": 2,
-        "progress": 100,
-        "pic_url": "https://...",
-        "preview_url": "https://...",
-        "audio_man_id": "audio_custom_001",
-        "type": "person",
-        "width": 1080,
-        "height": 1920,
-        "create_time": 1712345678
-      }
-    ],
-    "page_info": {
-      "page": 1,
-      "page_size": 10,
-      "total_count": 5
-    }
-  }
-}
-```
-
-### 获取定制数字人详情
-
-**接口**: `GET /customised_person?id={person_id}`
-
-**响应示例**:
-```json
-{
-  "code": 0,
-  "data": {
-    "id": "person_abc123",
-    "name": "我的数字人",
-    "status": 1,
-    "progress": 100,
-    "pic_url": "https://...",
-    "preview_url": "https://...",
-    "audio_man_id": "audio_custom_001",
-    "type": "person",
-    "width": 1080,
-    "height": 1920,
-    "support_4k": true,
-    "is_open": 1,
-    "create_time": 1712345678
-  }
-}
-```
-
-**状态码说明**:
-| 状态码 | 说明 |
-|--------|------|
-| 0 | 定制中 |
-| 1 | 已完成 |
-| 2 | 已完成（实际 API 返回，需配合 progress=100 判断） |
-| 40 | 失败 |
-
-### 删除定制数字人
-
-**接口**: `POST /delete_customised_person`
-
-**请求参数**:
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| id | string | 是 | 数字人 ID |
-
-**请求示例**:
-```json
-{
-  "id": "person_abc123"
-}
-```
-
-**响应示例**:
-```json
-{
-  "code": 0,
-  "msg": "success"
-}
-```
-
----
-
-## 定制声音
-
-### 创建定制声音
-
-**接口**: `POST /create_customised_audio`
-
-**请求参数**:
-```json
-{
-  "name": "我的声音",
-  "url": "https://example.com/audio.wav",
-  "language": "cn",
-  "denoise_flag": true,
-  "model_type": "default",
-  "callback": "https://your-callback.com/notify"
-}
-```
-
-### 获取定制声音列表
-
-**接口**: `POST /list_customised_audio`
-
-### 获取定制声音详情
-
-**接口**: `GET /customised_audio?id={audio_id}`
-
-**响应示例**:
-```json
-{
-  "code": 0,
-  "data": {
-    "id": "audio_custom_001",
-    "name": "我的声音",
-    "status": 1,
-    "progress": 100,
-    "lang": "cn",
-    "type": "custom",
-    "audio_path": "https://..."
-  }
-}
-```
-
-### 删除定制声音
-
-**接口**: `POST /delete_customised_audio`
-
----
-
-## 视频合成
-
-### 创建合成视频任务
-
-**接口**: `POST /create_video`
-
-**请求参数**:
-```json
-{
-  "person": {
-    "id": "person_abc123",
-    "x": 0,
-    "y": 0,
-    "width": 1080,
-    "height": 1920,
-    "figure_type": "whole_body",
-    "drive_mode": "random",
-    "backway": 1,
-    "is_rgba_mode": false
-  },
-  "audio": {
-    "type": "tts",
-    "tts": {
-      "audio_man": "audio_001",
-      "text": ["你好，欢迎观看我的视频。", "这是第二段文本。"],
-      "speed": 1.0,
-      "pitch": 1.0
-    },
-    "volume": 100,
-    "language": "cn"
-  },
-  "bg_color": "#EDEDED",
-  "screen_width": 1080,
-  "screen_height": 1920,
-  "model": 1,
-  "resolution_rate": 0,
-  "hide_subtitle": false,
-  "add_compliance_watermark": true,
-  "compliance_watermark_position": 0,
-  "subtitle_config": {
-    "show": true,
-    "asr_type": 0,
-    "font_size": 40,
-    "color": "#FFFFFF",
-    "stroke_color": "#000000",
-    "stroke_width": 1.0,
-    "x": 0,
-    "y": 1700,
-    "width": 1080,
-    "height": 200
-  },
-  "callback": "https://your-callback.com/notify"
+  "client_ref_id": "client_ref_002"
 }
 ```
 
 **参数说明**:
-
-**person 对象**:
-| 参数 | 类型 | 说明 |
-|------|------|------|
-| id | string | 数字人 ID（公共或定制） |
-| x, y | integer | 数字人在画布中的位置 |
-| width, height | integer | 数字人尺寸 |
-| figure_type | string | 形象类型：`whole_body`（全身）、`half_body`（半身） |
-| drive_mode | string | 驱动模式：`normal`（顺序驱动）、`random`（随机帧动作） |
-| backway | integer | 正反播：1=正放，2=倒放 |
-| is_rgba_mode | boolean | 是否驱动四通道 webm 视频 |
-
-**audio 对象**:
-| 参数 | 类型 | 说明 |
-|------|------|------|
-| type | string | 音频类型：`tts`（文本生成）、`audio`（音频文件） |
-| tts.audio_man | string | 声音 ID |
-| tts.text | array | 文本数组 |
-| tts.speed | number | 语速，默认 1.0 |
-| tts.pitch | number | 语调，默认 1.0 |
-| volume | integer | 音量，默认 100 |
-| language | string | 语言 |
-
-**背景设置**（二选一）:
-- `bg_color`: 纯色背景，如 `"#EDEDED"`
-- `bg`: 图片背景对象
-  ```json
-  {
-    "file_id": "file_bg123",
-    "x": 0,
-    "y": 0,
-    "width": 1080,
-    "height": 1920
-  }
-  ```
-
-**其他参数**:
-| 参数 | 类型 | 说明 |
-|------|------|------|
-| screen_width | integer | 画布宽度，默认 1080 |
-| screen_height | integer | 画布高度，默认 1920 |
-| model | integer | 模型版本：0=基础版，1=高质版 |
-| resolution_rate | integer | 分辨率：0=1080p，1=4k |
-| hide_subtitle | boolean | 是否隐藏字幕 |
-| add_compliance_watermark | boolean | 是否添加合规水印 |
-| subtitle_config | object | 字幕配置（见下表） |
-
-**subtitle_config 对象**:
-| 参数 | 类型 | 说明 |
-|------|------|------|
-| show | boolean | 是否显示字幕 |
-| asr_type | integer | 0=自动生成，1=用户上传 |
-| font_id | string | 字体 ID |
-| font_size | integer | 字体大小 |
-| color | string | 字体颜色 |
-| stroke_color | string | 描边颜色 |
-| stroke_width | number | 描边宽度 |
-| x, y | integer | 字幕位置 |
-| width, height | integer | 字幕区域尺寸 |
-| subtitles | array | 用户上传的 ASR 结果（当 asr_type=1 时） |
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| name | string | 是 | - | 数字人名称 |
+| source_video_oss_key | string | 是 | - | 素材视频的 OSS 路径 |
+| train_type | string | 否 | both | 训练类型：`both`（声音 + 形象）、`voice`（仅声音）、`image`（仅形象） |
+| language | string | 否 | cn | 语言：`cn`（中文）、`en`（英文） |
+| error_skip | boolean | 否 | false | 是否跳过声音克隆失败 |
+| resolution_rate | integer | 否 | 0 | 分辨率：0=1080p，1=4k |
+| client_ref_id | string | 否 | null | 客户端自定义参考 ID |
 
 **响应示例**:
 ```json
 {
   "code": 0,
-  "data": "video_abc123",
-  "msg": "success"
-}
-```
-
-### 获取视频列表
-
-**接口**: `POST /video_list`
-
-**请求参数**:
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| page | integer | 否 | 页码，默认 1 |
-| page_size | integer | 否 | 每页数量，默认 10 |
-
-**请求示例**:
-```json
-{
-  "page": 1,
-  "page_size": 10
-}
-```
-
-**响应示例**:
-```json
-{
-  "code": 0,
+  "message": "ok",
   "data": {
-    "list": [
-      {
-        "id": "video_abc123",
-        "status": 1,
-        "progress": 100,
-        "duration": 30,
-        "video_url": "https://...",
-        "preview_url": "https://...",
-        "audio_urls": ["https://..."],
-        "subtitle_data_url": "https://...",
-        "create_time": 1712345678,
-        "msg": "success"
-      }
-    ],
-    "pageInfo": {
-      "page": 1,
-      "size": 10,
-      "total_count": 50
-    }
+    "task_id": "task_dhc_abc123",
+    "status": "queued"
   }
 }
 ```
 
-### 获取视频详情
+---
 
-**接口**: `GET /video?id={video_id}`
+## 删除操作
 
-**状态码说明**:
-| 状态码 | 说明 |
-|--------|------|
-| 1 | 已完成 |
-| 2 | 处理中 |
-| 40 | 失败 |
+### 删除视频任务
 
-### 获取视频详情
+删除已创建的数字人视频任务，同时退还配额。
 
-**接口**: `GET /video?id={video_id}`
+**接口**: `POST /v1/dh/tasks/{task_id}/delete`
+
+**路径参数**:
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| task_id | string | 视频任务 ID |
 
 **响应示例**:
 ```json
 {
   "code": 0,
+  "message": "ok",
   "data": {
-    "id": "video_abc123",
-    "status": 1,
+    "task_id": "task_dh_abc123"
+  }
+}
+```
+
+**注意事项**:
+- 仅支持删除 `dh_generate` 类型的任务
+- 删除后会退还已扣除的配额
+- 本地任务状态会更新为 `cancelled`，stage 为 `deleted`
+
+---
+
+### 删除自定义数字人
+
+删除当前商户的自定义数字人（同时删除蝉镜平台和本地记录）。
+
+**接口**: `POST /v1/dh/persons/custom/{person_id}/delete`
+
+**路径参数**:
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| person_id | string | 数字人 ID |
+
+**响应示例**:
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "person_id": "person_abc123"
+  }
+}
+```
+
+**注意事项**:
+- 删除后无法恢复，请谨慎操作
+- 如果该数字人正在被使用，建议先停止相关任务
+- 删除操作会同时删除蝉镜平台和本地数据库的记录
+
+---
+
+### 删除定制声音
+
+删除定制声音（调用蝉镜 API）。
+
+**接口**: `POST /v1/dh/voices/{audio_id}/delete`
+
+**路径参数**:
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| audio_id | string | 声音 ID |
+
+**响应示例**:
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "audio_id": "audio_custom_001"
+  }
+}
+```
+
+---
+
+### 删除文件
+
+删除已上传的文件（调用蝉镜 API）。
+
+**接口**: `POST /v1/dh/files/{file_id}/delete`
+
+**路径参数**:
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| file_id | string | 文件 ID（蝉镜平台的文件 ID） |
+
+**响应示例**:
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "file_id": "file_abc123"
+  }
+}
+```
+
+**注意事项**:
+- 此接口删除的是蝉镜平台的文件，不是本地 OSS 存储
+- 本地 OSS 文件请使用 `/v1/uploads/` 相关接口管理
+
+---
+
+## 任务查询
+
+### 查询任务状态
+
+查询任意任务的当前状态和结果。
+
+**接口**: `GET /v1/tasks/{task_id}`
+
+**路径参数**:
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| task_id | string | 任务 ID |
+
+**响应示例**:
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "task_id": "task_dh_abc123",
+    "task_type": "dh_generate",
+    "status": "succeeded",
     "progress": 100,
-    "duration": 30,
-    "video_url": "https://...",
-    "preview_url": "https://...",
-    "audio_urls": ["https://..."],
-    "subtitle_data_url": "https://...",
-    "create_time": 1712345678,
-    "msg": "success"
-  }
-}
-```
-
-### 删除视频
-
-**接口**: `POST /delete_video`
-
-**请求参数**:
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| id | string | 是 | 视频 ID |
-
-**请求示例**:
-```json
-{
-  "id": "video_abc123"
-}
-```
-
-**响应示例**:
-```json
-{
-  "code": 0,
-  "msg": "success"
-}
-```
-
----
-
-## 视频管理
-
-### 获取视频列表
-
-**接口**: `POST /video_list`
-
-**请求参数**:
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| page | integer | 否 | 页码，默认 1 |
-| page_size | integer | 否 | 每页数量，默认 10 |
-
-**请求示例**:
-```json
-{
-  "page": 1,
-  "page_size": 10
-}
-```
-
-**响应示例**:
-```json
-{
-  "code": 0,
-  "data": {
-    "list": [
-      {
-        "id": "video_abc123",
-        "status": 1,
-        "progress": 100,
-        "duration": 30,
-        "video_url": "https://...",
-        "preview_url": "https://...",
-        "audio_urls": ["https://..."],
-        "subtitle_data_url": "https://...",
-        "create_time": 1712345678,
-        "msg": "success"
+    "stage": "finished",
+    "client_ref_id": "client_ref_001",
+    "cost": 1,
+    "trace_id": "trace_abc123",
+    "result": {
+      "files": {
+        "final_video": {
+          "oss_key": "merchant_001/results/final.mp4",
+          "filename": "final.mp4",
+          "size_bytes": 12345678
+        }
       }
-    ],
-    "pageInfo": {
-      "page": 1,
-      "size": 10,
-      "total_count": 50
-    }
-  }
-}
-```
-
-### 获取视频详情
-
-**接口**: `GET /video?id={video_id}`
-
-**响应示例**:
-```json
-{
-  "code": 0,
-  "data": {
-    "id": "video_abc123",
-    "status": 1,
-    "progress": 100,
-    "duration": 30,
-    "video_url": "https://...",
-    "preview_url": "https://...",
-    "audio_urls": ["https://..."],
-    "subtitle_data_url": "https://...",
-    "create_time": 1712345678,
-    "msg": "success"
-  }
-}
-```
-
-**视频状态码说明**:
-| 状态码 | 说明 |
-|--------|------|
-| 1 | 已完成 |
-| 2 | 处理中 |
-| 40 | 失败 |
-
-### 删除视频
-
-**接口**: `POST /delete_video`
-
-**请求参数**:
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| id | string | 是 | 视频 ID |
-
-**请求示例**:
-```json
-{
-  "id": "video_abc123"
-}
-```
-
-**响应示例**:
-```json
-{
-  "code": 0,
-  "msg": "success"
-}
-```
-
----
-
-## 对口型
-
-### 创建对口型视频
-
-**接口**: `POST /video_lip_sync/create`
-
-**请求参数**:
-```json
-{
-  "video_file_id": "file_video123",
-  "audio_file_id": "file_audio123",
-  "model": 1,
-  "backway": 1,
-  "drive_mode": "normal",
-  "volume": 100,
-  "screen_width": 1080,
-  "screen_height": 1920,
-  "tts_config": {
-    "audio_man_id": "audio_001",
-    "text": ["你好"],
-    "speed": 1.0,
-    "pitch": 1.0
-  },
-  "callback": "https://your-callback.com/notify"
-}
-```
-
-### 获取对口型视频列表
-
-**接口**: `POST /video_lip_sync/list`
-
-### 获取对口型视频详情
-
-**接口**: `GET /video_lip_sync/detail?id={video_id}`
-
----
-
-## 语音生成
-
-### 创建语音合成任务
-
-**接口**: `POST /create_audio_task` 或 `POST /create_audio_task_v2`
-
-**请求参数**:
-```json
-{
-  "audio_man": "audio_001",
-  "speed": 1.0,
-  "pitch": 1.0,
-  "text": {
-    "text": "你好，欢迎观看。",
-    "plain_text": "你好，欢迎观看。"
-  },
-  "language_boost": "cn",
-  "aigc_watermark": true,
-  "callback": "https://your-callback.com/notify"
-}
-```
-
-**响应示例**:
-```json
-{
-  "code": 0,
-  "data": {
-    "task_id": "audio_task_123"
-  }
-}
-```
-
-### 获取语音合成任务状态
-
-**接口**: `POST /audio_task_state`
-
-**请求参数**:
-```json
-{
-  "task_id": "audio_task_123"
-}
-```
-
-**响应示例**:
-```json
-{
-  "code": 0,
-  "data": {
-    "id": "audio_task_123",
-    "status": 1,
-    "full": {
-      "url": "https://...",
-      "path": "https://...",
-      "duration": 30,
-      "watermark_url": "https://..."
     },
-    "subtitles": [
+    "error": null,
+    "created_at": "2026-04-15T10:30:00Z",
+    "finished_at": "2026-04-15T10:35:00Z"
+  }
+}
+```
+
+**任务状态说明**:
+| 状态 | 说明 |
+|------|------|
+| queued | 等待中 |
+| processing | 处理中 |
+| succeeded | 成功 |
+| failed | 失败 |
+| cancelled | 已取消 |
+| timeout | 超时 |
+
+---
+
+### 查询任务列表
+
+查询当前商户的任务列表。
+
+**接口**: `GET /v1/tasks`
+
+**查询参数**:
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| status | string | 否 | null | 按状态筛选 |
+| limit | integer | 否 | 20 | 每页数量 (1-100) |
+| offset | integer | 否 | 0 | 偏移量 |
+
+**响应示例**:
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "items": [
       {
-        "key": "sub_001",
-        "subtitle": "你好，欢迎观看。",
-        "start_time": 0.0,
-        "end_time": 3.5,
-        "words": [
-          {"text": "你好", "startTime": 0.0, "endTime": 1.0},
-          {"text": "欢迎观看", "startTime": 1.0, "endTime": 3.5}
-        ]
+        "task_id": "task_dh_abc123",
+        "task_type": "dh_generate",
+        "status": "succeeded",
+        "progress": 100,
+        "stage": "finished",
+        "client_ref_id": "client_ref_001",
+        "cost": 1,
+        "created_at": "2026-04-15T10:30:00Z",
+        "error": null
       }
-    ]
+    ],
+    "count": 1,
+    "total": 50
   }
 }
 ```
 
 ---
 
-## 用户信息
+### 取消任务
 
-### 获取用户信息
+取消正在执行的任务。
 
-**接口**: `GET /user_info`
+**接口**: `POST /v1/tasks/{task_id}/cancel`
 
-**响应示例**:
+**请求参数**:
 ```json
 {
-  "code": 0,
-  "data": {
-    "id": "app_001",
-    "name": "我的应用",
-    "custom_person_limit": 10,
-    "custom_person_nums": 3,
-    "video_create_limit": 3600,
-    "video_create_seconds": 1200
-  }
+  "reason": "用户主动取消"
 }
 ```
 
-### 获取用户蝉豆余额
-
-**接口**: `GET /user_duration`
-
 **响应示例**:
 ```json
 {
   "code": 0,
+  "message": "ok",
   "data": {
-    "resi_total_bean": 5000,
-    "bean_day30": 200
+    "task_id": "task_dh_abc123",
+    "status": "cancelled"
   }
 }
 ```
 
 ---
 
-## Python SDK 使用示例
+### 获取任务文件下载 URL
 
-### SDK 方法总览
+获取任务结果文件的预签名下载 URL。
 
-`ChanjingAPI` 类提供以下主要方法：
+**接口**: `GET /v1/tasks/{task_id}/files/{file_key}`
 
-**认证与配置：**
-- `__init__(app_id, secret_key)` - 初始化客户端
-- `set_debug(debug)` - 启用/禁用调试模式
-- `get_access_token()` - 获取访问令牌
+**路径参数**:
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| task_id | string | 任务 ID |
+| file_key | string | 文件键（如 `final_video`） |
 
-**文件管理：**
-- `upload_file(file_path, service)` - 上传文件并获取文件 ID
-
-**数字人管理：**
-- `list_common_digital_persons(page, size)` - 获取公共数字人列表
-- `create_customised_person(name, file_id, ...)` - 创建定制数字人
-- `get_customised_person_status(person_id)` - 获取数字人状态
-- `list_customised_persons(page, page_size, source)` - 获取定制数字人列表
-
-**声音管理：**
-- `list_common_audio_mans(page, size)` - 获取公共声音列表
-
-**视频管理：**
-- `create_video(digital_person_id, text, audio_man_id, ...)` - 创建视频合成任务
-- `get_video_status(video_id)` - 获取视频状态
-- `get_video_list(page, page_size)` - 获取视频列表
-- `get_video_detail(video_id)` - 获取视频详情
-- `delete_video(video_id)` - 删除视频
-- `download_video(video_url, output_path)` - 下载视频
-
-### 初始化
-
-```python
-from chanjing_api import ChanjingAPI
-
-# 初始化 API 客户端
-api = ChanjingAPI(
-    app_id="your_app_id",
-    secret_key="your_secret_key"
-)
-
-# 启用调试模式（可选，会打印 curl 命令）
-api.set_debug(True)
+**响应示例**:
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "download_url": "https://oss.example.com/download?signature=xxx",
+    "expires_in": 3600
+  }
+}
 ```
 
-### 示例 1：使用公共数字人合成视频
+---
+
+## 错误码说明
+
+### 通用错误码
+
+| 错误码 | 说明 |
+|--------|------|
+| 0 | 成功 |
+| 40001 | 请求体编码错误 |
+| 40002 | 无效的 JSON 格式 |
+| 40003 | 参数校验失败 |
+| 40004 | 任务类型不匹配 |
+| 40201 | 配额不足 |
+| 40300 | 权限不足 |
+| 40400 | 资源不存在 |
+| 40900 | 资源冲突 |
+| 41300 | 文件过大 |
+| 42901 | 并发任务数超限 |
+
+### 蝉镜 API 错误码（透传）
+
+| 错误码 | 说明 |
+|--------|------|
+| 10400 | AccessToken 验证失败 |
+| 40000 | 参数错误 |
+| 50000 | 系统内部错误 |
+| 51000 | 系统错误 |
+
+---
+
+## 使用示例
+
+### Python 示例：创建视频生成任务
 
 ```python
-# 1. 创建视频合成任务
-video_response = api.create_video(
-    digital_person_id="dp_001",      # 公共数字人 ID
-    text=["你好，欢迎观看我的视频。", "这是第二段文本。"],
-    audio_man_id="audio_001",        # 声音 ID
-    speed=1.0,
-    pitch=1.0,
-    volume=100,
-    screen_width=1080,
-    screen_height=1920,
-    bg_color="#EDEDED",
-    figure_type="whole_body",
-    drive_mode="random",
-    model=1,                          # 高质版
-    resolution_rate=0                 # 1080p
+import requests
+
+API_BASE = "http://your-server:8000"
+API_KEY = "your_api_key"
+
+headers = {
+    "X-API-Key": API_KEY,
+    "Content-Type": "application/json"
+}
+
+# 创建视频生成任务
+response = requests.post(
+    f"{API_BASE}/v1/dh/tasks/generate",
+    headers=headers,
+    json={
+        "text": "你好，欢迎观看我的视频。",
+        "person_id": "person_abc123",
+        "audio_man_id": "audio_001",
+        "figure_type": "sit_body",
+        "drive_mode": "random",
+        "bg_type": "color",
+        "bg_color": "#EDEDED",
+        "hide_subtitle": True
+    }
 )
 
-if video_response.get('code') != 0:
-    raise Exception(f"创建视频失败：{video_response}")
+result = response.json()
+task_id = result['data']['task_id']
+print(f"任务已创建：{task_id}")
 
-video_id = video_response['data']
-print(f"视频任务已创建：{video_id}")
-
-# 2. 轮询等待视频合成完成
+# 轮询任务状态
 import time
 for i in range(180):  # 最多等待 30 分钟
-    status_resp = api.get_video_status(video_id)
-    data = status_resp.get('data', {})
-    status = data.get('status')
-    progress = data.get('progress', 0)
+    status_resp = requests.get(
+        f"{API_BASE}/v1/tasks/{task_id}",
+        headers=headers
+    )
+    task_data = status_resp.json()['data']
+    status = task_data['status']
+    progress = task_data['progress']
     
     print(f"进度：{progress}%, 状态：{status}")
     
-    if status == 1:  # 已完成
-        video_url = data.get('video_url')
-        print(f"视频合成完成：{video_url}")
+    if status == 'succeeded':
+        # 获取下载 URL
+        file_key = 'final_video'
+        download_resp = requests.get(
+            f"{API_BASE}/v1/tasks/{task_id}/files/{file_key}",
+            headers=headers
+        )
+        download_url = download_resp.json()['data']['download_url']
+        print(f"视频完成，下载 URL: {download_url}")
         break
-    elif status == 40:  # 失败
-        raise Exception(f"视频合成失败：{data.get('msg')}")
+    elif status == 'failed':
+        print(f"任务失败：{task_data.get('error')}")
+        break
     
     time.sleep(10)
-
-# 3. 下载视频
-api.download_video(video_url, "./output/final.mp4")
 ```
 
-### 示例 2：训练自定义数字人
+---
+
+### Python 示例：训练自定义数字人
 
 ```python
-# 1. 上传素材视频
-file_id = api.upload_file("./source_video.mp4", service="customised_person")
-print(f"文件上传成功，ID: {file_id}")
+import requests
 
-# 2. 创建定制数字人任务
-train_resp = api.create_customised_person(
-    name="我的数字人",
-    file_id=file_id,
-    train_type="both",      # both=声音 + 形象，voice=仅声音，image=仅形象
-    language="cn",
-    error_skip=False,
-    resolution_rate=0       # 1080p
+API_BASE = "http://your-server:8000"
+API_KEY = "your_api_key"
+
+headers = {
+    "X-API-Key": API_KEY,
+    "Content-Type": "application/json"
+}
+
+# 1. 上传素材视频（先获取预签名 URL）
+upload_response = requests.post(
+    f"{API_BASE}/v1/uploads/presign",
+    headers=headers,
+    json={
+        "filename": "source_video.mp4",
+        "purpose": "digital_person",
+        "content_type": "video/mp4"
+    }
 )
 
-if train_resp.get('code') != 0:
-    raise Exception(f"创建训练任务失败：{train_resp}")
+upload_data = upload_response.json()['data']
+upload_url = upload_data['upload_url']
+oss_key = upload_data['oss_key']
 
-person_id = train_resp['data']
-print(f"数字人训练任务已创建：{person_id}")
+# 2. 使用 PUT 上传文件
+with open('source_video.mp4', 'rb') as f:
+    requests.put(upload_url, data=f, headers={'Content-Type': 'video/mp4'})
 
-# 3. 轮询等待训练完成
+# 3. 确认上传
+confirm_response = requests.post(
+    f"{API_BASE}/v1/uploads/confirm",
+    headers=headers,
+    json={"upload_id": upload_data['upload_id']}
+)
+
+# 4. 创建训练任务
+train_response = requests.post(
+    f"{API_BASE}/v1/dh/tasks/create-person",
+    headers=headers,
+    json={
+        "name": "我的数字人",
+        "source_video_oss_key": oss_key,
+        "train_type": "both",
+        "language": "cn"
+    }
+)
+
+task_id = train_response.json()['data']['task_id']
+print(f"训练任务已创建：{task_id}")
+
+# 5. 轮询等待训练完成
 import time
 for i in range(480):  # 最多等待 4 小时
-    status_resp = api.get_customised_person_status(person_id)
-    data = status_resp.get('data', {})
-    status = data.get('status')
-    progress = data.get('progress', 0)
+    status_resp = requests.get(
+        f"{API_BASE}/v1/tasks/{task_id}",
+        headers=headers
+    )
+    task_data = status_resp.json()['data']
+    status = task_data['status']
     
-    print(f"训练进度：{progress}%, 状态：{status}")
-    
-    if status == 1 or (status == 2 and progress == 100):  # 已完成
-        print("数字人训练完成！")
+    if status == 'succeeded':
+        person_id = task_data['result']['person_id']
+        print(f"数字人训练完成！ID: {person_id}")
         break
-    elif status == 40:  # 失败
-        raise Exception(f"训练失败：{data.get('msg')}")
+    elif status == 'failed':
+        print(f"训练失败：{task_data.get('error')}")
+        break
     
     time.sleep(30)
-
-# 4. 获取训练完成的数字人详情
-person_detail = api.get_customised_person_status(person_id)
-print(f"数字人详情：{person_detail['data']}")
 ```
 
-### 示例 3：使用自定义背景图片合成视频
+---
+
+### Python 示例：使用自定义背景图片
 
 ```python
-# 1. 上传背景图片
-bg_file_id = api.upload_file("./background.jpg", service="background")
+import requests
 
-# 2. 创建带背景的视频
-video_response = api.create_video(
-    digital_person_id="person_abc123",
-    text=["你好，这是使用自定义背景的视频。"],
-    audio_man_id="audio_001",
-    bg={
-        "file_id": bg_file_id,
-        "x": 0,
-        "y": 0,
-        "width": 1080,
-        "height": 1920
-    },
-    person_x=0,
-    person_y=0,
-    person_width=1080,
-    person_height=1920,
-    figure_type="whole_body",
-    drive_mode="random"
+API_BASE = "http://your-server:8000"
+API_KEY = "your_api_key"
+
+headers = {
+    "X-API-Key": API_KEY,
+    "Content-Type": "application/json"
+}
+
+# 上传背景图片
+bg_upload = requests.post(
+    f"{API_BASE}/v1/uploads/presign",
+    headers=headers,
+    json={
+        "filename": "background.jpg",
+        "purpose": "background",
+        "content_type": "image/jpeg"
+    }
 )
+bg_oss_key = bg_upload.json()['data']['oss_key']
 
-video_id = video_response['data']
-```
-
-### 示例 4：使用音频文件合成视频
-
-```python
-# 1. 上传音频文件
-audio_file_id = api.upload_file("./audio.wav", service="audio")
+# 上传背景图片文件...
+# (省略上传步骤，参考上一个示例)
 
 # 2. 使用音频文件（非 TTS）创建视频
 video_response = api.create_video(
@@ -1094,328 +828,260 @@ video_response = api.create_video(
 )
 ```
 
-### 示例 5：自定义字幕样式
+---
+
+### Python 示例：使用数字人原生声音
+
+当使用自定义数字人时，可以不指定 `audio_man_id`，系统会自动使用该数字人的原生声音。
 
 ```python
-video_response = api.create_video(
-    digital_person_id="person_abc123",
-    text=["你好，这是自定义字幕的视频。"],
-    audio_man_id="audio_001",
-    hide_subtitle=False,
-    subtitle_config={
-        "show": True,
-        "asr_type": 0,          # 0=自动生成
-        "font_size": 40,
-        "color": "#FFFFFF",
-        "stroke_color": "#000000",
-        "stroke_width": 1.0,
-        "x": 0,
-        "y": 1700,
-        "width": 1080,
-        "height": 200
+response = requests.post(
+    f"{API_BASE}/v1/dh/tasks/generate",
+    headers=headers,
+    json={
+        "text": "你好，这是使用原生声音的视频。",
+        "person_id": "person_custom_123",
+        # 不指定 audio_man_id，自动使用数字人原生声音
+        "hide_subtitle": True
     }
 )
 ```
 
-### 示例 6：错误处理与回调
+---
+
+### Python 示例：删除视频任务
 
 ```python
-# 创建视频时添加回调
-video_response = api.create_video(
-    digital_person_id="person_abc123",
-    text=["你好"],
-    audio_man_id="audio_001",
-    callback="https://your-server.com/callback"
+import requests
+
+API_BASE = "http://your-server:8000"
+API_KEY = "your_api_key"
+
+headers = {
+    "X-API-Key": API_KEY,
+    "Content-Type": "application/json"
+}
+
+# 删除视频任务
+task_id = "task_dh_abc123"
+response = requests.post(
+    f"{API_BASE}/v1/dh/tasks/{task_id}/delete",
+    headers=headers
 )
 
-# 在回调服务器接收通知
-from flask import Flask, request, jsonify
-import hashlib
-
-app = Flask(__name__)
-
-@app.route('/callback', methods=['POST'])
-def callback():
-    data = request.json
-    signature = request.headers.get('X-Signature')
-    
-    # 验证签名（如果配置了 secret）
-    # expected_sign = hashlib.sha256((json.dumps(data) + secret).encode()).hexdigest()
-    
-    event = data.get('event')
-    if event == 'task.completed':
-        print(f"任务完成：{data.get('task_id')}")
-    elif event == 'task.failed':
-        print(f"任务失败：{data.get('error')}")
-    
-    return jsonify({"status": "ok"})
-```
-
-### 示例 7：获取公共数字人列表
-
-```python
-# 获取公共数字人列表
-public_persons = api.list_common_digital_persons(page=1, size=20)
-
-if public_persons.get('code') == 0:
-    persons = public_persons['data'].get('list', [])
-    for person in persons:
-        print(f"公共数字人：{person['name']}, ID: {person['id']}")
-        # 获取该数字人关联的默认声音 ID
-        print(f"  默认声音：{person.get('audio_man_id')}")
-```
-
-### 示例 8：获取定制数字人列表
-
-```python
-# 获取定制数字人列表
-persons_resp = api.list_customised_persons(page=1, page_size=10, source=0)
-
-if persons_resp.get('code') == 0:
-    persons = persons_resp['data'].get('list', [])
-    for person in persons:
-        print(f"数字人：{person['name']}, ID: {person['id']}, 状态：{person['status']}")
-        # 状态说明：1=制作中，2=成功，4=失败
-```
-
-### 示例 9：获取公共声音列表
-
-```python
-# 获取公共声音模型列表
-audios_resp = api.list_common_audio_mans(page=1, size=20)
-
-if audios_resp.get('code') == 0:
-    audios = audios_resp['data'].get('list', [])
-    for audio in audios:
-        print(f"声音：{audio['name']}, ID: {audio['id']}, 语言：{audio.get('lang')}")
-        # 可以试听
-        print(f"  试听：{audio.get('audition')}")
-```
-
-### 示例 10：获取视频列表
-
-```python
-# 获取视频列表
-videos_resp = api.get_video_list(page=1, page_size=10)
-
-if videos_resp.get('code') == 0:
-    videos = videos_resp['data'].get('list', [])
-    for video in videos:
-        print(f"视频 ID: {video['id']}, 状态：{video['status']}, 时长：{video.get('duration')}秒")
-        # 状态说明：1=已完成，2=处理中，40=失败
-```
-
-### 示例 11：获取视频详情
-
-```python
-# 获取视频详情
-video_detail = api.get_video_detail(video_id="video_abc123")
-
-if video_detail.get('code') == 0:
-    data = video_detail['data']
-    print(f"视频状态：{data.get('status')}")
-    print(f"进度：{data.get('progress')}%")
-    print(f"视频 URL: {data.get('video_url')}")
-    print(f"时长：{data.get('duration')}秒")
-```
-
-### 示例 12：删除视频
-
-```python
-# 删除视频
-delete_resp = api.delete_video(video_id="video_abc123")
-
-if delete_resp.get('code') == 0:
-    print("视频删除成功")
+result = response.json()
+if result['code'] == 0:
+    print(f"视频任务已删除：{task_id}")
 else:
-    print(f"删除失败：{delete_resp.get('msg')}")
-```
-
-### 示例 13：完整工作流（项目实战）
-
-```python
-import os
-from chanjing_api import ChanjingAPI
-
-def main():
-    # 初始化
-    api = ChanjingAPI(
-        app_id=os.getenv("CHANJING_APP_ID"),
-        secret_key=os.getenv("CHANJING_SECRET_KEY")
-    )
-    api.set_debug(True)
-    
-    # 步骤 1: 上传素材训练数字人（可选，如果已有数字人可跳过）
-    # file_id = api.upload_file("./my_video.mp4", service="customised_person")
-    # train_resp = api.create_customised_person(name="我的数字人", file_id=file_id)
-    # person_id = train_resp['data']
-    
-    # 使用已有数字人
-    person_id = "person_abc123"
-    
-    # 步骤 2: 创建视频
-    video_response = api.create_video(
-        digital_person_id=person_id,
-        text=[
-            "大家好，我是你的 AI 助手。",
-            "今天我来为大家介绍我们的产品。"
-        ],
-        audio_man_id="audio_001",
-        speed=1.0,
-        pitch=1.0,
-        bg_color="#F0F0F0",
-        figure_type="whole_body",
-        drive_mode="random",
-        model=1,
-        resolution_rate=0,
-        subtitle_config={
-            "show": True,
-            "font_size": 36,
-            "color": "#333333",
-            "y": 1750
-        }
-    )
-    
-    video_id = video_response['data']
-    print(f"视频任务 ID: {video_id}")
-    
-    # 步骤 3: 等待完成
-    import time
-    while True:
-        status_resp = api.get_video_status(video_id)
-        data = status_resp.get('data', {})
-        status = data.get('status')
-        progress = data.get('progress', 0)
-        
-        print(f"进度：{progress}%")
-        
-        if status == 1:
-            video_url = data.get('video_url')
-            print(f"视频完成：{video_url}")
-            
-            # 下载
-            api.download_video(video_url, "./output/video.mp4")
-            break
-        elif status == 40:
-            print(f"失败：{data.get('msg')}")
-            break
-        
-        time.sleep(10)
-
-if __name__ == "__main__":
-    main()
+    print(f"删除失败：{result['message']}")
 ```
 
 ---
 
-## 错误码说明
+### Python 示例：删除自定义数字人
 
-### 通用状态码
+```python
+import requests
 
-| 错误码 | 说明 |
-|--------|------|
-| 0 | 成功 |
-| 400 | 传入参数格式错误 |
-| 10400 | AccessToken 验证失败或 APP 状态有误 |
-| 40000 | 参数错误 |
-| 40001 | 超出 QPS 限制 |
-| 40002 | 定制数字人数量到达上限 |
-| 50000 | 系统内部错误 |
-| 51000 | 系统错误 |
+API_BASE = "http://your-server:8000"
+API_KEY = "your_api_key"
 
-### 数字人状态码
+headers = {
+    "X-API-Key": API_KEY,
+    "Content-Type": "application/json"
+}
 
-| 状态码 | 说明 |
-|--------|------|
-| 1 | 制作中 |
-| 2 | 成功 |
-| 4 | 失败 |
-| 5 | 系统错误 |
+# 删除自定义数字人
+person_id = "person_abc123"
+response = requests.post(
+    f"{API_BASE}/v1/dh/persons/custom/{person_id}/delete",
+    headers=headers
+)
 
-### 视频状态码
+result = response.json()
+if result['code'] == 0:
+    print(f"数字人已删除：{person_id}")
+else:
+    print(f"删除失败：{result['message']}")
+```
 
-| 状态码 | 说明 |
-|--------|------|
-| 1 | 已完成 |
-| 2 | 处理中 |
-| 40 | 失败 |
+---
+
+### Python 示例：删除定制声音
+
+```python
+import requests
+
+API_BASE = "http://your-server:8000"
+API_KEY = "your_api_key"
+
+headers = {
+    "X-API-Key": API_KEY,
+    "Content-Type": "application/json"
+}
+
+# 删除定制声音
+audio_id = "audio_custom_001"
+response = requests.post(
+    f"{API_BASE}/v1/dh/voices/{audio_id}/delete",
+    headers=headers
+)
+
+result = response.json()
+if result['code'] == 0:
+    print(f"声音已删除：{audio_id}")
+else:
+    print(f"删除失败：{result['message']}")
+```
+
+---
+
+### Python 示例：完整的删除流程（清理资源）
+
+```python
+import requests
+
+API_BASE = "http://your-server:8000"
+API_KEY = "your_api_key"
+
+headers = {
+    "X-API-Key": API_KEY,
+    "Content-Type": "application/json"
+}
+
+def cleanup_digital_person_resources(person_id, task_ids=None):
+    """清理数字人相关的所有资源"""
+    
+    # 1. 先删除相关的视频任务
+    if task_ids:
+        for task_id in task_ids:
+            response = requests.post(
+                f"{API_BASE}/v1/dh/tasks/{task_id}/delete",
+                headers=headers
+            )
+            if response.json()['code'] == 0:
+                print(f"✓ 视频任务已删除：{task_id}")
+            else:
+                print(f"✗ 删除视频任务失败 {task_id}: {response.json()['message']}")
+    
+    # 2. 删除数字人
+    response = requests.post(
+        f"{API_BASE}/v1/dh/persons/custom/{person_id}/delete",
+        headers=headers
+    )
+    if response.json()['code'] == 0:
+        print(f"✓ 数字人已删除：{person_id}")
+    else:
+        print(f"✗ 删除数字人失败：{response.json()['message']}")
+
+# 使用示例
+cleanup_digital_person_resources(
+    person_id="person_abc123",
+    task_ids=["task_dh_001", "task_dh_002"]
+)
+```
+
+---
+
+## 配额与并发控制
+
+### 配额说明
+
+- 每个商户有固定的配额（`quota_total`）
+- 创建任务时会预扣配额
+- 任务完成后确认扣费
+- 任务取消或失败时退还配额
+
+### 并发限制
+
+- 每个商户有最大并发任务数限制（`max_concurrent_tasks`）
+- 超出限制时返回错误码 `42901`
+
+### 查询商户信息
+
+**接口**: `GET /v1/merchant/info`
+
+**响应示例**:
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "merchant_id": "merchant_001",
+    "name": "测试商户",
+    "quota_total": 1000,
+    "quota_used": 100,
+    "quota_reserved": 50,
+    "quota_available": 850,
+    "cost_per_task": 1,
+    "max_concurrent_tasks": 10
+  }
+}
+```
+
+---
+
+## 回调通知
+
+创建任务时可以配置回调 URL，任务完成或失败时会自动通知。
+
+**配置方式**: 在任务请求中添加 `callback` 字段：
+
+```json
+{
+  "text": "你好",
+  "person_id": "person_abc123",
+  "callback": {
+    "url": "https://your-server.com/callback",
+    "secret": "your_secret"
+  }
+}
+```
+
+**回调 payload**:
+```json
+{
+  "event": "task.completed",
+  "task_id": "task_dh_abc123",
+  "trace_id": "trace_abc123",
+  "status": "succeeded",
+  "result": {
+    "files": {
+      "final_video": {
+        "oss_key": "merchant_001/results/final.mp4",
+        "filename": "final.mp4"
+      }
+    }
+  }
+}
+```
+
+**签名验证**: 如果配置了 `secret`，回调请求会携带 `X-Signature` 头，值为 `SHA256(JSON payload + secret)`。
 
 ---
 
 ## 最佳实践
 
-1. **文件上传**: 大文件上传建议先获取上传 URL，然后使用 PUT 直传 OSS
-2. **轮询间隔**: 视频合成建议 10 秒轮询一次，数字人训练建议 30 秒轮询一次
-3. **超时处理**: 视频合成一般 5-15 分钟，数字人训练一般 30 分钟 -2 小时
-4. **回调机制**: 生产环境建议使用 callback 回调，避免长时间轮询
-5. **错误重试**: 对于网络错误和 50000 错误（文件未就绪），建议实现重试机制
-
----
-
-## 常见问题
-
-### 如何使用自定义数字人的原生声音？
-
-当你训练完成一个自定义数字人后，蝉镜平台会为该数字人生成一个**专属的原生声音**（`audio_man_id`）。要使用这个原生声音而不是公共声音（如女声），有以下两种方法：
-
-#### 方法 1：从数字人详情中获取原生声音 ID
-
-```python
-# 1. 获取数字人详情
-person_detail = api.get_customised_person_status(person_id)
-
-# 2. 提取原生声音 ID
-if person_detail.get('code') == 0:
-    native_audio_id = person_detail['data'].get('audio_man_id')
-    print(f"原生声音 ID: {native_audio_id}")
-
-# 3. 使用该声音 ID 创建视频
-video_response = api.create_video(
-    digital_person_id=person_id,
-    text=["你好，这是使用原生声音的视频。"],
-    audio_man_id=native_audio_id,  # 使用原生声音 ID
-    speed=1.0,
-    pitch=1.0
-)
-```
-
-#### 方法 2：在创建视频时不指定 audio_man_id（推荐）
-
-如果你的系统已经配置好自动使用数字人原生声音的逻辑，可以在创建视频时**不传 `audio_man_id` 参数**或**传空值**，系统会自动使用该数字人的原生声音：
-
-```python
-video_response = api.create_video(
-    digital_person_id=person_id,
-    text=["你好，这是使用原生声音的视频。"],
-    audio_man_id=None,  # 不指定，使用数字人原生声音
-    # 或者完全省略 audio_man_id 参数
-)
-```
-
-> **注意**: 方法 2 需要后端系统支持自动获取数字人原生声音的功能。如果未配置，建议使用方法 1 手动获取。
-
-#### 为什么我的 audio_man_id 是女声？
-
-如果你在创建视频时传入的 `audio_man_id` 是一个公共声音 ID（如 `audio_001`），那么即使你使用了自定义数字人，声音也会是那个公共声音（可能是女声）。
-
-**正确做法**：
-- 训练完成后，通过 `get_customised_person_status` 接口获取数字人详情
-- 从响应中提取 `data.audio_man_id` 字段
-- 使用该 ID 作为 `audio_man_id` 参数
+1. **异步处理**: 所有视频生成和数字人训练都是异步任务，创建后立即返回任务 ID，需要轮询或等待回调
+2. **轮询间隔**: 视频生成建议 10 秒轮询一次，数字人训练建议 30 秒轮询一次
+3. **超时处理**: 视频生成默认超时 1 小时，数字人训练默认超时 4 小时
+4. **错误重试**: 对于网络错误，建议实现重试机制
+5. **文件管理**: 使用预签名 URL 上传文件，支持断点续传
 
 ---
 
 ## 相关文档
 
----
-
-## 相关文档
-
-- [chanjing-openapi.yaml](./chanjing-openapi.yaml) - OpenAPI 规范文件
-- [chanjing_api.py](./chanjing_api.py) - Python SDK 实现
-- [chanjing_video.py](./tasks/chanjing_video.py) - 视频任务处理器实现
+- [api_digital_human.py](./api_digital_human.py) - 数字人 API 路由实现
+- [chanjing_video.py](./tasks/chanjing_video.py) - 任务处理器实现
+- [chanjing_api.py](./chanjing_api.py) - 蝉镜 API 客户端
+- [schemas.py](./schemas.py) - 请求/响应模型定义
 
 ---
 
-**文档版本**: 1.0  
-**更新日期**: 2026-04-15
+**文档版本**: 2.1  
+**更新日期**: 2026-04-15  
+**适用系统**: RJCut Commercial API
+
+**更新日志**:
+- v2.1: 新增删除操作 API（删除视频任务、删除自定义数字人、删除定制声音、删除文件）

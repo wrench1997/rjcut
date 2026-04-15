@@ -283,7 +283,7 @@ def create_dh_custom_person_task(
         task_type="dh_custom_person", 
         status=TaskStatus.queued,
         payload=req.model_dump(),
-        timeout_seconds=14400, # 训练时间可能较长，设为4小时超时
+        timeout_seconds=14400, # 训练时间可能较长，设为 4 小时超时
         stage="queued",
     )
 
@@ -305,3 +305,135 @@ def create_dh_custom_person_task(
     db.commit()
 
     return ok({"task_id": task_id, "status": "queued"})
+
+
+# ----- 3. 删除接口 -----
+
+@router.post("/tasks/{task_id}/delete")
+def delete_dh_video_task(
+    task_id: str,
+    merchant: Merchant = Depends(verify_api_key),
+    db: Session = Depends(get_db)
+):
+    """删除数字人视频任务
+    
+    调用蝉镜 API 删除视频，同时更新本地数据库状态
+    """
+    api = get_chanjing_api()
+    
+    # 先查询本地任务是否存在
+    task = db.query(Task).filter(
+        Task.id == task_id,
+        Task.merchant_id == merchant.id,
+        Task.task_type == "dh_generate"
+    ).first()
+    
+    if not task:
+        return fail(40400, "task not found", status_code=404)
+    
+    # 调用蝉镜 API 删除视频
+    resp = api.delete_video(task_id)
+    
+    if not ChanjingStatusCode.is_success(resp.get('code')):
+        return fail(
+            ChanjingStatusCode.get_msg(resp.get('code')), 
+            status_code=400
+        )
+    
+    # 更新本地任务状态为已删除
+    task.status = TaskStatus.cancelled
+    task.stage = "deleted"
+    task.error = "deleted by user"
+    db.add(task)
+    db.commit()
+    
+    # 退还配额
+    from quota import refund_quota
+    refund_quota(db, task, reason="deleted by user")
+    
+    return ok({"task_id": task_id})
+
+
+@router.post("/persons/custom/{person_id}/delete")
+def delete_custom_person(
+    person_id: str,
+    merchant: Merchant = Depends(verify_api_key),
+    db: Session = Depends(get_db)
+):
+    """删除定制数字人
+    
+    调用蝉镜 API 删除数字人，同时删除本地数据库记录
+    """
+    api = get_chanjing_api()
+    
+    # 先检查本地是否存在该数字人
+    local_person = (
+        db.query(DhCustomPerson)
+        .filter(
+            DhCustomPerson.merchant_id == merchant.id,
+            DhCustomPerson.chanjing_person_id == person_id
+        )
+        .first()
+    )
+    
+    if not local_person:
+        return fail(40400, "person not found", status_code=404)
+    
+    # 调用蝉镜 API 删除数字人
+    resp = api.delete_customised_person(person_id)
+    
+    if not ChanjingStatusCode.is_success(resp.get('code')):
+        return fail(
+            ChanjingStatusCode.get_msg(resp.get('code')), 
+            status_code=400
+        )
+    
+    # 删除本地数据库记录
+    db.delete(local_person)
+    db.commit()
+    
+    return ok({"person_id": person_id})
+
+
+@router.post("/voices/{audio_id}/delete")
+def delete_custom_audio(
+    audio_id: str,
+    merchant: Merchant = Depends(verify_api_key)
+):
+    """删除定制声音
+    
+    调用蝉镜 API 删除定制声音
+    """
+    api = get_chanjing_api()
+    
+    resp = api.delete_customised_audio(audio_id)
+    
+    if not ChanjingStatusCode.is_success(resp.get('code')):
+        return fail(
+            ChanjingStatusCode.get_msg(resp.get('code')), 
+            status_code=400
+        )
+    
+    return ok({"audio_id": audio_id})
+
+
+@router.post("/files/{file_id}/delete")
+def delete_file(
+    file_id: str,
+    merchant: Merchant = Depends(verify_api_key)
+):
+    """删除文件
+    
+    调用蝉镜 API 删除已上传的文件
+    """
+    api = get_chanjing_api()
+    
+    resp = api.delete_file(file_id)
+    
+    if not ChanjingStatusCode.is_success(resp.get('code')):
+        return fail(
+            ChanjingStatusCode.get_msg(resp.get('code')), 
+            status_code=400
+        )
+    
+    return ok({"file_id": file_id})
