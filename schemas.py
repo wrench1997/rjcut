@@ -198,10 +198,11 @@ class CreateApiKeyRequest(BaseModel):
     name: str = "default"
 
 
+# schemas.py - DhGenerateVideoRequest 类
 class DhGenerateVideoRequest(BaseModel):
     text: str
     person_id: Optional[str] = None
-    audio_man_id: str
+    audio_man_id: Optional[str] = None  # 🆕 改为可选，为空时自动使用数字人原生声音
     figure_type: str = "sit_body"
     drive_mode: str = "random"
     bg_type: str = "color"
@@ -209,8 +210,7 @@ class DhGenerateVideoRequest(BaseModel):
     bg_file_oss_key: Optional[str] = None
     client_ref_id: Optional[str] = None
     timeout_seconds: Optional[int] = 3600
-    hide_subtitle: bool = True  # 默认不添加字幕，True=隐藏字幕，False=显示字幕
-
+    hide_subtitle: bool = True
 
 class DhCreateCustomPersonRequest(BaseModel):
     name: str

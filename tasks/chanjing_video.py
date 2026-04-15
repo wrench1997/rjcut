@@ -299,6 +299,13 @@ def run_dh_create_person_task(task_id: str, payload: dict, trace_id: str, mercha
                 if status == PERSON_STATUS_COMPLETED or (status == PERSON_STATUS_COMPLETED_ALT and progress == 100):
                     is_success = True
                     _update_task(task_id, progress=99)
+                    
+                    # 🆕 获取数字人详情，提取原生 audio_man_id
+                    person_detail = api.get_customised_person_status(person_id)
+                    audio_man_id = None
+                    if ChanjingStatusCode.is_success(person_detail.get('code')):
+                        audio_man_id = person_detail.get('data', {}).get('audio_man_id')
+                        api.logger.info(f"获取到原生声音 ID: {audio_man_id}")
                     break
                 elif status in (PERSON_STATUS_FAILED, PERSON_STATUS_ERROR):
                     # 明确的失败状态码

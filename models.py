@@ -93,6 +93,7 @@ class ApiKey(Base):
 
 
 
+# models.py - DhCustomPerson 类
 class DhCustomPerson(Base):
     __tablename__ = "dh_custom_persons"
 
@@ -103,11 +104,14 @@ class DhCustomPerson(Base):
     chanjing_person_id = Column(String(128), nullable=False)
     name = Column(String(256), nullable=False)
     
+    # 🆕 添加：原生声音 ID（蝉镜为每个数字人生成的专属声音）
+    audio_man_id = Column(String(128), nullable=True)
+    
     # 状态：10-训练中，30-成功，40-失败 (与蝉镜状态码对齐)
     status = Column(Integer, default=10, nullable=False)
     cover_url = Column(Text, nullable=True)
     
-    # 关联生成该数字人的任务ID，方便追溯
+    # 关联生成该数字人的任务 ID，方便追溯
     source_task_id = Column(String(64), ForeignKey("tasks.id"), nullable=True)
 
     created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
