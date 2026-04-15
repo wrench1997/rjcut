@@ -214,14 +214,18 @@ def run_dh_create_person_task(task_id: str, payload: dict, trace_id: str, mercha
             if status_resp.get('code') == 0:
                 data = status_resp.get('data', {})
                 status = data.get('status')
+                progress = data.get('progress', 0)
                 
-                api.logger.info(f"当前状态码：{status}, 进度：{data.get('progress', 'N/A')}")
+                api.logger.info(f"当前状态码：{status}, 进度：{progress}")
 
-                if status == 30:
+                # status: 0=定制中，1=已完成 (API 文档定义)，2=已完成 (实际返回)
+                # 当 status=2 且 progress=100 时，表示训练成功
+                if status in (1, 2, 30) or (status == 2 and progress == 100):
                     is_success = True
                     _update_task(task_id, progress=99)
                     break
-                elif status in (40, -1, 2):
+                elif status in (40, -1):
+                    # 明确的失败状态码
                     # 收集所有可能的错误信息字段（根据 openapi 定义）
                     api.logger.error(f"=== 数字人训练失败详细信息 ===")
                     api.logger.error(f"person_id: {person_id}")
