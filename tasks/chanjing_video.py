@@ -40,6 +40,7 @@ PERSON_STATUS_ERROR = -1        # 错误
 # 根据实际 API 返回调整：
 VIDEO_STATUS_PROCESSING = 2     # 处理中
 VIDEO_STATUS_COMPLETED = 1      # 已完成
+VIDEO_STATUS_COMPLETED_ALT = 30 # 已完成 (实际 API 返回)
 VIDEO_STATUS_FAILED = 40        # 失败
 VIDEO_STATUS_ERROR = -1         # 错误
 # 其他可能的状态码（根据实际 API 返回添加）：
@@ -126,15 +127,15 @@ def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merch
                 mapped_progress = 10 + int(progress * 0.8) if progress else 10
                 _update_task(task_id, progress=mapped_progress)
 
-                # 判断完成：status=1 或 (status=2 且 progress=100 且有 video_url)
+                # 判断完成：status=1 或 status=30 (实际 API 返回) 且 progress=100 且有 video_url
                 # 注意：OpenAPI 文档未明确定义状态码，需要根据实际返回调整
-                if status == VIDEO_STATUS_COMPLETED:
+                if status in (VIDEO_STATUS_COMPLETED, VIDEO_STATUS_COMPLETED_ALT):
                     if video_url:
                         chanjing_video_url = video_url
-                        api.logger.info(f"✅ 视频渲染完成 (status=1)，URL: {chanjing_video_url}")
+                        api.logger.info(f"✅ 视频渲染完成 (status={status})，URL: {chanjing_video_url}")
                         break
                     else:
-                        api.logger.warning(f"状态=1 已完成，但 video_url 为空，继续等待...")
+                        api.logger.warning(f"状态={status} 已完成，但 video_url 为空，继续等待...")
                 elif status == VIDEO_STATUS_PROCESSING:
                     api.logger.info(f"⏳ 视频处理中 (status=2), 进度：{progress}%")
                 elif status in (VIDEO_STATUS_FAILED, VIDEO_STATUS_ERROR, 40):
@@ -143,6 +144,8 @@ def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merch
                     raise Exception(f"蝉镜渲染失败：{error_msg}")
                 elif status == VIDEO_STATUS_PENDING:
                     api.logger.info(f"⏳ 视频等待中 (status=0)")
+                elif status == VIDEO_STATUS_TRANSCODING:
+                    api.logger.info(f"⏳ 视频转码中 (status=3), 进度：{progress}%")
                 else:
                     api.logger.warning(f"⚠️ 未知状态码：status={status}, progress={progress}, msg={msg}")
             else:
