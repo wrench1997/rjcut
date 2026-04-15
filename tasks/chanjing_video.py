@@ -23,6 +23,35 @@ from tasks.components import TaskContext, FileManagerComponent
 settings = get_settings()
 
 
+# ============================================================
+# 蝉镜 API 状态码常量定义 (基于 chanjing-openapi.yaml)
+# ============================================================
+
+# 数字人训练状态 (dto.DpOpenCustomisedPersonItemRspData.status)
+# 文档定义：0=定制中，1=已完成
+PERSON_STATUS_TRAINING = 0      # 定制中
+PERSON_STATUS_COMPLETED = 1     # 已完成
+PERSON_STATUS_COMPLETED_ALT = 2 # 已完成 (实际 API 返回，需配合 progress=100 判断)
+PERSON_STATUS_FAILED = 40       # 失败
+PERSON_STATUS_ERROR = -1        # 错误
+
+# 视频合成状态 (dto.DpOpenVideoListInfo.status)
+VIDEO_STATUS_COMPLETED = 1      # 已完成
+VIDEO_STATUS_PROCESSING = 2     # 处理中
+VIDEO_STATUS_FAILED = 40        # 失败
+VIDEO_STATUS_ERROR = -1         # 错误
+
+# 文件上传状态 (dto.DpOpenFileItemRspData.status)
+FILE_STATUS_UPLOADING = 0       # 上传中
+FILE_STATUS_COMPLETED = 1       # 已完成
+FILE_STATUS_FAILED = 2          # 失败
+
+# 语音合成状态 (dto.OpenAudioTaskStateRsp.status)
+AUDIO_STATUS_COMPLETED = 1      # 已完成
+AUDIO_STATUS_PROCESSING = 2     # 处理中
+AUDIO_STATUS_FAILED = 40        # 失败
+
+
 @register_task("dh_generate_video")
 def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merchant_id: str):
     api = ChanjingAPI(settings.CHANJING_APP_ID, settings.CHANJING_SECRET_KEY)
@@ -77,11 +106,11 @@ def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merch
                 mapped_progress = 10 + int(progress * 0.8)
                 _update_task(task_id, progress=mapped_progress)
 
-                # 根据蝉镜 OpenAPI：status 1=已完成，2=处理中，40/-1=失败
-                if status == 1:
+                # 根据蝉镜 OpenAPI：VIDEO_STATUS_COMPLETED=已完成，VIDEO_STATUS_PROCESSING=处理中
+                if status == VIDEO_STATUS_COMPLETED:
                     chanjing_video_url = data.get('video_url')
                     break
-                elif status in (40, -1):
+                elif status in (VIDEO_STATUS_FAILED, VIDEO_STATUS_ERROR):
                     raise Exception(f"蝉镜渲染失败：{data.get('msg', '未知错误')}")
             time.sleep(10)
 
@@ -220,13 +249,12 @@ def run_dh_create_person_task(task_id: str, payload: dict, trace_id: str, mercha
                 api.logger.info(f"当前状态码：{status}, 进度：{progress}")
 
                 # 根据蝉镜 OpenAPI 文档 (dto.DpOpenCustomisedPersonItemRspData):
-                # status: 0=定制中，1=已完成
-                # 实际返回中 status=2 且 progress=100 也表示完成
-                if status == 1 or (status == 2 and progress == 100):
+                # PERSON_STATUS_COMPLETED=已完成，PERSON_STATUS_COMPLETED_ALT=已完成 (实际 API 返回)
+                if status == PERSON_STATUS_COMPLETED or (status == PERSON_STATUS_COMPLETED_ALT and progress == 100):
                     is_success = True
                     _update_task(task_id, progress=99)
                     break
-                elif status in (40, -1):
+                elif status in (PERSON_STATUS_FAILED, PERSON_STATUS_ERROR):
                     # 明确的失败状态码
                     # 收集所有可能的错误信息字段（根据 openapi 定义）
                     api.logger.error(f"=== 数字人训练失败详细信息 ===")
