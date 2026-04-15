@@ -324,7 +324,7 @@ X-API-Key: your_api_key_here
 |------|------|------|--------|------|
 | text | string | 是 | - | 要合成的文本内容 |
 | person_id | string | 否 | null | 数字人 ID（公共或自定义） |
-| audio_man_id | string | 否 | null | 声音 ID，为空时自动使用数字人原生声音 |
+| audio_man_id | string | 否 | null | 声音 ID。**重要**：当不传此参数时，系统会自动从数字人详情中获取其原生的 `audio_man_id`；如果数字人没有关联声音 ID，则使用默认音色 |
 | figure_type | string | 否 | sit_body | 形象类型：`sit_body`（坐姿）、`whole_body`（全身）等 |
 | drive_mode | string | 否 | random | 驱动模式：`normal`（顺序）、`random`（随机） |
 | bg_type | string | 否 | color | 背景类型：`color`（纯色）、`image`（图片） |
@@ -876,20 +876,46 @@ video_response = api.create_video(
 
 ### Python 示例：使用数字人原生声音
 
-当使用自定义数字人时，可以不指定 `audio_man_id`，系统会自动使用该数字人的原生声音。
+当使用自定义数字人时，可以不指定 `audio_man_id`，系统会自动从蝉镜 API 获取该数字人的原生声音 ID。
+
+**工作流程**：
+1. 如果请求中提供了 `audio_man_id`，直接使用
+2. 如果未提供 `audio_man_id` 但提供了 `person_id`：
+   - 系统会调用蝉镜 API 获取数字人详情
+   - 提取数字人的 `audio_man_id` 字段
+   - 如果数字人有关联声音，使用该声音
+   - 如果数字人没有关联声音，使用默认音色（ID: "0"）
 
 ```python
+# 方式 1：不指定 audio_man_id，自动使用数字人原生声音
 response = requests.post(
     f"{API_BASE}/v1/dh/tasks/generate",
     headers=headers,
     json={
         "text": "你好，这是使用原生声音的视频。",
         "person_id": "person_custom_123",
-        # 不指定 audio_man_id，自动使用数字人原生声音
+        # 不指定 audio_man_id，系统会自动获取
+        "hide_subtitle": True
+    }
+)
+
+# 方式 2：手动指定 audio_man_id（可选公共音色或定制音色）
+response = requests.post(
+    f"{API_BASE}/v1/dh/tasks/generate",
+    headers=headers,
+    json={
+        "text": "你好，这是使用指定音色的视频。",
+        "person_id": "person_custom_123",
+        "audio_man_id": "audio_001",  # 明确指定声音 ID
         "hide_subtitle": True
     }
 )
 ```
+
+**注意事项**：
+- 定制数字人训练完成后，蝉镜 API 会返回 `audio_man_id`（如果选择了训练声音）
+- 可以通过 `GET /v1/dh/persons/custom/{person_id}` 接口查看数字人的 `audio_man_id`
+- 如果数字人没有关联声音（例如只训练了形象），系统会使用默认音色
 
 ---
 
@@ -1123,9 +1149,10 @@ cleanup_digital_person_resources(
 
 ---
 
-**文档版本**: 2.1  
+**文档版本**: 2.2  
 **更新日期**: 2026-04-15  
 **适用系统**: RJCut Commercial API
 
 **更新日志**:
+- v2.2: 修复 `audio_man_id` 缺失问题 - 当不传 `audio_man_id` 时，系统会自动从数字人详情中获取原生声音 ID
 - v2.1: 新增删除操作 API（删除视频任务、删除自定义数字人、删除定制声音、删除文件）

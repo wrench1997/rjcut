@@ -78,10 +78,33 @@ def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merch
             chanjing_file_id = api.upload_file(local_bg, service="background")
             bg_params = {"file_id": chanjing_file_id, "x": 0, "y": 0, "width": 1080, "height": 1920}
 
+        # 🆕 获取 audio_man_id：如果 payload 中未提供，则从数字人详情中获取原生声音 ID
+        audio_man_id = payload.get("audio_man_id")
+        digital_person_id = payload.get("person_id")
+        
+        if not audio_man_id and digital_person_id:
+            api.logger.info(f"audio_man_id 未提供，正在从数字人 {digital_person_id} 详情中获取原生声音 ID...")
+            person_detail_resp = api.get_customised_person_status(digital_person_id)
+            if ChanjingStatusCode.is_success(person_detail_resp.get('code')):
+                person_data = person_detail_resp.get('data', {})
+                audio_man_id = person_data.get('audio_man_id')
+                if audio_man_id:
+                    api.logger.info(f"获取到数字人原生声音 ID: {audio_man_id}")
+                else:
+                    api.logger.warning(f"数字人 {digital_person_id} 未关联声音 ID，可能需要使用公共音色")
+                    # 如果定制数字人没有 audio_man_id，尝试使用默认音色
+                    audio_man_id = "0"  # 使用默认音色 ID
+            else:
+                api.logger.warning(f"获取数字人详情失败：{person_detail_resp}")
+                audio_man_id = "0"  # 使用默认音色 ID
+        
+        if not audio_man_id:
+            raise Exception("缺少 audio_man_id：请提供 audio_man_id 或确保数字人已关联声音 ID")
+
         video_params = {
-            "digital_person_id": payload.get("person_id"),
+            "digital_person_id": digital_person_id,
             "text": payload.get("text"),
-            "audio_man_id": payload.get("audio_man_id"),
+            "audio_man_id": audio_man_id,
             "figure_type": payload.get("figure_type"),
             "drive_mode": payload.get("drive_mode"),
             "person_x": 0,
