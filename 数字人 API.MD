@@ -89,6 +89,15 @@ X-API-Key: your_api_key_here
 
 **接口**: `GET /v1/dh/persons/custom`
 
+**响应参数说明**:
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | string | 数字人 ID（用于创建视频任务） |
+| name | string | 数字人名称 |
+| status | integer | 训练状态 |
+| cover_url | string | 数字人封面图 URL |
+| created_at | string | 创建时间（ISO 8601 格式） |
+
 **响应示例**:
 ```json
 {
@@ -101,6 +110,13 @@ X-API-Key: your_api_key_here
       "status": 30,
       "cover_url": "https://...",
       "created_at": "2026-04-15T10:30:00Z"
+    },
+    {
+      "id": "person_def456",
+      "name": "客服数字人",
+      "status": 10,
+      "cover_url": "https://...",
+      "created_at": "2026-04-14T15:20:00Z"
     }
   ]
 }
@@ -112,6 +128,11 @@ X-API-Key: your_api_key_here
 | 10 | 训练中 |
 | 30 | 成功 |
 | 40 | 失败 |
+
+**注意事项**:
+- 列表接口从本地数据库读取，返回基本信息
+- 如需获取详细信息（如声音 ID、示例视频等），请使用详情接口
+- 建议定期调用同步接口保持本地数据最新
 
 ---
 
@@ -125,6 +146,19 @@ X-API-Key: your_api_key_here
 | 参数 | 类型 | 说明 |
 |------|------|------|
 | person_id | string | 数字人 ID |
+
+**响应参数说明**:
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | string | 数字人 ID |
+| name | string | 数字人名称 |
+| status | integer | 状态码（0=定制中，1=已完成，40=失败） |
+| status_text | string | 状态文本描述 |
+| progress | integer | 训练进度百分比（0-100） |
+| cover_url | string | 数字人封面图 URL |
+| video_url | string | 训练完成的示例视频 URL（训练完成后可用） |
+| audio_man_id | string | 关联的声音模型 ID（如果训练了声音） |
+| created_at | string | 本地创建时间（ISO 8601 格式） |
 
 **响应示例**:
 ```json
@@ -144,6 +178,16 @@ X-API-Key: your_api_key_here
   }
 }
 ```
+
+**使用场景**:
+- 查看数字人训练进度
+- 获取关联的声音模型 ID（用于视频生成时指定 `audio_man_id`）
+- 查看训练完成的示例视频
+
+**注意事项**:
+- 此接口会实时调用蝉镜 API 获取最新状态
+- 每次调用都会同步更新本地数据库记录
+- 训练中的数字人 `video_url` 可能为空
 
 ---
 
