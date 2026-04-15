@@ -96,18 +96,18 @@ def get_custom_person_detail(
         .first()
     )
     
+    # 在更新本地数据库记录时，添加 audio_man_id 的同步
     if local_person:
-        # 同步状态和封面图
         chanjing_status = data.get('status', 0)
-        # 映射蝉镜状态到本地状态：0=定制中，1=已完成，40=失败
         local_status = 30 if chanjing_status == 1 else (40 if chanjing_status == 40 else 10)
         
         local_person.status = local_status
         local_person.cover_url = data.get('cover_url')
+        local_person.audio_man_id = data.get('audio_man_id')  # 🆕 同步声音 ID
         local_person.updated_at = datetime.now(timezone.utc)
         db.add(local_person)
         db.commit()
-    
+        
     # 返回详细信息
     result = {
         "id": person_id,
