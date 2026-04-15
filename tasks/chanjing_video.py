@@ -16,7 +16,7 @@ from database import get_db_session
 from models import Task, TaskStatus, DhCustomPerson
 from quota import confirm_quota, refund_quota
 from oss import download_file_from_oss, is_oss_key
-from chanjing_api import ChanjingAPI
+from chanjing_api import ChanjingAPI, ChanjingStatusCode
 from tasks import register_task
 from tasks.components import TaskContext, FileManagerComponent
 
@@ -91,8 +91,9 @@ def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merch
             video_params["bg_color"] = payload.get("bg_color")
 
         video_response = api.create_video(**video_params)
-        if video_response.get('code') != 0:
-            raise Exception(f"蝉镜接口报错：{video_response}")
+        if not ChanjingStatusCode.is_success(video_response.get('code')):
+            error_msg = ChanjingStatusCode.get_msg(video_response.get('code'))
+            raise Exception(f"蝉镜接口报错：{error_msg} - {video_response}")
 
         chanjing_video_id = video_response['data']
         _update_task(task_id, progress=10, stage="waiting_chanjing_render")
@@ -108,7 +109,7 @@ def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merch
 
             status_resp = api.get_video_status(chanjing_video_id)
             
-            if status_resp.get('code') == 0:
+            if ChanjingStatusCode.is_success(status_resp.get('code')):
                 data = status_resp.get('data', {})
                 status = data.get('status')
                 progress = data.get('progress', 0)
@@ -147,7 +148,7 @@ def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merch
             else:
                 api.logger.warning(f"❌ 状态查询接口返回异常：code={status_resp.get('code')}, msg={status_resp.get('msg')}")
                 # 如果是 token 过期等错误，尝试重新获取
-                if status_resp.get('code') in [10000, 10001]:
+                if status_resp.get('code') in [ChanjingStatusCode.ACCESS_TOKEN_ERROR, 10001]:
                     api.access_token = api.get_access_token()
             time.sleep(10)
 
@@ -242,15 +243,16 @@ def run_dh_create_person_task(task_id: str, payload: dict, trace_id: str, mercha
                     raise Exception(f"蝉镜训练接口返回格式异常：{train_resp}")
             
             # 如果是"文件未完成上传"错误，等待后重试
-            if train_resp.get('code') == 50000 and '文件还未完成上传' in str(train_resp.get('msg', '')):
+            if train_resp.get('code') == ChanjingStatusCode.SYSTEM_ERROR and '文件还未完成上传' in str(train_resp.get('msg', '')):
                 if attempt < max_retries - 1:
                     api.logger.warning(f"文件未就绪，等待 {retry_delay}s 后重试 ({attempt + 1}/{max_retries})")
                     time.sleep(retry_delay)
                     continue
                 else:
                     raise Exception(f"蝉镜训练接口报错：文件处理超时（已等待 {max_wait_time} 秒），请稍后重试。{train_resp}")
-            elif train_resp.get('code') != 0:
-                raise Exception(f"蝉镜训练接口报错：{train_resp}")
+            elif not ChanjingStatusCode.is_success(train_resp.get('code')):
+                error_msg = ChanjingStatusCode.get_msg(train_resp.get('code'))
+                raise Exception(f"蝉镜训练接口报错：{error_msg} - {train_resp}")
             else:
                 # 成功
                 break
@@ -278,7 +280,7 @@ def run_dh_create_person_task(task_id: str, payload: dict, trace_id: str, mercha
             status_resp = api.get_customised_person_status(person_id)
             api.logger.info(f"第 {i+1} 次轮询 - 完整响应：{json.dumps(status_resp, ensure_ascii=False, indent=2)}")
             
-            if status_resp.get('code') == 0:
+            if ChanjingStatusCode.is_success(status_resp.get('code')):
                 data = status_resp.get('data', {})
                 status = data.get('status')
                 progress = data.get('progress', 0)
