@@ -123,6 +123,8 @@ def get_custom_person_detail(
     return ok(result)
 
 
+
+
 @router.post("/persons/custom/sync")
 def sync_custom_persons(
     merchant: Merchant = Depends(verify_api_key),
@@ -158,6 +160,7 @@ def sync_custom_persons(
         name = person_data.get('name', '')
         chanjing_status = person_data.get('status', 0)
         cover_url = person_data.get('cover_url')
+        audio_man_id = person_data.get('audio_man_id')  # 🆕 获取声音 ID
         
         # 映射蝉镜状态到本地状态
         local_status = 30 if chanjing_status == 1 else (40 if chanjing_status == 40 else 10)
@@ -176,6 +179,7 @@ def sync_custom_persons(
             # 更新现有记录
             existing.status = local_status
             existing.cover_url = cover_url
+            existing.audio_man_id = audio_man_id  # 🆕 同步声音 ID
             existing.updated_at = datetime.now(timezone.utc)
             db.add(existing)
         else:
@@ -185,7 +189,8 @@ def sync_custom_persons(
                 chanjing_person_id=person_id,
                 name=name,
                 status=local_status,
-                cover_url=cover_url
+                cover_url=cover_url,
+                audio_man_id=audio_man_id  # 🆕 保存声音 ID
             )
             db.add(new_person)
         
