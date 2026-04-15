@@ -1,5 +1,6 @@
 # api_digital_human.py
 import uuid
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from rq import Queue
@@ -9,7 +10,7 @@ from models import Merchant, Task, TaskStatus
 from auth import verify_api_key
 from quota import check_quota, check_concurrent_limit, reserve_quota
 from config import get_settings
-from chanjing_api import ChanjingAPI
+from chanjing_api import ChanjingAPI, ChanjingStatusCode
 from schemas import DhGenerateVideoRequest
 from schemas import DhCreateCustomPersonRequest
 from models import DhCustomPerson # 引入模型
@@ -56,7 +57,7 @@ def list_custom_persons(
     
     result_list = [
         {
-            "id": p.chanjing_person_id, # 前端生成视频时，需要传这个ID给蝉镜
+            "id": p.chanjing_person_id, # 前端生成视频时，需要传这个 ID 给蝉镜
             "name": p.name,
             "status": p.status,
             "cover_url": p.cover_url,
@@ -66,6 +67,147 @@ def list_custom_persons(
     ]
     
     return ok(result_list)
+
+
+@router.get("/persons/custom/{person_id}")
+def get_custom_person_detail(
+    person_id: str,
+    merchant: Merchant = Depends(verify_api_key),
+    db: Session = Depends(get_db)
+):
+    """从蝉镜 API 拉取单个自定义数字人的详细信息"""
+    api = get_chanjing_api()
+    
+    # 先从蝉镜 API 获取最新状态
+    status_resp = api.get_customised_person_status(person_id)
+    
+    if not ChanjingStatusCode.is_success(status_resp.get('code')):
+        return fail(ChanjingStatusCode.get_msg(status_resp.get('code')), status_code=400)
+    
+    data = status_resp.get('data', {})
+    
+    # 更新本地数据库记录（如果存在）
+    local_person = (
+        db.query(DhCustomPerson)
+        .filter(
+            DhCustomPerson.merchant_id == merchant.id,
+            DhCustomPerson.chanjing_person_id == person_id
+        )
+        .first()
+    )
+    
+    if local_person:
+        # 同步状态和封面图
+        chanjing_status = data.get('status', 0)
+        # 映射蝉镜状态到本地状态：0=定制中，1=已完成，40=失败
+        local_status = 30 if chanjing_status == 1 else (40 if chanjing_status == 40 else 10)
+        
+        local_person.status = local_status
+        local_person.cover_url = data.get('cover_url')
+        local_person.updated_at = datetime.now(timezone.utc)
+        db.add(local_person)
+        db.commit()
+    
+    # 返回详细信息
+    result = {
+        "id": person_id,
+        "name": data.get('name', ''),
+        "status": data.get('status', 0),
+        "status_text": _get_person_status_text(data.get('status', 0)),
+        "progress": data.get('progress', 0),
+        "cover_url": data.get('cover_url'),
+        "video_url": data.get('video_url'),  # 训练完成的示例视频
+        "created_at": local_person.created_at.isoformat() if local_person and local_person.created_at else None
+    }
+    
+    return ok(result)
+
+
+@router.post("/persons/custom/sync")
+def sync_custom_persons(
+    merchant: Merchant = Depends(verify_api_key),
+    db: Session = Depends(get_db)
+):
+    """从蝉镜平台同步所有自定义数字人信息到本地数据库"""
+    api = get_chanjing_api()
+    
+    # 从蝉镜 API 获取所有自定义数字人
+    page = 1
+    page_size = 50
+    all_persons = []
+    
+    while True:
+        resp = api.list_customised_persons(page=page, page_size=page_size, source=0)
+        if not ChanjingStatusCode.is_success(resp.get('code')):
+            break
+        
+        data_list = resp.get('data', {}).get('list', [])
+        if not data_list:
+            break
+        
+        all_persons.extend(data_list)
+        
+        # 如果返回数量少于页大小，说明已经是最后一页
+        if len(data_list) < page_size:
+            break
+        page += 1
+    
+    synced_count = 0
+    for person_data in all_persons:
+        person_id = person_data.get('id')
+        name = person_data.get('name', '')
+        chanjing_status = person_data.get('status', 0)
+        cover_url = person_data.get('cover_url')
+        
+        # 映射蝉镜状态到本地状态
+        local_status = 30 if chanjing_status == 1 else (40 if chanjing_status == 40 else 10)
+        
+        # 检查是否已存在
+        existing = (
+            db.query(DhCustomPerson)
+            .filter(
+                DhCustomPerson.merchant_id == merchant.id,
+                DhCustomPerson.chanjing_person_id == person_id
+            )
+            .first()
+        )
+        
+        if existing:
+            # 更新现有记录
+            existing.status = local_status
+            existing.cover_url = cover_url
+            existing.updated_at = datetime.now(timezone.utc)
+            db.add(existing)
+        else:
+            # 创建新记录
+            new_person = DhCustomPerson(
+                merchant_id=merchant.id,
+                chanjing_person_id=person_id,
+                name=name,
+                status=local_status,
+                cover_url=cover_url
+            )
+            db.add(new_person)
+        
+        synced_count += 1
+    
+    db.commit()
+    
+    return ok({"synced_count": synced_count, "total": len(all_persons)})
+
+
+def _get_person_status_text(status: int) -> str:
+    """获取数字人状态文本说明"""
+    status_map = {
+        0: "定制中",
+        1: "已完成",
+        2: "已完成",  # 实际 API 返回的已完成状态
+        10: "训练中",
+        30: "成功",
+        40: "失败",
+        -1: "错误"
+    }
+    return status_map.get(status, f"未知状态 ({status})")
 
 @router.get("/voices")
 def list_voices(_: Merchant = Depends(verify_api_key)):
