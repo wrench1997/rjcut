@@ -209,6 +209,7 @@ class DhGenerateVideoRequest(BaseModel):
     bg_file_oss_key: Optional[str] = None
     client_ref_id: Optional[str] = None
     timeout_seconds: Optional[int] = 3600
+    hide_subtitle: bool = True  # 默认不添加字幕，True=隐藏字幕，False=显示字幕
 
 
 class DhCreateCustomPersonRequest(BaseModel):

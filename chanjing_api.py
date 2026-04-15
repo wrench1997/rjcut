@@ -287,11 +287,12 @@ class ChanjingAPI:
         drive_mode: str = "random",
         bg: Optional[Dict[str, Any]] = None,
         person_x: int = 0,
-        person_y: int = 0,          # 修改这一行
+        person_y: int = 0,
         person_width: int = 1080,
-        person_height: int = 1920,    # 修改这一行
+        person_height: int = 1920,
         model: int = 1,
         resolution_rate: int = 0,
+        hide_subtitle: bool = True,  # 默认不添加字幕
     ) -> Dict[str, Any]:
         """创建数字人视频
 
@@ -330,7 +331,8 @@ class ChanjingAPI:
             "screen_width": screen_width,
             "screen_height": screen_height,
             "model": model,
-            "resolution_rate": resolution_rate
+            "resolution_rate": resolution_rate,
+            "hide_subtitle": hide_subtitle  # 控制是否添加字幕
         }
 
         # 背景：优先图片，否则用纯色

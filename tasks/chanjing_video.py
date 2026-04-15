@@ -84,7 +84,11 @@ def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merch
             "audio_man_id": payload.get("audio_man_id"),
             "figure_type": payload.get("figure_type"),
             "drive_mode": payload.get("drive_mode"),
-            "person_x": 0, "person_y": 0, "person_width": 1080, "person_height": 1920
+            "person_x": 0,
+            "person_y": 0,
+            "person_width": 1080,
+            "person_height": 1920,
+            "hide_subtitle": payload.get("hide_subtitle", True)  # 默认不添加字幕
         }
         if bg_params:
             video_params["bg"] = bg_params
