@@ -91,12 +91,10 @@ def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merch
                 if audio_man_id:
                     api.logger.info(f"获取到数字人原生声音 ID: {audio_man_id}")
                 else:
-                    api.logger.warning(f"数字人 {digital_person_id} 未关联声音 ID，可能需要使用公共音色")
-                    # 如果定制数字人没有 audio_man_id，尝试使用默认音色
-                    audio_man_id = "0"  # 使用默认音色 ID
+                    # 如果定制数字人没有 audio_man_id，返回错误，提示用户选择公共数字人
+                    raise Exception(f"数字人 {digital_person_id} 未关联声音 ID，无法生成视频。请使用公共数字人或为该数字人配置声音后再试。")
             else:
-                api.logger.warning(f"获取数字人详情失败：{person_detail_resp}")
-                audio_man_id = "0"  # 使用默认音色 ID
+                raise Exception(f"获取数字人 {digital_person_id} 详情失败：{person_detail_resp.get('msg', 'unknown error')}")
         
         if not audio_man_id:
             raise Exception("缺少 audio_man_id：请提供 audio_man_id 或确保数字人已关联声音 ID")
