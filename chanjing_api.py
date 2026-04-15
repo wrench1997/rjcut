@@ -9,8 +9,49 @@ from typing import Dict, Any, List, Union, Optional
 
 from urllib3 import response
 
+# 蝉镜 API 响应状态码
+class ChanjingStatusCode:
+    """蝉镜 API 响应状态码常量"""
+    SUCCESS = 0                           # 响应成功
+    PARAM_FORMAT_ERROR = 400              # 传入参数格式错误
+    ACCESS_TOKEN_ERROR = 10400            # AccessToken 验证失败 / APP 状态有误
+    PARAM_ERROR = 40000                   # 参数错误
+    SYSTEM_ERROR = 50000                  # 系统内部错误
+    SYSTEM_ERROR_51000 = 51000            # 系统错误
+    QPS_LIMIT_EXCEEDED = 40001            # 超出 QPS 限制
+    PERSON_LIMIT_EXCEEDED = 40002         # 定制数字人数量到达上限
+    
+    # 状态码说明
+    STATUS_MSG = {
+        0: "响应成功",
+        400: "传入参数格式错误",
+        10400: "AccessToken 验证失败或 APP 状态有误",
+        40000: "参数错误",
+        40001: "超出 QPS 限制",
+        40002: "定制数字人数量到达上限",
+        50000: "系统内部错误",
+        51000: "系统错误",
+    }
+    
+    @classmethod
+    def get_msg(cls, code: int) -> str:
+        """获取状态码对应的说明"""
+        return cls.STATUS_MSG.get(code, f"未知状态码：{code}")
+    
+    @classmethod
+    def is_success(cls, code: int) -> bool:
+        """判断状态码是否表示成功"""
+        return code == 0
+
+
 class ChanjingAPI:
-    """蝉镜API客户端，用于数字人视频生成、管理和下载"""
+    """蝉镜 API 客户端，用于数字人视频生成、管理和下载"""
+    
+    # 数字人状态常量
+    PERSON_STATUS_MAKING = 1      # 制作中
+    PERSON_STATUS_SUCCESS = 2     # 成功
+    PERSON_STATUS_FAILED = 4      # 失败
+    PERSON_STATUS_SYSTEM_ERROR = 5  # 系统错误
     
     def __init__(self, app_id: str, secret_key: str):
         """初始化API客户端"""
