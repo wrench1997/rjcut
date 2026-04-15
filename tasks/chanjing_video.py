@@ -36,10 +36,15 @@ PERSON_STATUS_FAILED = 40       # 失败
 PERSON_STATUS_ERROR = -1        # 错误
 
 # 视频合成状态 (dto.DpOpenVideoListInfo.status)
-VIDEO_STATUS_COMPLETED = 1      # 已完成
+# 注意：OpenAPI 文档未明确定义视频状态码，以下为常见值
+# 根据实际 API 返回调整：
 VIDEO_STATUS_PROCESSING = 2     # 处理中
+VIDEO_STATUS_COMPLETED = 1      # 已完成
 VIDEO_STATUS_FAILED = 40        # 失败
 VIDEO_STATUS_ERROR = -1         # 错误
+# 其他可能的状态码（根据实际 API 返回添加）：
+VIDEO_STATUS_PENDING = 0        # 等待中（可能）
+VIDEO_STATUS_TRANSCODING = 3    # 转码中（可能）
 
 # 文件上传状态 (dto.DpOpenFileItemRspData.status)
 FILE_STATUS_UPLOADING = 0       # 上传中
@@ -93,25 +98,57 @@ def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merch
         _update_task(task_id, progress=10, stage="waiting_chanjing_render")
 
         chanjing_video_url = None
+        api.set_debug(True)  # 启用调试模式
+        poll_count = 0
+        last_status = None
         for _ in range(180):
+            poll_count += 1
             if _is_task_cancelled(task_id):
                 raise InterruptedError("task cancelled")
 
             status_resp = api.get_video_status(chanjing_video_id)
+            
             if status_resp.get('code') == 0:
                 data = status_resp.get('data', {})
                 status = data.get('status')
                 progress = data.get('progress', 0)
+                video_url = data.get('video_url')
+                msg = data.get('msg', '')
 
-                mapped_progress = 10 + int(progress * 0.8)
+                # 只在状态变化时打印完整日志，避免日志过多
+                if status != last_status:
+                    api.logger.info(f"第 {poll_count} 次轮询 - 状态变化：{json.dumps(status_resp, ensure_ascii=False, indent=2)}")
+                    last_status = status
+                else:
+                    api.logger.info(f"第 {poll_count} 次轮询 - status={status}, progress={progress}, video_url={video_url}, msg={msg}")
+
+                mapped_progress = 10 + int(progress * 0.8) if progress else 10
                 _update_task(task_id, progress=mapped_progress)
 
-                # 根据蝉镜 OpenAPI：VIDEO_STATUS_COMPLETED=已完成，VIDEO_STATUS_PROCESSING=处理中
+                # 判断完成：status=1 或 (status=2 且 progress=100 且有 video_url)
+                # 注意：OpenAPI 文档未明确定义状态码，需要根据实际返回调整
                 if status == VIDEO_STATUS_COMPLETED:
-                    chanjing_video_url = data.get('video_url')
-                    break
-                elif status in (VIDEO_STATUS_FAILED, VIDEO_STATUS_ERROR):
-                    raise Exception(f"蝉镜渲染失败：{data.get('msg', '未知错误')}")
+                    if video_url:
+                        chanjing_video_url = video_url
+                        api.logger.info(f"✅ 视频渲染完成 (status=1)，URL: {chanjing_video_url}")
+                        break
+                    else:
+                        api.logger.warning(f"状态=1 已完成，但 video_url 为空，继续等待...")
+                elif status == VIDEO_STATUS_PROCESSING:
+                    api.logger.info(f"⏳ 视频处理中 (status=2), 进度：{progress}%")
+                elif status in (VIDEO_STATUS_FAILED, VIDEO_STATUS_ERROR, 40):
+                    error_msg = msg or data.get('err_reason') or data.get('reason') or f'未知错误 (status={status})'
+                    api.logger.error(f"❌ 蝉镜渲染失败：{error_msg}")
+                    raise Exception(f"蝉镜渲染失败：{error_msg}")
+                elif status == VIDEO_STATUS_PENDING:
+                    api.logger.info(f"⏳ 视频等待中 (status=0)")
+                else:
+                    api.logger.warning(f"⚠️ 未知状态码：status={status}, progress={progress}, msg={msg}")
+            else:
+                api.logger.warning(f"❌ 状态查询接口返回异常：code={status_resp.get('code')}, msg={status_resp.get('msg')}")
+                # 如果是 token 过期等错误，尝试重新获取
+                if status_resp.get('code') in [10000, 10001]:
+                    api.access_token = api.get_access_token()
             time.sleep(10)
 
         if not chanjing_video_url:
