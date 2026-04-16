@@ -13,7 +13,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--name", required=True)
     parser.add_argument("--email", default=None)
-    parser.add_argument("--quota", type=int, default=100)
+    parser.add_argument("--quota", type=int, default=10000)
     parser.add_argument("--cost", type=int, default=1)
     parser.add_argument("--max-concurrent", type=int, default=5)
     parser.add_argument("--rate-limit", type=int, default=60)
