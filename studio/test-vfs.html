@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>虚拟文件系统测试</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f7;
+      padding: 20px;
+      line-height: 1.6;
+    }
+    
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    
+    h1 {
+      font-size: 32px;
+      margin-bottom: 10px;
+      color: #1d1d1f;
+    }
+    
+    .subtitle {
+      color: #86868b;
+      margin-bottom: 30px;
+    }
+    
+    .test-section {
+      background: white;
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    }
+    
+    h2 {
+      font-size: 21px;
+      margin-bottom: 16px;
+      color: #1d1d1f;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .status {
+      font-size: 14px;
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-weight: 600;
+    }
+    
+    .status.pending {
+      background: #ffcc00;
+      color: #000;
+    }
+    
+    .status.success {
+      background: #34c759;
+      color: #fff;
+    }
+    
+    .status.error {
+      background: #ff3b30;
+      color: #fff;
+    }
+    
+    .test-result {
+      background: #f8f8f8;
+      border-radius: 8px;
+      padding: 16px;
+      margin-top: 16px;
+      font-family: monospace;
+      font-size: 13px;
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    
+    button {
+      background: #0066cc;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    button:hover {
+      background: #0071e3;
+    }
+    
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    
+    .button-group {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 16px;
+    }
+    
+    input[type="file"] {
+      margin: 10px 0;
+    }
+    
+    .info-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+      gap: 12px;
+      margin-top: 16px;
+    }
+    
+    .info-item {
+      background: #f8f8f8;
+      padding: 12px;
+      border-radius: 8px;
+    }
+    
+    .info-label {
+      font-size: 12px;
+      color: #86868b;
+      margin-bottom: 4px;
+    }
+    
+    .info-value {
+      font-size: 16px;
+      font-weight: 600;
+      color: #1d1d1f;
+    }
+    
+    .log-entry {
+      padding: 4px 0;
+      border-bottom: 1px solid #e0e0e0;
+    }
+    
+    .log-entry:last-child {
+      border-bottom: none;
+    }
+    
+    .log-time {
+      color: #86868b;
+      font-size: 12px;
+      margin-right: 8px;
+    }
+    
+    .progress-bar {
+      width: 100%;
+      height: 8px;
+      background: #e0e0e0;
+      border-radius: 4px;
+      overflow: hidden;
+      margin-top: 12px;
+    }
+    
+    .progress-fill {
+      height: 100%;
+      background: #0066cc;
+      transition: width 0.3s;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🧪 虚拟文件系统测试</h1>
+    <p class="subtitle">测试 RJCut Studio 的 IndexedDB 虚拟文件系统功能</p>
+    
+    <!-- 初始化测试 -->
+    <div class="test-section">
+      <h2>
+        1. 系统初始化
+        <span class="status pending" id="init-status">等待中</span>
+      </h2>
+      <div class="button-group">
+        <button onclick="testInit()">初始化文件系统</button>
+      </div>
+      <div class="test-result" id="init-result" style="display: none;"></div>
+    </div>
+    
+    <!-- 基本操作测试 -->
+    <div class="test-section">
+      <h2>
+        2. 基本文件操作
+        <span class="status pending" id="basic-status">等待中</span>
+      </h2>
+      <div class="button-group">
+        <button onclick="testBasicOperations()" disabled id="btn-basic">运行测试</button>
+        <button onclick="testMkdir()">创建目录</button>
+        <button onclick="testWriteFile()">写入文件</button>
+        <button onclick="testReadFile()">读取文件</button>
+        <button onclick="testDelete()">删除文件</button>
+      </div>
+      <div class="test-result" id="basic-result" style="display: none;"></div>
+    </div>
+    
+    <!-- 视频文件测试 -->
+    <div class="test-section">
+      <h2>
+        3. 视频文件测试
+        <span class="status pending" id="video-status">等待中</span>
+      </h2>
+      <p style="margin: 12px 0; color: #86868b;">
+        测试大文件（视频）的存储和读取
+      </p>
+      <input type="file" id="video-input" accept="video/*">
+      <div class="button-group">
+        <button onclick="testVideoUpload()" disabled id="btn-video">上传视频</button>
+        <button onclick="testVideoPreview()" disabled id="btn-preview">预览视频</button>
+      </div>
+      <div class="progress-bar" style="display: none;" id="video-progress">
+        <div class="progress-fill" style="width: 0%"></div>
+      </div>
+      <div class="test-result" id="video-result" style="display: none;"></div>
+      <div id="video-preview-container" style="margin-top: 16px; display: none;">
+        <video id="video-player" controls style="width: 100%; max-width: 600px; border-radius: 8px;"></video>
+      </div>
+    </div>
+    
+    <!-- 项目管理测试 -->
+    <div class="test-section">
+      <h2>
+        4. 项目管理测试
+        <span class="status pending" id="project-status">等待中</span>
+      </h2>
+      <div class="button-group">
+        <button onclick="testCreateProject()" disabled id="btn-project">创建项目</button>
+        <button onclick="testListProjects()" disabled id="btn-projects">获取项目列表</button>
+      </div>
+      <div class="test-result" id="project-result" style="display: none;"></div>
+    </div>
+    
+    <!-- 搜索功能测试 -->
+    <div class="test-section">
+      <h2>
+        5. 搜索功能测试
+        <span class="status pending" id="search-status">等待中</span>
+      </h2>
+      <div class="button-group">
+        <button onclick="testSearchVideos()" disabled id="btn-search-video">搜索视频</button>
+        <button onclick="testSearchAudio()" disabled id="btn-search-audio">搜索音频</button>
+        <button onclick="testSearchJSON()" disabled id="btn-search-json">搜索 JSON</button>
+      </div>
+      <div class="test-result" id="search-result" style="display: none;"></div>
+    </div>
+    
+    <!-- 存储信息 -->
+    <div class="test-section">
+      <h2>6. 存储信息</h2>
+      <div class="info-grid" id="storage-info">
+        <div class="info-item">
+          <div class="info-label">文件数量</div>
+          <div class="info-value" id="info-file-count">-</div>
+        </div>
+        <div class="info-item">
+          <div class="info-label">总大小</div>
+          <div class="info-value" id="info-total-size">-</div>
+        </div>
+        <div class="info-item">
+          <div class="info-label">可用空间</div>
+          <div class="info-value" id="info-available">-</div>
+        </div>
+        <div class="info-item">
+          <div class="info-label">配额</div>
+          <div class="info-value" id="info-quota">-</div>
+        </div>
+      </div>
+      <div class="button-group" style="margin-top: 16px;">
+        <button onclick="updateStorageInfo()">刷新信息</button>
+      </div>
+    </div>
+    
+    <!-- 操作日志 -->
+    <div class="test-section">
+      <h2>📋 操作日志</h2>
+      <div class="test-result" id="log-container" style="max-height: 400px;">
+        <div class="log-entry">
+          <span class="log-time">等待操作...</span>
+        </div>
+      </div>
+      <div class="button-group" style="margin-top: 16px;">
+        <button onclick="clearLog()">清空日志</button>
+        <button onclick="exportLog()">导出日志</button>
+      </div>
+    </div>
+  </div>
+  
+  <script type="module">
+    import { getSharedFileSystem } from './src/utils/virtualFileSystem.js'
+    
+    let vfs = null
+    const logs = []
+    
+    // 日志函数
+    window.log = function(message, type = 'info') {
+      const time = new Date().toLocaleTimeString()
+      logs.push({ time, message, type })
+      
+      const container = document.getElementById('log-container')
+      const entry = document.createElement('div')
+      entry.className = 'log-entry'
+      entry.innerHTML = `<span class="log-time">${time}</span>${message}`
+      
+      if (type === 'error') {
+        entry.style.color = '#ff3b30'
+      } else if (type === 'success') {
+        entry.style.color = '#34c759'
+      }
+      
+      container.appendChild(entry)
+      container.scrollTop = container.scrollHeight
+    }
+    
+    window.clearLog = function() {
+      logs.length = 0
+      document.getElementById('log-container').innerHTML = '<div class="log-entry"><span class="log-time">日志已清空</span></div>'
+    }
+    
+    window.exportLog = function() {
+      const blob = new Blob([JSON.stringify(logs, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `vfs-log-${Date.now()}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+      log('日志已导出', 'success')
+    }
+    
+    function formatSize(bytes) {
+      if (bytes < 1024) return `${bytes} B`
+      if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+      if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+      return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`
+    }
+    
+    function setStatus(id, status) {
+      const el = document.getElementById(id)
+      el.className = `status ${status}`
+      el.textContent = status === 'pending' ? '等待中' : status === 'success' ? '成功' : '失败'
+    }
+    
+    function enableButtons(prefix, enabled) {
+      const buttons = document.querySelectorAll(`[id^="btn-${prefix}"]`)
+      buttons.forEach(btn => btn.disabled = !enabled)
+    }
+    
+    // 初始化测试
+    window.testInit = async function() {
+      try {
+        setStatus('init-status', 'pending')
+        log('正在初始化文件系统...')
+        
+        vfs = await getSharedFileSystem()
+        
+        log('文件系统初始化成功', 'success')
+        setStatus('init-status', 'success')
+        
+        const result = {
+          success: true,
+          message: '文件系统初始化成功',
+          currentPath: vfs.pwd(),
+          directoryCount: vfs.directories.size,
+          fileCount: vfs.files.size
+        }
+        
+        document.getElementById('init-result').style.display = 'block'
+        document.getElementById('init-result').textContent = JSON.stringify(result, null, 2)
+        
+        // 启用所有按钮
+        enableButtons('basic', true)
+        enableButtons('video', true)
+        enableButtons('project', true)
+        enableButtons('search', true)
+        
+        updateStorageInfo()
+      } catch (error) {
+        log(`初始化失败：${error.message}`, 'error')
+        setStatus('init-status', 'error')
+        document.getElementById('init-result').style.display = 'block'
+        document.getElementById('init-result').textContent = `错误：${error.message}`
+      }
+    }
+    
+    // 基本操作测试
+    window.testBasicOperations = async function() {
+      try {
+        setStatus('basic-status', 'pending')
+        log('开始基本操作测试...')
+        
+        const results = []
+        
+        // 创建目录
+        log('测试：创建目录')
+        await vfs.mkdir('/test-basic', true)
+        results.push({ test: '创建目录', success: true })
+        log('✓ 创建目录成功', 'success')
+        
+        // 写入文件
+        log('测试：写入文件')
+        await vfs.writeFile('/test-basic/test.txt', 'Hello, World!', {
+          type: 'text/plain'
+        })
+        results.push({ test: '写入文件', success: true })
+        log('✓ 写入文件成功', 'success')
+        
+        // 读取文件
+        log('测试：读取文件')
+        const content = await vfs.readFile('/test-basic/test.txt')
+        results.push({ test: '读取文件', success: true, content })
+        log(`✓ 读取文件成功：${content}`, 'success')
+        
+        // 写入 JSON
+        log('测试：写入 JSON')
+        await vfs.writeJSON('/test-basic/config.json', {
+          test: true,
+          timestamp: new Date().toISOString()
+        })
+        results.push({ test: '写入 JSON', success: true })
+        log('✓ 写入 JSON 成功', 'success')
+        
+        // 读取 JSON
+        log('测试：读取 JSON')
+        const json = await vfs.readJSON('/test-basic/config.json')
+        results.push({ test: '读取 JSON', success: true, data: json })
+        log(`✓ 读取 JSON 成功`, 'success')
+        
+        // 列出目录
+        log('测试：列出目录')
+        const items = vfs.listDirectory('/test-basic')
+        results.push({ test: '列出目录', success: true, count: items.length, items })
+        log(`✓ 列出目录成功：${items.length} 个项目`, 'success')
+        
+        setStatus('basic-status', 'success')
+        document.getElementById('basic-result').style.display = 'block'
+        document.getElementById('basic-result').textContent = JSON.stringify(results, null, 2)
+        
+        updateStorageInfo()
+      } catch (error) {
+        log(`基本操作测试失败：${error.message}`, 'error')
+        setStatus('basic-status', 'error')
+        document.getElementById('basic-result').style.display = 'block'
+        document.getElementById('basic-result').textContent = `错误：${error.message}`
+      }
+    }
+    
+    window.testMkdir = async function() {
+      try {
+        const path = prompt('请输入目录路径:', '/test-' + Date.now())
+        if (!path) return
+        
+        await vfs.mkdir(path, true)
+        log(`创建目录成功：${path}`, 'success')
+        updateStorageInfo()
+      } catch (error) {
+        log(`创建目录失败：${error.message}`, 'error')
+      }
+    }
+    
+    window.testWriteFile = async function() {
+      try {
+        const path = prompt('请输入文件路径:', '/test-basic/test-' + Date.now() + '.txt')
+        if (!path) return
+        
+        const content = prompt('请输入文件内容:', '测试内容')
+        if (!content) return
+        
+        await vfs.writeFile(path, content, { type: 'text/plain' })
+        log(`写入文件成功：${path}`, 'success')
+        updateStorageInfo()
+      } catch (error) {
+        log(`写入文件失败：${error.message}`, 'error')
+      }
+    }
+    
+    window.testReadFile = async function() {
+      try {
+        const path = prompt('请输入文件路径:', '/test-basic/test.txt')
+        if (!path) return
+        
+        const content = await vfs.readFile(path)
+        log(`读取成功:\n${content}`, 'success')
+      } catch (error) {
+        log(`读取文件失败：${error.message}`, 'error')
+      }
+    }
+    
+    window.testDelete = async function() {
+      try {
+        const path = prompt('请输入要删除的路径:', '/test-basic/test.txt')
+        if (!path) return
+        
+        if (!confirm(`确定要删除 ${path} 吗？`)) return
+        
+        await vfs.delete(path, true)
+        log(`删除成功：${path}`, 'success')
+        updateStorageInfo()
+      } catch (error) {
+        log(`删除失败：${error.message}`, 'error')
+      }
+    }
+    
+    // 视频文件测试
+    window.testVideoUpload = async function() {
+      const input = document.getElementById('video-input')
+      const file = input.files[0]
+      
+      if (!file) {
+        log('请先选择一个视频文件', 'error')
+        return
+      }
+      
+      try {
+        setStatus('video-status', 'pending')
+        log(`开始上传视频：${file.name} (${formatSize(file.size)})`)
+        
+        const progressBar = document.getElementById('video-progress')
+        const progressFill = progressBar.querySelector('.progress-fill')
+        progressBar.style.display = 'block'
+        
+        // 读取文件
+        const arrayBuffer = await new Promise((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onprogress = (e) => {
+            if (e.lengthComputable) {
+              const percent = (e.loaded / e.total) * 50
+              progressFill.style.width = `${percent}%`
+            }
+          }
+          reader.onload = () => resolve(reader.result)
+          reader.onerror = () => reject(new Error('读取文件失败'))
+          reader.readAsArrayBuffer(file)
+        })
+        
+        progressFill.style.width = '50%'
+        log('文件读取完成，正在写入...')
+        
+        // 写入文件系统
+        const path = `/videos/uploaded/${file.name}`
+        await vfs.writeFile(path, arrayBuffer, {
+          type: file.type,
+          metadata: {
+            originalName: file.name,
+            size: file.size,
+            uploadedAt: new Date().toISOString()
+          }
+        })
+        
+        progressFill.style.width = '100%'
+        log(`视频上传成功：${path}`, 'success')
+        setStatus('video-status', 'success')
+        
+        const result = {
+          success: true,
+          path,
+          name: file.name,
+          size: file.size,
+          type: file.type
+        }
+        
+        document.getElementById('video-result').style.display = 'block'
+        document.getElementById('video-result').textContent = JSON.stringify(result, null, 2)
+        
+        document.getElementById('btn-preview').disabled = false
+        updateStorageInfo()
+        
+        setTimeout(() => {
+          progressBar.style.display = 'none'
+          progressFill.style.width = '0%'
+        }, 2000)
+      } catch (error) {
+        log(`视频上传失败：${error.message}`, 'error')
+        setStatus('video-status', 'error')
+        document.getElementById('video-result').style.display = 'block'
+        document.getElementById('video-result').textContent = `错误：${error.message}`
+      }
+    }
+    
+    window.testVideoPreview = async function() {
+      try {
+        const path = prompt('请输入视频路径:', '/videos/uploaded/')
+        if (!path) return
+        
+        // 如果是目录，列出内容
+        if (vfs.isDirectory(path)) {
+          const items = vfs.listDirectory(path)
+          const videos = items.filter(i => i.type?.startsWith('video/'))
+          if (videos.length === 0) {
+            log('该目录中没有视频文件', 'error')
+            return
+          }
+          path = videos[0].path
+        }
+        
+        log(`加载视频：${path}`)
+        const blob = await vfs.readFileAsBlob(path)
+        const url = URL.createObjectURL(blob)
+        
+        const player = document.getElementById('video-player')
+        player.src = url
+        
+        document.getElementById('video-preview-container').style.display = 'block'
+        log('视频加载成功', 'success')
+      } catch (error) {
+        log(`视频预览失败：${error.message}`, 'error')
+      }
+    }
+    
+    // 项目管理测试
+    window.testCreateProject = async function() {
+      try {
+        const name = prompt('请输入项目名称:', '测试项目-' + Date.now())
+        if (!name) return
+        
+        log(`创建项目：${name}`)
+        const projectPath = await vfs.createVideoProject(name, {
+          pipeline: {
+            remove_keyword: '转场',
+            margin: 0.15
+          }
+        })
+        
+        log(`项目创建成功：${projectPath}`, 'success')
+        
+        const result = {
+          success: true,
+          path: projectPath,
+          name
+        }
+        
+        document.getElementById('project-result').style.display = 'block'
+        document.getElementById('project-result').textContent = JSON.stringify(result, null, 2)
+        
+        updateStorageInfo()
+      } catch (error) {
+        log(`创建项目失败：${error.message}`, 'error')
+        document.getElementById('project-result').style.display = 'block'
+        document.getElementById('project-result').textContent = `错误：${error.message}`
+      }
+    }
+    
+    window.testListProjects = async function() {
+      try {
+        log('获取项目列表...')
+        const projects = await vfs.getVideoProjects()
+        
+        log(`找到 ${projects.length} 个项目`, 'success')
+        
+        document.getElementById('project-result').style.display = 'block'
+        document.getElementById('project-result').textContent = JSON.stringify(projects, null, 2)
+      } catch (error) {
+        log(`获取项目列表失败：${error.message}`, 'error')
+      }
+    }
+    
+    // 搜索功能测试
+    window.testSearchVideos = async function() {
+      try {
+        log('搜索视频文件...')
+        const videos = vfs.searchVideos()
+        
+        log(`找到 ${videos.length} 个视频文件`, 'success')
+        
+        document.getElementById('search-result').style.display = 'block'
+        document.getElementById('search-result').textContent = JSON.stringify(videos.map(v => ({
+          name: v.name,
+          path: v.path,
+          size: v.size,
+          type: v.type
+        })), null, 2)
+      } catch (error) {
+        log(`搜索失败：${error.message}`, 'error')
+      }
+    }
+    
+    window.testSearchAudio = async function() {
+      try {
+        log('搜索音频文件...')
+        const audio = vfs.searchAudio()
+        
+        log(`找到 ${audio.length} 个音频文件`, 'success')
+        
+        document.getElementById('search-result').style.display = 'block'
+        document.getElementById('search-result').textContent = JSON.stringify(audio.map(a => ({
+          name: a.name,
+          path: a.path,
+          size: a.size
+        })), null, 2)
+      } catch (error) {
+        log(`搜索失败：${error.message}`, 'error')
+      }
+    }
+    
+    window.testSearchJSON = async function() {
+      try {
+        log('搜索 JSON 文件...')
+        const jsonFiles = vfs.searchJSON()
+        
+        log(`找到 ${jsonFiles.length} 个 JSON 文件`, 'success')
+        
+        document.getElementById('search-result').style.display = 'block'
+        document.getElementById('search-result').textContent = JSON.stringify(jsonFiles.map(f => ({
+          name: f.name,
+          path: f.path,
+          size: f.size
+        })), null, 2)
+      } catch (error) {
+        log(`搜索失败：${error.message}`, 'error')
+      }
+    }
+    
+    // 存储信息
+    window.updateStorageInfo = async function() {
+      try {
+        const info = await vfs.getStorageInfo()
+        
+        document.getElementById('info-file-count').textContent = info.fileCount
+        document.getElementById('info-total-size').textContent = formatSize(info.totalSize)
+        document.getElementById('info-available').textContent = info.available !== null 
+          ? formatSize(info.available) 
+          : '未知'
+        document.getElementById('info-quota').textContent = info.quota !== null 
+          ? formatSize(info.quota) 
+          : '未知'
+      } catch (error) {
+        log(`获取存储信息失败：${error.message}`, 'error')
+      }
+    }
+    
+    // 自动初始化
+    log('页面加载完成，点击"初始化文件系统"开始测试')
+  </script>
+</body>
+</html>

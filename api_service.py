@@ -42,6 +42,8 @@ from draft_utils import (
     simple_ai_correct_text,
 )
 
+from batch_validator import BatchTaskValidator, validate_batch_config_file
+
 import json
 from typing import Optional
 from fastapi import FastAPI, Depends, Query, Request
@@ -910,3 +912,101 @@ def list_uploads(
         "count": len(records),
         "total": total,
     })
+
+
+@app.post("/v1/batch/validate")
+def validate_batch_configuration(
+    config: dict,
+    merchant: Merchant = Depends(verify_api_key),
+):
+    """
+    验证批量处理配置
+    
+    检查任务配置中的必需文件和可选文件，返回详细的验证报告
+    
+    请求体示例：
+    ```json
+    {
+      "tasks": [
+        {
+          "name": "video1",
+          "video_file": "./videos/video1.mp4",
+          "script_file": "./scripts/video1.json",
+          "corrections_file": "./corrections.json",
+          "bgm_file": "./bgm.mp3",
+          "scenes_dir": "./scenes"
+        }
+      ]
+    }
+    ```
+    """
+    try:
+        validator = BatchTaskValidator(base_dir=settings.BASE_DIR)
+        result = validator.validate_batch_config(config)
+        
+        return ok({
+            "is_valid": result.is_valid,
+            "total_tasks": result.total_tasks,
+            "valid_tasks": result.valid_tasks,
+            "invalid_tasks": result.invalid_tasks,
+            "task_results": [r.to_dict() for r in result.task_results],
+            "summary": result.summary,
+        })
+    except Exception as e:
+        return fail(50000, f"验证失败：{str(e)}", status_code=500)
+
+
+@app.get("/v1/batch/template")
+def get_batch_config_template(
+    merchant: Merchant = Depends(verify_api_key),
+):
+    """
+    获取批量配置模板
+    
+    返回标准的 batch_config.json 模板，包含所有必需和可选字段说明
+    """
+    template = {
+        "tasks": [
+            {
+                "name": "task_001",
+                "video_file": "./videos/video1.mp4",
+                "script_file": "./scripts/video1.json",
+                "corrections_file": "./corrections.json",
+                "bgm_file": "./bgm.mp3",
+                "scenes_dir": "./scenes",
+                "custom_config": {
+                    "pipeline": {
+                        "use_transitions": False,
+                        "transition_duration": 0.8
+                    },
+                    "subtitle": {
+                        "font_size": 88,
+                        "effect": "ad"
+                    },
+                    "audio": {
+                        "bgm_volume": 0.3,
+                        "original_volume": 1.0
+                    }
+                }
+            }
+        ],
+        "_schema": {
+            "required_fields": {
+                "video_file": "主视频文件路径 (MP4/MOV/AVI/MKV)",
+                "script_file": "脚本文件路径 (JSON 格式，除非使用 scene_only 模式)"
+            },
+            "optional_fields": {
+                "corrections_file": "纠错字典文件路径 (JSON 格式)",
+                "bgm_file": "背景音乐文件路径 (MP3/WAV/M4A/AAC)",
+                "scenes_dir": "场景素材目录路径",
+                "custom_config": "自定义配置对象"
+            },
+            "notes": [
+                "script_file 在 pipeline.mode='scene_only' 时可选",
+                "建议提供 corrections_file 以提高字幕准确性",
+                "建议提供 bgm_file 以提升视频质量"
+            ]
+        }
+    }
+    
+    return ok(template)
