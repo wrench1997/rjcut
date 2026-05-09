@@ -7,7 +7,7 @@ export default defineConfig({
     port: 3000,
     proxy: {
       '/v1': {
-        target: 'http://localhost:8001',
+        target: 'http://192.168.166.151:8001',
         changeOrigin: true,
       },
     },

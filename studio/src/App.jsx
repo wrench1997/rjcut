@@ -9,7 +9,7 @@ import BatchConfigEditor from './components/BatchConfigEditor'
 // API 配置
 // =====================================================
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001'
-const DEFAULT_API_KEY = 'your-api-key-here'
+const DEFAULT_API_KEY = 'rjk_oG3u1bRu10myprstb5o2AYVW6v9HipNT33ALuJTmFxaqemUC'
 
 // =====================================================
 // 工具函数

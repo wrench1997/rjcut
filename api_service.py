@@ -48,10 +48,27 @@ import json
 from typing import Optional
 from fastapi import FastAPI, Depends, Query, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 
 
 settings = get_settings()
 app = FastAPI(title="RJCut Commercial API", version="1.0.0")
+
+# 配置 CORS 中间件，允许跨域请求
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:5173",
+        "*",  # 允许所有来源（开发环境），生产环境建议限制具体域名
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],  # 允许所有 HTTP 方法
+    allow_headers=["*"],  # 允许所有 HTTP 头
+)
+
 app.include_router(admin_router)
 app.include_router(dh_router)
 
