@@ -558,16 +558,7 @@ class FileManagerComponent(Component):
         max_retries: int = 3
     ) -> Dict[str, Any]:
         """
-        上传场景素材到 OSS（使用 MinIO 内部复制）
-        
-        Args:
-            scene_dir: 场景素材目录
-            task_id: 任务 ID
-            merchant_id: 商户 ID
-            max_retries: 最大重试次数
-        
-        Returns:
-            场景素材字典 {filename: asset_info}
+        上传场景素材到 OSS（直接将已下载到本地的素材重新归档，放弃盲猜源路径的内部复制）
         """
         scene_assets = {}
         
@@ -579,40 +570,24 @@ class FileManagerComponent(Component):
             if not os.path.isfile(local_path):
                 continue
             
-            src_oss_key = f"{merchant_id}/scenes/{name}"
-            dst_oss_key = f"{merchant_id}/tasks/{task_id}/scene_assets/{name}"
-            mime = mimetypes.guess_type(local_path)[0] or "application/octet-stream"
+            # 取出无后缀的文件名干干，交给 uploader 自动拼接正确的路径和扩展名
+            import os
+            stem = os.path.splitext(name)[0]
+            # 存放在 OSS 任务目录下的 scene_assets 文件夹中
+            file_key = f"scene_assets/{stem}"
             
-            success = False
-            for attempt in range(max_retries):
-                try:
-                    copy_file_in_oss(src_oss_key, dst_oss_key)
-                    
-                    scene_assets[name] = {
-                        "oss_key": dst_oss_key,
-                        "filename": name,
-                        "exists": True,
-                        "size": os.path.getsize(local_path),
-                        "mime_type": mime,
-                    }
-                    
-                    print(f"✅ 场景素材复制成功：{name} (尝试 {attempt + 1}/{max_retries})")
-                    success = True
-                    break
-                    
-                except Exception as e:
-                    print(f"⚠️  场景素材复制失败 (尝试 {attempt + 1}/{max_retries}): {name}")
-                    print(f"    错误：{e}")
-                    
-                    if attempt < max_retries - 1:
-                        wait_time = 2 ** attempt
-                        print(f"    等待 {wait_time} 秒后重试...")
-                        time.sleep(wait_time)
-                    else:
-                        print(f"❌ 场景素材 {name} 复制失败，已跳过")
-            
-            if not success:
-                print(f"⚠️  警告：场景素材 {name} 未能成功复制到任务目录")
+            try:
+                # 使用统一的安全上传组件，直接将本地存在的准确文件推送到 OSS
+                entry = self.uploader.build_oss_file_entry(
+                    task_id, file_key, local_path, merchant_id
+                )
+                # 强行记录真实的文件名，用于后续合成关联
+                entry["filename"] = name
+                scene_assets[name] = entry
+                print(f"✅ 场景素材归档成功：{name}")
+            except Exception as e:
+                print(f"⚠️  场景素材归档失败: {name}")
+                print(f"    错误：{e}")
         
         return scene_assets
     
