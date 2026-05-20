@@ -571,7 +571,6 @@ class FileManagerComponent(Component):
                 continue
             
             # 取出无后缀的文件名干干，交给 uploader 自动拼接正确的路径和扩展名
-            import os
             stem = os.path.splitext(name)[0]
             # 存放在 OSS 任务目录下的 scene_assets 文件夹中
             file_key = f"scene_assets/{stem}"
