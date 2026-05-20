@@ -662,6 +662,13 @@ function ProjectDetail({ project, vfs, onBack, onOpen, onNavigate }) {
             <div className="file-quick-access">
               <div 
                 className="quick-folder" 
+                onClick={() => onNavigate({ path: `${project.path}/scenes` })}
+              >
+                <span className="folder-icon">📝</span>
+                <span className="folder-name">场景脚本</span>
+              </div>
+              <div 
+                className="quick-folder" 
                 onClick={() => onNavigate({ path: `${project.path}/raw` })}
               >
                 <span className="folder-icon">🎬</span>

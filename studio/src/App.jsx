@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createDefaultFileSystem, getSharedFileSystem } from './utils/virtualFileSystem'
+import { setApiKey } from './api/api'
 import FileBrowser from './components/FileBrowser'
 import VideoProjectManager from './components/VideoProjectManager'
 import AIChat from './components/AIChat'
-import BatchConfigEditor from './components/BatchConfigEditor'
+import BatchProcessor from './components/BatchProcessor'
 
 // =====================================================
 // API 配置
@@ -213,139 +214,13 @@ function ProjectSelectorItem({ project, selected, onToggle }) {
   )
 }
 
-// =====================================================
-// 批量处理项目选择器
-// =====================================================
-function BatchProjectSelector({ vfs, selectedProjects, onSelectionChange }) {
-  const [projects, setProjects] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [filter, setFilter] = useState('all') // 'all' | 'has_video' | 'has_config'
-  const [searchQuery, setSearchQuery] = useState('')
-  
-  useEffect(() => {
-    const loadProjects = async () => {
-      try {
-        setLoading(true)
-        const projectList = await vfs.getVideoProjects()
-        setProjects(projectList)
-      } catch (e) {
-        console.error('加载项目列表失败:', e)
-      } finally {
-        setLoading(false)
-      }
-    }
-    
-    if (vfs) {
-      loadProjects()
-    }
-  }, [vfs])
-  
-  const handleToggleProject = (project) => {
-    const isSelected = selectedProjects.some(p => p.path === project.path)
-    if (isSelected) {
-      onSelectionChange(selectedProjects.filter(p => p.path !== project.path))
-    } else {
-      onSelectionChange([...selectedProjects, project])
-    }
-  }
-  
-  const handleSelectAll = () => {
-    if (selectedProjects.length === filteredProjects.length) {
-      onSelectionChange([])
-    } else {
-      onSelectionChange([...filteredProjects])
-    }
-  }
-  
-  // 过滤项目
-  const filteredProjects = projects.filter(project => {
-    // 搜索过滤
-    if (searchQuery && !project.name.toLowerCase().includes(searchQuery.toLowerCase())) {
-      return false
-    }
-    
-    // 状态过滤
-    if (filter === 'has_video') {
-      try {
-        const rawItems = vfs.listDirectory(`${project.path}/raw`)
-        return rawItems.some(item => !item.isDirectory && item.type?.startsWith('video/'))
-      } catch {
-        return false
-      }
-    } else if (filter === 'has_config') {
-      return project.config?.scenes?.length > 0
-    }
-    
-    return true
-  })
-  
-  const allSelected = filteredProjects.length > 0 && selectedProjects.length === filteredProjects.length
-  
-  return (
-    <div className="batch-project-selector">
-      <div className="selector-toolbar">
-        <input
-          type="text"
-          className="search-input"
-          placeholder="搜索项目..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-        />
-        
-        <select
-          className="filter-select"
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-        >
-          <option value="all">全部项目</option>
-          <option value="has_video">含视频文件</option>
-          <option value="has_config">含场景配置</option>
-        </select>
-        
-        <button 
-          className="btn btn-pearl-capsule"
-          onClick={handleSelectAll}
-        >
-          {allSelected ? '取消全选' : '全选'}
-        </button>
-      </div>
-      
-      <div className="selector-content">
-        {loading ? (
-          <div className="empty-state">
-            <span>加载项目中...</span>
-          </div>
-        ) : filteredProjects.length === 0 ? (
-          <div className="empty-state">
-            <span className="empty-icon">🎬</span>
-            <p className="empty-text">暂无项目</p>
-          </div>
-        ) : (
-          filteredProjects.map(project => (
-            <ProjectSelectorItem
-              key={project.path}
-              project={project}
-              selected={selectedProjects.some(p => p.path === project.path)}
-              onToggle={handleToggleProject}
-            />
-          ))
-        )}
-      </div>
-      
-      <div className="selector-footer">
-        <span className="caption text-muted">
-          已选择 {selectedProjects.length} 个项目
-        </span>
-      </div>
-    </div>
-  )
-}
 
 // =====================================================
-// 任务列表项
+// 任务列表项 (修复了下载功能，支持下载所有产物)
 // =====================================================
 function TaskListItem({ task, onRefresh, onCancel }) {
   const [loading, setLoading] = useState(false)
+  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001'
   
   const handleRefresh = async () => {
     setLoading(true)
@@ -365,7 +240,40 @@ function TaskListItem({ task, onRefresh, onCancel }) {
       alert(`取消失败：${err.message}`)
     }
   }
+
+  // 请求安全的下载直链
+  const handleDownload = async (fileKey) => {
+    try {
+      const apiKey = localStorage.getItem('rjcut_api_key');
+      const res = await fetch(`${API_BASE_URL}/v1/tasks/${task.task_id}/files/${fileKey}`, {
+        headers: { 'Authorization': `Bearer ${apiKey}` }
+      });
+      const data = await res.json();
+      
+      if (data.code === 0 && data.data?.download_url) {
+        // 在新窗口打开直链，浏览器会自动开始下载或播放
+        window.open(data.data.download_url, '_blank');
+      } else {
+        alert('获取下载链接失败: ' + (data.message || '未知错误'));
+      }
+    } catch (e) {
+      alert('请求失败: ' + e.message);
+    }
+  };
   
+  // 美化产物名称
+  const getFileLabel = (key) => {
+    const labels = {
+      final_video: '🎬 下载最终成片',
+      cleaned_video: '✂️ 下载去转场草稿视频',
+      ass_file: '📝 下载 ASS 字幕',
+      timeline_json: '⏱️ 下载时间线数据',
+      resync_json: '🔄 下载对齐数据',
+      transcription_json: '📜 下载识别文本'
+    };
+    return labels[key] || `📁 下载 ${key}`;
+  };
+
   return (
     <div className="card mb-md">
       <div className="flex justify-between items-center mb-sm">
@@ -374,7 +282,10 @@ function TaskListItem({ task, onRefresh, onCancel }) {
             {task.client_ref_id || task.task_id}
           </h3>
           <p className="caption text-muted">
-            类型：{task.task_type} | 创建时间：{formatTime(task.created_at)}
+            类型：{task.task_type === 'compose_from_draft' ? '🎬 视频合成' : 
+                   task.task_type === 'agent_draft' ? '📝 草稿生成' : task.task_type} 
+            &nbsp;|&nbsp; 
+            创建时间：{formatTime(task.created_at)}
           </p>
         </div>
         <StatusBadge status={task.status} />
@@ -402,36 +313,41 @@ function TaskListItem({ task, onRefresh, onCancel }) {
         </div>
       )}
       
-      <div className="flex gap-sm">
+      <div className="flex gap-sm flex-wrap items-center">
         <button 
-          className="btn btn-pearl-capsule"
+          className="btn btn-pearl-capsule btn-sm"
           onClick={handleRefresh}
           disabled={loading}
         >
-          {loading ? '刷新中...' : '刷新'}
+          {loading ? '🔄 刷新中...' : '🔄 刷新状态'}
         </button>
         
         {(task.status === 'queued' || task.status === 'processing') && (
           <button 
-            className="btn btn-pearl-capsule"
+            className="btn btn-ghost btn-sm"
+            style={{ color: '#ff3b30' }}
             onClick={handleCancel}
             disabled={loading}
           >
-            取消
+            🚫 取消任务
           </button>
         )}
-        
-        {task.status === 'succeeded' && task.result?.files && (
-          <a
-            href={`${API_BASE_URL}/v1/tasks/${task.task_id}/files/final_video`}
-            className="btn btn-primary"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            下载视频
-          </a>
-        )}
       </div>
+
+      {/* 动态展示所有可以下载的文件产物 */}
+      {task.status === 'succeeded' && task.result?.files && (
+        <div className="flex gap-sm mt-md flex-wrap" style={{ borderTop: '1px solid var(--hairline)', paddingTop: '12px' }}>
+          {Object.keys(task.result.files).map(key => (
+            <button
+              key={key}
+              className={`btn btn-sm ${key === 'final_video' ? 'btn-primary' : 'btn-pearl-capsule'}`}
+              onClick={() => handleDownload(key)}
+            >
+              {getFileLabel(key)}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -450,17 +366,6 @@ function App() {
     localStorage.getItem('rjcut_api_key') || DEFAULT_API_KEY
   )
   const [tasks, setTasks] = useState([])
-  const [selectedProjects, setSelectedProjects] = useState([])
-  const [maxConcurrent, setMaxConcurrent] = useState(3)
-  const [autoCompose, setAutoCompose] = useState(true)
-  
-  // 批量处理配置
-  const [batchConfig, setBatchConfig] = useState({
-    tasks: [],
-    bgmFile: null,
-    customConfig: '',
-  })
-  const [showConfigEditor, setShowConfigEditor] = useState(false)
   
   // UI 状态
   const [activeTab, setActiveTab] = useState('batch') // 'batch' | 'projects' | 'files' | 'tasks' | 'settings' | 'ai'
@@ -534,219 +439,6 @@ function App() {
     }, apiKey)
     await refreshTask(taskId)
   }, [apiKey, refreshTask])
-  
-  // 上传文件
-  const uploadFile = useCallback(async (file, filename, purpose) => {
-    const traceId = generateTraceId()
-    
-    // 处理 Blob 对象（来自虚拟文件系统）
-    let fileToUpload = file
-    let uploadFilename = filename
-    let contentType = file.type
-    
-    // 如果传入的是 Blob 而不是 File，需要创建 File 对象
-    if (file instanceof Blob && !(file instanceof File)) {
-      fileToUpload = new File([file], filename, { type: filename.endsWith('.mp4') ? 'video/mp4' : filename.endsWith('.mp3') ? 'audio/mpeg' : 'application/octet-stream' })
-      uploadFilename = filename
-      contentType = fileToUpload.type
-    } else if (file instanceof File) {
-      uploadFilename = file.name
-      contentType = file.type
-    }
-    
-    // 1. 获取预签名 URL
-    const presignRes = await apiRequest('/v1/uploads/presign', {
-      method: 'POST',
-      body: JSON.stringify({
-        filename: uploadFilename,
-        content_type: contentType,
-        purpose: purpose,
-      }),
-    }, apiKey)
-    
-    const { upload_url, oss_key, upload_id } = presignRes.data
-    
-    // 2. 上传文件到 OSS
-    const uploadRes = await fetch(upload_url, {
-      method: 'PUT',
-      headers: { 'Content-Type': contentType },
-      body: fileToUpload,
-    })
-    
-    if (!uploadRes.ok) {
-      throw new Error('文件上传失败')
-    }
-    
-    // 3. 确认上传
-    const confirmRes = await apiRequest('/v1/uploads/confirm', {
-      method: 'POST',
-      body: JSON.stringify({ upload_id }),
-    }, apiKey)
-    
-    return confirmRes.data.oss_key
-  }, [apiKey])
-  
-  // 提交单个项目任务
-  const submitProjectTask = useCallback(async (project, globalConfig) => {
-    const traceId = generateTraceId()
-    
-    // 获取项目中的视频文件
-    let videoOssKey = null
-    try {
-      const rawItems = vfs.listDirectory(`${project.path}/raw`)
-      const videoFiles = rawItems.filter(item => !item.isDirectory && item.type?.startsWith('video/'))
-      if (videoFiles.length === 0) {
-        throw new Error(`项目 "${project.name}" 中没有视频文件`)
-      }
-      // 使用第一个视频文件
-      const videoFile = videoFiles[0]
-      const videoBlob = await vfs.readFileAsBlob(videoFile.path)
-      videoOssKey = await uploadFile(videoBlob, videoFile.name, 'input')
-    } catch (e) {
-      throw new Error(`获取项目视频失败：${e.message}`)
-    }
-    
-    // 获取商户 ID
-    const merchantRes = await apiRequest('/v1/merchant/info', {}, apiKey)
-    const merchantId = merchantRes.data.merchant_id
-    
-    // 使用项目配置或全局配置
-    const projectConfig = project.config || {}
-    const customConfig = globalConfig.customConfig ? JSON.parse(globalConfig.customConfig) : {}
-    
-    // 构建草稿任务请求
-    const draftRequest = {
-      input: {
-        video_url: videoOssKey,
-        scene_base_url: merchantId,
-      },
-      pipeline: customConfig.pipeline || projectConfig.pipeline || {
-        remove_keyword: '转场',
-        margin: 0.15,
-        min_segment_duration: 0.1,
-      },
-      asr: customConfig.asr || projectConfig.asr || {
-        model: 'large-v3',
-        device: 'cuda',
-        language: 'zh',
-      },
-      draft: {
-        need_transcription: true,
-        need_timeline: true,
-      },
-      timeout_seconds: 1800,
-    }
-    
-    // 提交草稿任务
-    const draftRes = await apiRequest('/v1/tasks/agent-draft', {
-      method: 'POST',
-      body: JSON.stringify(draftRequest),
-    }, apiKey)
-    
-    const draftTaskId = draftRes.data.task_id
-    
-    // 如果需要自动合成
-    if (autoCompose) {
-      // 上传背景音乐（如果有）
-      let bgmOssKey = null
-      if (globalConfig.bgmFile) {
-        bgmOssKey = await uploadFile(globalConfig.bgmFile, globalConfig.bgmFile.name, 'input')
-      }
-      
-      const composeRequest = {
-        draft_task_id: draftTaskId,
-        pipeline: customConfig.compose_pipeline || projectConfig.compose_pipeline || {
-          use_transitions: false,
-          transition_type: 'fade',
-          transition_duration: 0.8,
-          resync_subtitle: true,
-        },
-        asr: customConfig.asr || projectConfig.asr || {
-          model: 'large-v3',
-          device: 'cuda',
-          language: 'zh',
-        },
-        subtitle: customConfig.subtitle || projectConfig.subtitle || {
-          effect: 'ad',
-          font_size: 88,
-        },
-        audio: {
-          bgm_url: bgmOssKey,
-          bgm_volume: customConfig.audio?.bgm_volume || projectConfig.audio?.bgm_volume || 0.3,
-          original_volume: customConfig.audio?.original_volume || projectConfig.audio?.original_volume || 1.0,
-          bgm_start_time: customConfig.audio?.bgm_start_time || 0.0,
-          bgm_loop: customConfig.audio?.bgm_loop ?? true,
-          fade_in_duration: customConfig.audio?.fade_in_duration || 0.5,
-          fade_out_duration: customConfig.audio?.fade_out_duration || 0.5,
-        },
-        output: {
-          need_ass: true,
-        },
-        timeout_seconds: 1800,
-      }
-      
-      await apiRequest('/v1/tasks/compose-from-draft', {
-        method: 'POST',
-        body: JSON.stringify(composeRequest),
-      }, apiKey)
-    }
-    
-    return draftTaskId
-  }, [apiKey, autoCompose, uploadFile, vfs])
-  
-  // 提交批量任务
-  const submitBatchTasks = useCallback(async () => {
-    if (!vfs) {
-      setError('文件系统未初始化')
-      return
-    }
-    
-    if (selectedProjects.length === 0) {
-      setError('请至少选择一个项目')
-      return
-    }
-    
-    setLoading(true)
-    setError('')
-    setSuccessMsg('')
-    
-    try {
-      // 并发控制
-      const results = []
-      for (let i = 0; i < selectedProjects.length; i += maxConcurrent) {
-        const batch = selectedProjects.slice(i, i + maxConcurrent)
-        const batchPromises = batch.map(project => 
-          submitProjectTask(project, batchConfig)
-            .then(taskId => ({ success: true, taskId, name: project.name }))
-            .catch(err => ({ success: false, error: err.message, name: project.name }))
-        )
-        
-        const batchResults = await Promise.all(batchPromises)
-        results.push(...batchResults)
-      }
-      
-      const successCount = results.filter(r => r.success).length
-      const failCount = results.filter(r => !r.success).length
-      
-      if (successCount > 0) {
-        setSuccessMsg(`成功提交 ${successCount} 个项目`)
-        await fetchTasks()
-        setActiveTab('tasks')
-      }
-      
-      if (failCount > 0) {
-        setError(`失败 ${failCount} 个项目：${results.filter(r => !r.success).map(r => r.name).join(', ')}`)
-      }
-      
-      // 清除选择
-      setSelectedProjects([])
-      
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setLoading(false)
-    }
-  }, [selectedProjects, maxConcurrent, batchConfig, submitProjectTask, fetchTasks, vfs])
   
   // 初始化加载
   useEffect(() => {
@@ -918,140 +610,10 @@ function App() {
         {/* 批量处理页面 */}
         {!vfsLoading && activeTab === 'batch' && vfs && (
           <div className="tile tile-light">
-            <div style={{ maxWidth: '1440px', margin: '0 auto' }}>
-              <div className="flex justify-between items-center mb-lg">
-                <div>
-                  <h2 className="display-lg mb-sm">批量视频处理</h2>
-                  <p className="lead">
-                    选择项目进行批量处理，支持并发处理和自动合成
-                  </p>
-                </div>
-                <button
-                  className="btn btn-pearl-capsule"
-                  onClick={() => setShowConfigEditor(!showConfigEditor)}
-                >
-                  {showConfigEditor ? '隐藏配置编辑器' : '显示配置编辑器'}
-                </button>
-              </div>
-              
-              {/* 配置编辑器 */}
-              {showConfigEditor && (
-                <div className="card mb-xxl">
-                  <BatchConfigEditor
-                    config={batchConfig}
-                    onChange={setBatchConfig}
-                    vfs={vfs}
-                    apiBaseUrl={API_BASE_URL}
-                    apiKey={apiKey}
-                  />
-                </div>
-              )}
-              
-              {/* 全局配置 */}
-              <div className="card mb-xxl">
-                <h3 className="tagline mb-md">处理配置</h3>
-                <div className="flex gap-lg items-center" style={{ flexWrap: 'wrap' }}>
-                  <div>
-                    <label className="caption-strong mb-sm" style={{ display: 'block' }}>
-                      最大并发数
-                    </label>
-                    <select 
-                      className="input" 
-                      value={maxConcurrent}
-                      onChange={(e) => setMaxConcurrent(Number(e.target.value))}
-                      style={{ width: 'auto', minWidth: '120px' }}
-                    >
-                      <option value={1}>1</option>
-                      <option value={2}>2</option>
-                      <option value={3}>3</option>
-                      <option value={5}>5</option>
-                      <option value={10}>10</option>
-                    </select>
-                  </div>
-                  
-                  <div>
-                    <label className="caption-strong mb-sm" style={{ display: 'block' }}>
-                      自动合成
-                    </label>
-                    <div className="flex items-center gap-xs">
-                      <input
-                        type="checkbox"
-                        id="auto-compose"
-                        checked={autoCompose}
-                        onChange={(e) => setAutoCompose(e.target.checked)}
-                        style={{ width: '18px', height: '18px' }}
-                      />
-                      <label htmlFor="auto-compose" className="body">
-                        {autoCompose ? '启用' : '禁用'}
-                      </label>
-                    </div>
-                  </div>
-                  
-                  <div style={{ flex: 1, minWidth: '200px' }}>
-                    <label className="caption-strong mb-sm" style={{ display: 'block' }}>
-                      自定义配置 (JSON，可选)
-                    </label>
-                    <textarea
-                      className="input"
-                      value={batchConfig.customConfig}
-                      onChange={(e) => setBatchConfig({ ...batchConfig, customConfig: e.target.value })}
-                      placeholder='{"pipeline": {"remove_keyword": "转场"}, "subtitle": {"effect": "ad"}}'
-                      rows={3}
-                      style={{ 
-                        borderRadius: 'var(--rounded-md)',
-                        fontFamily: 'monospace',
-                        fontSize: '14px',
-                        width: '100%',
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
-              
-              {/* 项目选择器 */}
-              <div className="mb-xxl">
-                <div className="flex justify-between items-center mb-lg">
-                  <h3 className="tagline">选择项目</h3>
-                  {selectedProjects.length > 0 && (
-                    <span className="caption-strong text-primary">
-                      已选择 {selectedProjects.length} 个项目
-                    </span>
-                  )}
-                </div>
-                
-                <BatchProjectSelector
-                  vfs={vfs}
-                  selectedProjects={selectedProjects}
-                  onSelectionChange={setSelectedProjects}
-                />
-              </div>
-              
-              {/* 操作按钮 */}
-              <div className="flex gap-md justify-center">
-                <button 
-                  className="btn btn-ghost"
-                  onClick={() => setShowConfigEditor(true)}
-                  disabled={selectedProjects.length === 0}
-                >
-                  🔍 验证配置
-                </button>
-                
-                <button 
-                  className="btn btn-primary"
-                  onClick={submitBatchTasks}
-                  disabled={loading || selectedProjects.length === 0}
-                  style={{ 
-                    fontSize: '18px', 
-                    padding: '14px 28px',
-                    fontWeight: 300,
-                  }}
-                >
-                  {loading 
-                    ? '提交中...' 
-                    : `提交 ${selectedProjects.length} 个项目`}
-                </button>
-              </div>
-            </div>
+            <BatchProcessor
+              vfs={vfs}
+              apiKey={apiKey}
+            />
           </div>
         )}
         

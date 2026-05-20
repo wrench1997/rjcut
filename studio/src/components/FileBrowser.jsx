@@ -202,7 +202,14 @@ function ImagePreview({ file, vfs }) {
 // =====================================================
 // 文件项组件
 // =====================================================
-function FileItem({ item, onSelect, onOpen, selected }) {
+function FileItem({ item, onSelect, onOpen, selected, onDelete }) {
+  const handleDelete = (e) => {
+    e.stopPropagation()
+    if (window.confirm(`确定要删除 "${item.name}" ${item.isDirectory ? '文件夹' : '文件'} 吗？\n此操作不可恢复！`)) {
+      onDelete?.(item)
+    }
+  }
+  
   return (
     <div
       className={`file-item ${selected ? 'selected' : ''}`}
@@ -228,6 +235,13 @@ function FileItem({ item, onSelect, onOpen, selected }) {
       {item.type?.startsWith('video/') && (
         <span className="file-item-badge" title="视频文件">🎬</span>
       )}
+      <button
+        className="file-item-delete"
+        onClick={handleDelete}
+        title="删除"
+      >
+        🗑️
+      </button>
     </div>
   )
 }
@@ -267,11 +281,22 @@ function Breadcrumb({ path, onNavigate }) {
 // =====================================================
 // 文件详情面板
 // =====================================================
-function FileDetail({ file, vfs, onClose, onEdit }) {
+function FileDetail({ file, vfs, onClose, onEdit, onDelete }) {
   const [content, setContent] = useState('')
   const [isEditing, setIsEditing] = useState(false)
   const [isJson, setIsJson] = useState(false)
   const [loading, setLoading] = useState(false)
+  
+  const handleDelete = async () => {
+    if (window.confirm(`确定要删除 "${file.name}" ${file.isDirectory ? '文件夹' : '文件'} 吗？\n此操作不可恢复！`)) {
+      try {
+        await vfs.delete(file.path, true)
+        onDelete?.(file)
+      } catch (e) {
+        alert(`删除失败：${e.message}`)
+      }
+    }
+  }
   
   useEffect(() => {
     const loadFile = async () => {
@@ -337,6 +362,13 @@ function FileDetail({ file, vfs, onClose, onEdit }) {
           </div>
           <div className="file-detail-actions">
             <button
+              className="btn btn-danger btn-sm"
+              onClick={handleDelete}
+              title="删除"
+            >
+              🗑️ 删除
+            </button>
+            <button
               className="btn btn-ghost btn-sm"
               onClick={onClose}
             >
@@ -380,6 +412,13 @@ function FileDetail({ file, vfs, onClose, onEdit }) {
           </div>
           <div className="file-detail-actions">
             <button
+              className="btn btn-danger btn-sm"
+              onClick={handleDelete}
+              title="删除"
+            >
+              🗑️ 删除
+            </button>
+            <button
               className="btn btn-ghost btn-sm"
               onClick={onClose}
             >
@@ -418,6 +457,13 @@ function FileDetail({ file, vfs, onClose, onEdit }) {
             <span>{file.name}</span>
           </div>
           <div className="file-detail-actions">
+            <button
+              className="btn btn-danger btn-sm"
+              onClick={handleDelete}
+              title="删除"
+            >
+              🗑️ 删除
+            </button>
             <button
               className="btn btn-ghost btn-sm"
               onClick={onClose}
@@ -476,6 +522,13 @@ function FileDetail({ file, vfs, onClose, onEdit }) {
               )}
             </>
           )}
+          <button
+            className="btn btn-danger btn-sm"
+            onClick={handleDelete}
+            title="删除"
+          >
+            🗑️ 删除
+          </button>
           <button
             className="btn btn-ghost btn-sm"
             onClick={onClose}
@@ -628,6 +681,27 @@ function UploadDialog({ vfs, currentPath, onClose, onUploaded }) {
   const [uploading, setUploading] = useState(false)
   const [progress, setProgress] = useState({})
   const [error, setError] = useState('')
+  const [projectName, setProjectName] = useState('')
+  const [selectedProject, setSelectedProject] = useState('')
+  const [projects, setProjects] = useState([])
+  const [useExistingProject, setUseExistingProject] = useState(true)
+  
+  // 加载项目列表
+  useEffect(() => {
+    const loadProjects = async () => {
+      try {
+        const projectList = await vfs.getVideoProjects()
+        setProjects(projectList)
+        if (projectList.length > 0) {
+          setSelectedProject(projectList[0].path)
+        }
+      } catch (e) {
+        console.error('加载项目列表失败:', e)
+      }
+    }
+    
+    loadProjects()
+  }, [vfs])
   
   const handleFileSelect = (e) => {
     const selectedFiles = Array.from(e.target.files)
@@ -637,15 +711,49 @@ function UploadDialog({ vfs, currentPath, onClose, onUploaded }) {
   const handleUpload = async () => {
     if (files.length === 0) return
     
+    // 验证：必须选择项目或输入项目名
+    let targetProjectPath = ''
+    if (useExistingProject) {
+      if (!selectedProject) {
+        setError('❌ 必须选择一个项目')
+        return
+      }
+      targetProjectPath = selectedProject
+    } else {
+      if (!projectName.trim()) {
+        setError('❌ 必须输入项目名称')
+        return
+      }
+      // 检查项目是否已存在
+      const existingProjects = await vfs.getVideoProjects()
+      const existingProject = existingProjects.find(p => p.name === projectName.trim())
+      if (existingProject) {
+        setError(`❌ 项目 "${projectName.trim()}" 已存在，请选择该项目或输入新名称`)
+        return
+      }
+      // 创建新项目
+      try {
+        targetProjectPath = await vfs.createVideoProject(projectName.trim())
+      } catch (e) {
+        setError(`❌ 创建项目失败：${e.message}`)
+        return
+      }
+    }
+    
     try {
       setUploading(true)
       const newProgress = {}
       
+      // 上传到当前目录，而不是固定的 uploads 目录
+      // 当前目录应该是项目根目录或项目下的某个子目录
+      const uploadDir = currentPath.startsWith(targetProjectPath) 
+        ? currentPath 
+        : targetProjectPath
+      
       for (let i = 0; i < files.length; i++) {
         const file = files[i]
-        const fullPath = currentPath === '/' 
-          ? `/${file.name}` 
-          : `${currentPath}/${file.name}`
+        // 将文件上传到当前目录
+        const fullPath = `${uploadDir}/${file.name}`
         
         newProgress[file.name] = 0
         setProgress({ ...newProgress })
@@ -664,6 +772,7 @@ function UploadDialog({ vfs, currentPath, onClose, onUploaded }) {
           metadata: {
             originalName: file.name,
             uploadedAt: new Date().toISOString(),
+            project: targetProjectPath,
           },
         })
         
@@ -673,7 +782,8 @@ function UploadDialog({ vfs, currentPath, onClose, onUploaded }) {
       
       onUploaded?.(files.map(f => ({
         name: f.name,
-        path: currentPath === '/' ? `/${f.name}` : `${currentPath}/${f.name}`,
+        path: `${uploadDir}/${f.name}`,
+        project: targetProjectPath,
       })))
       onClose()
     } catch (e) {
@@ -689,6 +799,90 @@ function UploadDialog({ vfs, currentPath, onClose, onUploaded }) {
         <h3 className="modal-title">上传文件</h3>
         
         <div className="mb-md">
+          <label className="caption-strong mb-sm" style={{ display: 'block' }}>
+            <span style={{ color: '#ff3b30' }}>*</span> 选择或创建项目（必须）
+          </label>
+          
+          <div className="flex items-center gap-md mb-sm">
+            <input
+              type="radio"
+              id="use-existing-project"
+              checked={useExistingProject}
+              onChange={() => setUseExistingProject(true)}
+              disabled={projects.length === 0}
+            />
+            <label htmlFor="use-existing-project" className="body">
+              选择现有项目
+            </label>
+            
+            <input
+              type="radio"
+              id="create-new-project"
+              checked={!useExistingProject}
+              onChange={() => setUseExistingProject(false)}
+            />
+            <label htmlFor="create-new-project" className="body">
+              创建新项目
+            </label>
+          </div>
+          
+          {useExistingProject ? (
+            <select
+              className="input mb-sm"
+              value={selectedProject}
+              onChange={(e) => setSelectedProject(e.target.value)}
+              disabled={projects.length === 0}
+            >
+              {projects.length === 0 ? (
+                <option value="">暂无项目</option>
+              ) : (
+                projects.map(project => (
+                  <option key={project.path} value={project.path}>
+                    {project.name}
+                  </option>
+                ))
+              )}
+            </select>
+          ) : (
+            <input
+              type="text"
+              className="input mb-sm"
+              value={projectName}
+              onChange={(e) => {
+                setProjectName(e.target.value)
+                setError('')
+              }}
+              placeholder="输入新项目名称（例如：my-project）"
+            />
+          )}
+          
+          <div className="upload-path-info" style={{ 
+            backgroundColor: '#f5f5f5', 
+            padding: '8px 12px', 
+            borderRadius: '4px',
+            marginTop: 'var(--spacing-sm)',
+            fontSize: '12px'
+          }}>
+            <p style={{ margin: '0 0 4px 0', fontWeight: 'bold' }}>📁 项目目录结构：</p>
+            <code style={{ display: 'block', margin: 0, color: '#666' }}>
+              /raw/{useExistingProject && selectedProject ? selectedProject.split('/').pop() : (projectName || '项目名')}/<br/>
+              ├── scenes/<br/>
+              │   ├── audio/<br/>
+              │   ├── edited/<br/>
+              │   ├── subtitles/<br/>
+              │   └── output/<br/>
+              └── uploads/
+            </code>
+            <p style={{ margin: '8px 0 0 0', fontWeight: 'bold', color: '#007bff' }}>
+              📤 上传位置：当前目录（{currentPath}）
+            </p>
+          </div>
+        </div>
+        
+        <div className="mb-md">
+          <label className="caption-strong mb-sm" style={{ display: 'block' }}>
+            选择文件
+          </label>
           <input
             type="file"
             multiple
@@ -715,7 +909,7 @@ function UploadDialog({ vfs, currentPath, onClose, onUploaded }) {
           )}
           
           {error && (
-            <p className="caption text-muted" style={{ color: '#ff3b30' }}>
+            <p className="caption text-muted" style={{ color: '#ff3b30', marginTop: 'var(--spacing-sm)' }}>
               {error}
             </p>
           )}
@@ -783,27 +977,31 @@ function StorageInfo({ vfs }) {
 function ProjectQuickNav({ vfs, currentPath, onNavigate }) {
   const [projects, setProjects] = useState([])
   const [currentProject, setCurrentProject] = useState(null)
+  const [loading, setLoading] = useState(true)
   
   useEffect(() => {
     const loadProjects = async () => {
       try {
+        setLoading(true)
         const projectList = await vfs.getVideoProjects()
         setProjects(projectList)
         
         // 检查当前路径是否在某个项目中
         const matchingProject = projectList.find(p => 
-          currentPath.startsWith(p.path)
+          currentPath === p.path || currentPath.startsWith(p.path + '/')
         )
         setCurrentProject(matchingProject || null)
       } catch (e) {
         console.error('加载项目列表失败:', e)
+      } finally {
+        setLoading(false)
       }
     }
     
     loadProjects()
   }, [vfs, currentPath])
   
-  if (projects.length === 0) return null
+  if (loading || projects.length === 0) return null
   
   return (
     <div className="project-quick-nav">
@@ -820,8 +1018,8 @@ function ProjectQuickNav({ vfs, currentPath, onNavigate }) {
           <button
             key={project.path}
             className={`project-nav-item ${currentProject?.path === project.path ? 'active' : ''}`}
-            onClick={() => onNavigate(`${project.path}/raw`)}
-            title={project.path}
+            onClick={() => onNavigate(project.path)}
+            title={`点击进入项目：${project.path}`}
           >
             <span className="project-nav-icon">🎬</span>
             <span className="project-nav-name">{project.name}</span>
@@ -837,18 +1035,26 @@ function ProjectQuickNav({ vfs, currentPath, onNavigate }) {
 // =====================================================
 function ProjectShortcuts({ vfs, currentPath, onNavigate }) {
   const shortcuts = [
-    { name: '原始视频', path: '/raw', icon: '🎬', type: 'video' },
-    { name: '编辑视频', path: '/edited', icon: '✂️', type: 'video' },
+    { name: '项目首页', path: '', icon: '🏠', type: 'root' },
+    { name: '场景管理', path: '/scenes', icon: '📝', type: 'document' },
     { name: '音频', path: '/audio', icon: '🎵', type: 'audio' },
+    { name: '编辑视频', path: '/edited', icon: '✂️', type: 'video' },
     { name: '字幕', path: '/subtitles', icon: '📝', type: 'document' },
     { name: '输出', path: '/output', icon: '📤', type: 'video' },
     { name: '项目配置', path: '/project.json', icon: '⚙️', type: 'json' },
   ]
   
-  // 检查是否在项目目录中
-  const isInProject = currentPath.startsWith('/videos/')
+  // 检查是否在项目目录中（新结构：/raw/项目名）
+  // 允许 /raw/项目名 或其任何子目录
+  const isInProject = currentPath.startsWith('/raw/') && currentPath !== '/raw' && currentPath !== '/raw/'
   
   if (!isInProject) return null
+  
+  // 获取项目根路径 - 更健壮的匹配
+  const projectRootMatch = currentPath.match(/^\/raw\/[^\/]+/)
+  if (!projectRootMatch) return null
+  
+  const projectRoot = projectRootMatch[0]
   
   return (
     <div className="project-shortcuts">
@@ -857,15 +1063,17 @@ function ProjectShortcuts({ vfs, currentPath, onNavigate }) {
           key={shortcut.path}
           className="project-shortcut-btn"
           onClick={() => {
-            if (shortcut.path === '/project.json') {
+            if (shortcut.path === '') {
+              // 项目首页
+              onNavigate(projectRoot)
+            } else if (shortcut.path === '/project.json') {
               // 导航到项目根目录的 project.json
-              const projectRoot = currentPath.match(/^\/videos\/[^\/]+/)[0]
               onNavigate(`${projectRoot}${shortcut.path}`)
             } else {
-              onNavigate(`${currentPath}${shortcut.path}`)
+              onNavigate(`${projectRoot}${shortcut.path}`)
             }
           }}
-          title={`${shortcut.name} (${shortcut.path})`}
+          title={`${shortcut.name} (${projectRoot}${shortcut.path})`}
         >
           <span className="shortcut-icon">{shortcut.icon}</span>
           <span className="shortcut-name">{shortcut.name}</span>
@@ -1024,8 +1232,26 @@ function FileBrowser({ vfs, onFileSelect, onFileOpen, className, initialPath = '
     setShowUploadDialog(true)
   }
   
+  // 处理上传完成
+  const handleUploadComplete = (uploadedFiles) => {
+    refresh()
+    // 上传完成后保持在当前目录，不自动跳转
+    onFileSelect?.(null)
+  }
+  
   return (
     <div className={`file-browser ${className || ''}`}>
+      {/* 侧边栏切换按钮（隐藏时显示） */}
+      {!showProjectNav && (
+        <button
+          className="sidebar-toggle-btn"
+          onClick={() => setShowProjectNav(true)}
+          title="显示侧边栏"
+        >
+          📁
+        </button>
+      )}
+      
       {/* 项目导航 */}
       {showProjectNav && (
         <div className="file-browser-sidebar">
@@ -1055,7 +1281,7 @@ function FileBrowser({ vfs, onFileSelect, onFileOpen, className, initialPath = '
         </div>
       )}
       
-      <div className="file-browser-main">
+      <div className="file-browser-main" style={{ marginLeft: showProjectNav ? '220px' : '0' }}>
         {/* 工具栏 */}
         <div className="file-browser-toolbar">
           {!showProjectNav && (
@@ -1203,6 +1429,17 @@ function FileBrowser({ vfs, onFileSelect, onFileOpen, className, initialPath = '
               onSelect={handleSelect}
               onOpen={handleOpen}
               selected={selectedFile?.path === item.path}
+              onDelete={async (deletedItem) => {
+                try {
+                  await vfs.delete(deletedItem.path, true)
+                  refresh()
+                  if (selectedFile?.path === deletedItem.path) {
+                    setSelectedFile(null)
+                  }
+                } catch (e) {
+                  alert(`删除失败：${e.message}`)
+                }
+              }}
             />
           ))
         )}
@@ -1215,6 +1452,10 @@ function FileBrowser({ vfs, onFileSelect, onFileOpen, className, initialPath = '
           vfs={vfs}
           onClose={() => setSelectedFile(null)}
           onEdit={onFileOpen}
+          onDelete={() => {
+            setSelectedFile(null)
+            refresh()
+          }}
         />
       )}
     </div>
@@ -1244,7 +1485,7 @@ function FileBrowser({ vfs, onFileSelect, onFileOpen, className, initialPath = '
           vfs={vfs}
           currentPath={currentPath}
           onClose={() => setShowUploadDialog(false)}
-          onUploaded={refresh}
+          onUploaded={handleUploadComplete}
         />
       )}
     </div>

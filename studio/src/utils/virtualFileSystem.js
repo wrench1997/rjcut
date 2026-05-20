@@ -229,12 +229,12 @@ export class VirtualFileSystem {
   // 创建默认目录结构
   async createDefaultStructure() {
     const defaultDirs = [
+      '/raw',
       '/drafts',
       '/configs',
       '/scripts',
       '/templates',
       '/outputs',
-      '/videos',
       '/audio',
       '/subtitles',
       '/transcriptions',
@@ -1139,15 +1139,17 @@ export class VirtualFileSystem {
 
   // 创建视频项目
   async createVideoProject(projectName, config = {}) {
-    const projectPath = `/videos/${projectName}`
+    // 项目根目录在 /raw/项目名
+    const projectPath = `/raw/${projectName}`
     
-    // 创建项目目录结构
+    // 创建项目目录结构（按照新结构：所有目录在同一层级）
     await this.mkdir(projectPath, true)
-    await this.mkdir(`${projectPath}/raw`, true)
-    await this.mkdir(`${projectPath}/edited`, true)
-    await this.mkdir(`${projectPath}/audio`, true)
-    await this.mkdir(`${projectPath}/subtitles`, true)
-    await this.mkdir(`${projectPath}/output`, true)
+    await this.mkdir(`${projectPath}/scenes`, true)      // 场景管理
+    await this.mkdir(`${projectPath}/audio`, true)        // 音频文件
+    await this.mkdir(`${projectPath}/edited`, true)       // 编辑视频
+    await this.mkdir(`${projectPath}/subtitles`, true)    // 字幕文件
+    await this.mkdir(`${projectPath}/output`, true)       // 输出文件
+    await this.mkdir(`${projectPath}/uploads`, true)      // 上传文件目录（可选）
     
     // 创建项目配置文件
     await this.writeJSON(`${projectPath}/project.json`, {
@@ -1185,10 +1187,10 @@ export class VirtualFileSystem {
   // 获取视频项目列表
   async getVideoProjects() {
     const projects = []
-    const videosDir = this.getDirectory('/videos')
+    const rawDir = this.getDirectory('/raw')
     
-    if (videosDir) {
-      for (const childPath of videosDir.children) {
+    if (rawDir) {
+      for (const childPath of rawDir.children) {
         if (this.directories.has(childPath)) {
           const projectConfig = await this.getFile(`${childPath}/project.json`)
           if (projectConfig) {

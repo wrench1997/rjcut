@@ -1,4 +1,4 @@
-
+// ================ FILE: D:\workspace\rjcut\run_draft_full.sh ================
 
 #!/bin/bash
 # ==========================================================
@@ -209,14 +209,12 @@ echo "   ✅ $VIDEO_OSS_KEY"
 
 
 # ================= 关键修复区域 开始 =================
-# 我们先复制一份 script.json，用来动态替换真实生成的文件名
-cp "$SCRIPT_FILE" /tmp/fmt_script.json
 SCENE_BASE_URL="$MERCHANT_ID"
 
 echo "🚀 2/5 批量上传场景素材 (并动态更新 JSON 脚本)..."
 
-# 创建一个临时映射文件
-> /tmp/scene_mapping.txt
+# 使用 jq 安全构建映射，废弃 Python3 依赖
+MAPPING_JSON="{}"
 
 for scene_file in "$SCENES_DIR"/*; do
   if [ -f "$scene_file" ]; then
@@ -224,73 +222,36 @@ for scene_file in "$SCENES_DIR"/*; do
     echo "   - 上传 $bname ..."
     
     real_oss_key=$(upload_file "$scene_file" "scenes" "$bname" "video/mp4") || {
-    echo "     ❌ 场景素材上传失败：$bname"
-    exit 1
-    }
-    # 检查上传是否成功
-    if [ $? -ne 0 ] || [ -z "$real_oss_key" ] || [[ "$real_oss_key" == *"<Error>"* ]]; then
-      echo "     ⚠️  上传失败，将从脚本中移除此素材"
+      echo "     ⚠️  场景素材上传失败：$bname，将跳过此素材"
       continue
-    fi
+    }
     
     echo "     -> 成功放入：$real_oss_key"
     
-    # 从 OSS KEY 中提取后端重命名后的纯文件名
     real_name=$(basename "$real_oss_key")
-    
-    # 记录映射关系
-    echo "$bname|$real_name" >> /tmp/scene_mapping.txt
+    # 全部转小写进行严格安全映射，杜绝扩展名大小写不匹配
+    MAPPING_JSON=$(echo "$MAPPING_JSON" | jq -c \
+      --arg k "$(echo "$bname" | tr '[:upper:]' '[:lower:]')" \
+      --arg v "$real_name" \
+      '.[$k] = $v')
   fi
 done
 
-# 使用 jq 处理 JSON，只保留成功上传的素材
-if [ -s /tmp/scene_mapping.txt ]; then
-  python3 << 'EOPY'
-import json
-import sys
-
-# 读取映射关系
-mapping = {}
-with open('/tmp/scene_mapping.txt', 'r') as f:
-    for line in f:
-        old_name, new_name = line.strip().split('|')
-        mapping[old_name] = new_name
-
-# 读取原始脚本
-with open('script.json', 'r', encoding='utf-8') as f:
-    script = json.load(f)
-
-# 更新 scene_file
-new_segments = []
-for seg in script.get('segments', []):
-    if seg.get('flag') == 'scene' and seg.get('scene_file'):
-        old_path = seg['scene_file']
-        basename = old_path.split('/')[-1]
-        
-        if basename in mapping:
-            # 替换成功上传的文件名
-            seg['scene_file'] = f"scenes/{mapping[basename]}"
-            new_segments.append(seg)
-        else:
-            # 上传失败，移除此段落或转为 human
-            print(f"⚠️  警告：{basename} 上传失败，已从脚本中移除", file=sys.stderr)
-            # 选项 1: 直接跳过（不加入 new_segments）
-            # 选项 2: 转为 human 类型
-            seg['flag'] = 'human'
-            seg['scene_file'] = None
-            new_segments.append(seg)
-    else:
-        new_segments.append(seg)
-
-script['segments'] = new_segments
-
-# 保存更新后的脚本
-with open('/tmp/fmt_script.json', 'w', encoding='utf-8') as f:
-    json.dump(script, f, ensure_ascii=False, indent=2)
-EOPY
-else
-  cp "$SCRIPT_FILE" /tmp/fmt_script.json
-fi
+# 使用纯 jq 完成 JSON 数据更新，不依赖外部 Python
+jq --argjson map "$MAPPING_JSON" '
+  .segments |= map(
+    if .flag == "scene" and .scene_file != null then
+      ( .scene_file | split("/")[-1] | ascii_downcase ) as $bname |
+      if $map | has($bname) then
+        .scene_file = "scenes/" + $map[$bname]
+      else
+        .flag = "human" | .scene_file = null
+      end
+    else
+      .
+    end
+  )
+' "$SCRIPT_FILE" > "/tmp/fmt_script.json"
 
 echo "   ✅ 场景素材上传并映射完毕"
 
@@ -990,7 +951,3 @@ echo "草稿任务 ID:    $TASK_ID"
 echo "输出目录：       $OUTPUT_DIR"
 echo ""
 echo "=========================================================="
-
-
-
-

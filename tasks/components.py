@@ -294,8 +294,10 @@ class DownloadBgmComponent(Component):
         return output_path
 
 
+# ================ FILE: D:\workspace\rjcut\tasks\components.py ================
+
 class DownloadScenesComponent(Component):
-    """下载场景素材组件"""
+    """下载场景素材组件（带数据库智能兜底映射）"""
     
     def __init__(self):
         super().__init__("download_scenes")
@@ -318,36 +320,67 @@ class DownloadScenesComponent(Component):
                         seg["scene_file"] = basename
                         continue
 
+                    success = False
                     try:
+                        # 1. 尝试直接拼接寻找（兼容前端已经做过 UUID 映射的情况）
                         if is_oss_key(scene_base_url):
                             scene_key = scene_base_url.rstrip("/") + "/" + original_scene_file
-                            print(f"  📥 从 OSS 下载：{scene_key}")
-                            download_file_from_oss(scene_key, local_scene_path)
+                            try:
+                                download_file_from_oss(scene_key, local_scene_path)
+                                success = True
+                            except Exception:
+                                pass
                         else:
                             scene_url = urljoin(scene_base_url.rstrip("/") + "/", original_scene_file)
-                            print(f"  📥 下载：{scene_url}")
-                            self._download_file(scene_url, local_scene_path)
+                            try:
+                                self._download_file(scene_url, local_scene_path)
+                                success = True
+                            except Exception:
+                                pass
                         
-                        seg["scene_file"] = basename
-                        print(f"  ✅ 下载成功：{basename}")
+                        # 2. ⚡ 核心智能兜底机制：通过商户ID和中文原名去数据库反查真实 OSS Key
+                        if not success:
+                            from database import get_db_session
+                            from models import UploadRecord
+                            with get_db_session() as db:
+                                # 查找该商户最近上传的这个同名文件
+                                record = db.query(UploadRecord).filter(
+                                    UploadRecord.merchant_id == context.merchant_id,
+                                    UploadRecord.original_filename == basename
+                                ).order_by(UploadRecord.created_at.desc()).first()
+
+                                if record and record.oss_key:
+                                    print(f"  🔍 从数据库匹配到真实文件映射: {basename} -> {record.oss_key}")
+                                    download_file_from_oss(record.oss_key, local_scene_path)
+                                    success = True
+
+                        if success:
+                            seg["scene_file"] = basename
+                            print(f"  ✅ 下载成功：{basename}")
+                        else:
+                            raise ValueError("在 OSS 和数据库中均未找到对应的素材文件")
                         
                     except Exception as e:
                         print(f"  ⚠️  场景素材下载失败：{original_scene_file}")
                         print(f"    错误：{str(e)}")
+                        # 下载失败自动降级为数字人出镜，防止程序崩溃
                         seg["flag"] = "human"
                         seg["scene_file"] = None
                         failed_scenes.append(original_scene_file)
             
             if failed_scenes:
-                print(f"⚠️  共有 {len(failed_scenes)} 个场景素材下载失败，已转为 human 类型")
+                print(f"⚠️  共有 {len(failed_scenes)} 个场景素材下载失败，已自动降级为 human 类型")
             
+            # 将修正后的 script 落盘
             if context.script_path:
                 with open(context.script_path, "w", encoding="utf-8") as f:
+                    import json
                     json.dump(context.script_data, f, ensure_ascii=False, indent=2)
         
         return context
     
     def _download_file(self, url: str, output_path: str, timeout: int = 300):
+        import requests
         r = requests.get(url, stream=True, timeout=timeout)
         r.raise_for_status()
         with open(output_path, "wb") as f:

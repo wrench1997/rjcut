@@ -1,57 +1,21 @@
 output_file: selected_code.txt
 include:
-  # - src/editor/*.zig
-  # - transitions.py
-  # - video_utils.py
-  # - whisper_parser.py
-  # - subtitle_effects.py
-  # - process_transcription.py
-  # - cut_transition.py
-  #- corrections.json
-  # - merge_videos.py
-  # - lip_sync.py
-  # - script.json
-  # - 鹿茸血文案.txt
-  # - api_service.py
-  # - service_models.py
-  # - service_auth.py
-  # - service_store.py
-  # - service_runner.py
-  # - admin_api.py
-  # - models.py
-  # - oss.py
-  # - quota.py
   - schemas.py
   - task_runner.py
   - tasks/*.py
-  # - task_watchdog.py
-  # - worker.py
-  # - auth.py
-  # - config.py
-  # - api_service.py
-  # - admin_api.py
-  # - scripts/init_db.py
-  # - scripts/create_merchant.py
-  # - alembic/env.py
-  # - alembic/versions/001_initial.py
-  # - docker-compose.yml
-  # - draft_utils.py
-  # - cut_transition.py
-  # - Dockerfile.api
-  # - Dockerfile.worker
-  # - .env
-  #- 草稿模式测试.MD
-  #- script.json
-  # - corrections.json
-  - alembic/versions/001_initial.py
-  - alembic/versions/002_add_file_hash_and_expires.py
   - run_draft_full.sh
   - task_runner.py
   - cut_transition.py
   - lip_sync.py
-  - 重构说明.MD
-  # - chanjing_api.py
-  # - api_digital_human.py
-  # - 数字人API.MD
-  # - 自动合成视频api.MD
+  - studio/src/utils/*.js
+  - studio/src/components/*.jsx
+  - api_service.py
+  - docker-compose.yml
+  - batch_process.sh
+  - batch_process_skill.md
+  - studio/src/utils/api/*.js
+  - studio/src/App.jsx
+  - studio/src/main.jsx
+  - worker.py
+
 

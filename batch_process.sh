@@ -1,7 +1,9 @@
+// ================ FILE: D:\workspace\rjcut\batch_process.sh ================
+
 #!/bin/bash
 # ==========================================================
-# RJCut 批量处理脚本 v2.0
-# 支持批量视频处理、并发控制、断点续传
+# RJCut 批量处理脚本 v2.1
+# 支持批量视频处理、并发控制、断点续传，不依赖 Python3
 # ==========================================================
 
 set -e
@@ -29,7 +31,7 @@ echo "========================================================== " >> "$BATCH_LO
 
 # 检查依赖
 if [ ! -x "$(command -v jq)" ]; then
-  echo "❌ 缺少依赖 jq，请先安装"
+  echo "❌ 缺少依赖 jq，请先安装 (例如: apt-get install jq / yum install jq)"
   exit 1
 fi
 
@@ -272,10 +274,9 @@ process_single_task() {
   if [ -f "$script_file" ]; then
     log "INFO" "[$task_name] 处理并上传脚本..."
     
-    # 处理场景素材映射
+    # === 使用安全 jq 方式处理场景素材映射，弃用外部 Python 依赖 ===
     if [ -d "$scenes_dir" ]; then
-      cp "$script_file" /tmp/${task_name}_script.json
-      > /tmp/${task_name}_scene_mapping.txt
+      local mapping_json="{}"
       
       for scene_file in "$scenes_dir"/*; do
         if [ -f "$scene_file" ]; then
@@ -285,54 +286,37 @@ process_single_task() {
           local real_oss_key=$(upload_file "$scene_file" "scenes" "$bname" "video/mp4")
           if [ $? -eq 0 ] && [ -n "$real_oss_key" ]; then
             local real_name=$(basename "$real_oss_key")
-            echo "$bname|$real_name" >> /tmp/${task_name}_scene_mapping.txt
+            # 统一转小写，防止用户配置的 .MP4 和实际不匹配
+            mapping_json=$(echo "$mapping_json" | jq -c \
+              --arg k "$(echo "$bname" | tr '[:upper:]' '[:lower:]')" \
+              --arg v "$real_name" \
+              '.[$k] = $v')
           fi
         fi
       done
       
-      # 使用 Python 更新脚本
-      if [ -s /tmp/${task_name}_scene_mapping.txt ]; then
-        python3 << EOPY
-import json
-import sys
-
-mapping = {}
-with open('/tmp/${task_name}_scene_mapping.txt', 'r') as f:
-    for line in f:
-        old_name, new_name = line.strip().split('|')
-        mapping[old_name] = new_name
-
-with open('$script_file', 'r', encoding='utf-8') as f:
-    script = json.load(f)
-
-new_segments = []
-for seg in script.get('segments', []):
-    if seg.get('flag') == 'scene' and seg.get('scene_file'):
-        old_path = seg['scene_file']
-        basename = old_path.split('/')[-1]
-        
-        if basename in mapping:
-            seg['scene_file'] = f"scenes/{mapping[basename]}"
-            new_segments.append(seg)
-        else:
-            seg['flag'] = 'human'
-            seg['scene_file'] = None
-            new_segments.append(seg)
-    else:
-        new_segments.append(seg)
-
-script['segments'] = new_segments
-
-with open('/tmp/${task_name}_script.json', 'w', encoding='utf-8') as f:
-    json.dump(script, f, ensure_ascii=False, indent=2)
-EOPY
-      fi
+      # 使用 jq 进行安全的替换 (如果映射表没匹配上，自动降级为 human)
+      jq --argjson map "$mapping_json" '
+        .segments |= map(
+          if .flag == "scene" and .scene_file != null then
+            ( .scene_file | split("/")[-1] | ascii_downcase ) as $bname |
+            if $map | has($bname) then
+              .scene_file = "scenes/" + $map[$bname]
+            else
+              .flag = "human" | .scene_file = null
+            end
+          else
+            .
+          end
+        )
+      ' "$script_file" > "/tmp/${task_name}_script.json"
       
       script_oss_key=$(upload_file "/tmp/${task_name}_script.json" "input" "script.json" "application/json")
     else
       script_oss_key=$(upload_file "$script_file" "input" "script.json" "application/json")
     fi
-    
+    # ==============================================================
+
     if [ $? -ne 0 ] || [ -z "$script_oss_key" ]; then
       log "WARN" "[$task_name] 脚本上传失败，将跳过脚本"
       script_oss_key=""
@@ -549,7 +533,7 @@ if [ "$USE_PARALLEL" == "true" ] && [ "$MAX_CONCURRENT" -gt 1 ]; then
   log "INFO" "使用并发模式 (GNU parallel)"
   
   export -f process_single_task upload_file download_file wait_for_task log
-  export BASE_URL API_KEY TASKS_DIR BATCH_LOG
+  export BASE_URL API_KEY TASKS_DIR BATCH_LOG AUTO_COMPOSE
   
   echo "$TASKS_JSON" | jq -c '.tasks[]' | parallel -j "$MAX_CONCURRENT" --line-buffer \
     'process_single_task {} {#}'
