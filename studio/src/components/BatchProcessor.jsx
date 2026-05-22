@@ -465,11 +465,9 @@ function BatchProcessor({ vfs, apiKey, className }) {
   const [selectedProjects, setSelectedProjects] = useState([])
   const [showConfigEditor, setShowConfigEditor] = useState(false)
   const [batchConfig, setBatchConfig] = useState({
-    bgmFile: null,
     customConfig: '',
   })
-  // 文件指定选项
-  const [projectFileMode, setProjectFileMode] = useState('auto')
+  // 文件指定选项（只保留自定义文件模式）
   const [projectCustomFiles, setProjectCustomFiles] = useState({
     video: null,
     script: null,
@@ -540,22 +538,11 @@ function BatchProcessor({ vfs, apiKey, className }) {
 
   const prepareProjectTasks = useCallback(() => {
     return selectedProjects.map(project => {
-      let videoPath, scriptPath, correctionsPath, bgmPath
-      
-      let scenesPath;
-      if (projectFileMode === 'auto') {
-        videoPath = `${project.path}/raw/${project.name}.mp4`
-        scriptPath = `${project.path}/scenes/scenes.json`
-        correctionsPath = null
-        bgmPath = batchConfig.bgmFile ? `/audio/${batchConfig.bgmFile.name}` : null
-        scenesPath = `${project.path}/scenes`
-      } else {
-        videoPath = projectCustomFiles.video
-        scriptPath = projectCustomFiles.script
-        correctionsPath = projectCustomFiles.corrections
-        bgmPath = projectCustomFiles.bgm
-        scenesPath = projectCustomFiles.scenes
-      }
+      const videoPath = projectCustomFiles.video
+      const scriptPath = projectCustomFiles.script
+      const correctionsPath = projectCustomFiles.corrections
+      const bgmPath = projectCustomFiles.bgm
+      const scenesPath = projectCustomFiles.scenes
       
       return {
         id: project.name,
@@ -568,7 +555,7 @@ function BatchProcessor({ vfs, apiKey, className }) {
         progress: 0,
       }
     })
-  }, [selectedProjects, projectFileMode, projectCustomFiles, batchConfig.bgmFile])
+  }, [selectedProjects, projectCustomFiles])
 
   const prepareTasks = useCallback(() => {
     return prepareProjectTasks()
@@ -582,7 +569,7 @@ function BatchProcessor({ vfs, apiKey, className }) {
       return
     }
 
-    if (projectFileMode === 'custom' && !projectCustomFiles.video) {
+    if (!projectCustomFiles.video) {
       setLocalError('请选择视频文件')
       return
     }
@@ -649,7 +636,7 @@ function BatchProcessor({ vfs, apiKey, className }) {
                 onClick={() => {
                   reset()
                   setSelectedProjects([])
-                  setProjectCustomFiles({ video: null, script: null, corrections: null, bgm: null })
+                  setProjectCustomFiles({ video: null, script: null, corrections: null, bgm: null, scenes: null })
                 }}
               >
                 返回选择
@@ -723,25 +710,7 @@ function BatchProcessor({ vfs, apiKey, className }) {
       {tasks.length === 0 && (
         <>
           <div className="card mb-xxl">
-            <div className="flex gap-md justify-center mb-md">
-              <button
-                className={`btn ${projectFileMode === 'auto' ? 'btn-primary' : 'btn-ghost'}`}
-                onClick={() => setProjectFileMode('auto')}
-                disabled={isRunning}
-              >
-                🔀 使用项目默认文件
-              </button>
-              <button
-                className={`btn ${projectFileMode === 'custom' ? 'btn-primary' : 'btn-ghost'}`}
-                onClick={() => setProjectFileMode('custom')}
-                disabled={isRunning}
-              >
-                📎 指定自定义文件
-              </button>
-            </div>
-
-            {projectFileMode === 'custom' && (
-              <div className="mb-md">
+            <div className="mb-md">
                 <FileSelector
                   label="视频文件 *"
                   vfs={vfs}
@@ -788,32 +757,6 @@ function BatchProcessor({ vfs, apiKey, className }) {
                   disabled={isRunning}
                 />
               </div>
-            )}
-
-            {projectFileMode === 'auto' && (
-              <div className="mb-md">
-                <label className="caption-strong mb-sm" style={{ display: 'block' }}>
-                  背景音乐 (可选，为所有项目统一添加)
-                </label>
-                <input
-                  type="file"
-                  accept="audio/*"
-                  onChange={(e) => {
-                    const file = e.target.files[0]
-                    if (file) {
-                      setBatchConfig({ ...batchConfig, bgmFile: file })
-                    }
-                  }}
-                  disabled={isRunning}
-                  className="input"
-                />
-                {batchConfig.bgmFile && (
-                  <p className="caption text-muted mt-xs">
-                    已选择：{batchConfig.bgmFile.name}
-                  </p>
-                )}
-              </div>
-            )}
           </div>
 
           <div className="card mb-xxl">
@@ -906,7 +849,7 @@ function BatchProcessor({ vfs, apiKey, className }) {
               disabled={
                 selectedProjects.length === 0 || 
                 isRunning ||
-                (projectFileMode === 'custom' && !projectCustomFiles.video)
+                !projectCustomFiles.video
               }
               style={{
                 fontSize: '18px',
@@ -918,7 +861,7 @@ function BatchProcessor({ vfs, apiKey, className }) {
                 ? `处理中 (${stats.running}/${stats.total})` 
                 : `启动 ${selectedProjects.length} 个项目`}
             </button>
-            {projectFileMode === 'custom' && !projectCustomFiles.video && (
+            {!projectCustomFiles.video && (
               <p className="caption text-muted mt-sm" style={{ color: '#ff3b30' }}>
                 ⚠️ 请选择视频文件
               </p>
