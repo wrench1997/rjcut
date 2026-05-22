@@ -43,6 +43,15 @@ const FileIcon = ({ isDirectory, fileName, type }) => {
   return iconMap[ext] || '📄'
 }
 
+// 支持的视频格式
+const SUPPORTED_VIDEO_FORMATS = ['mp4', 'mov', 'webm', 'ogg']
+
+// 检查视频格式是否支持
+function isVideoFormatSupported(fileName) {
+  const ext = fileName?.split('.').pop()?.toLowerCase()
+  return SUPPORTED_VIDEO_FORMATS.includes(ext)
+}
+
 // =====================================================
 // 视频预览组件
 // =====================================================
@@ -50,6 +59,7 @@ function VideoPreview({ file, vfs }) {
   const [videoUrl, setVideoUrl] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [unsupportedFormat, setUnsupportedFormat] = useState(false)
   
   useEffect(() => {
     let blobUrl = null
@@ -57,12 +67,24 @@ function VideoPreview({ file, vfs }) {
     const loadVideo = async () => {
       try {
         setLoading(true)
+        
+        // 检查视频格式是否支持
+        if (!isVideoFormatSupported(file.name)) {
+          const ext = file.name?.split('.').pop()?.toLowerCase()
+          setUnsupportedFormat(true)
+          setError(`不支持的视频格式：.${ext}`)
+          setLoading(false)
+          return
+        }
+        
         const blob = await vfs.readFileAsBlob(file.path)
         blobUrl = URL.createObjectURL(blob)
         setVideoUrl(blobUrl)
         setError('')
+        setUnsupportedFormat(false)
       } catch (e) {
         setError(`无法加载视频：${e.message}`)
+        setUnsupportedFormat(false)
       } finally {
         setLoading(false)
       }
@@ -87,6 +109,17 @@ function VideoPreview({ file, vfs }) {
     )
   }
   
+  if (unsupportedFormat) {
+    return (
+      <div className="video-preview-error">
+        <span>❌ {error}</span>
+        <p style={{ marginTop: '8px', fontSize: '13px', color: '#666' }}>
+          支持的视频格式：{SUPPORTED_VIDEO_FORMATS.join(', ')}
+        </p>
+      </div>
+    )
+  }
+  
   if (error) {
     return (
       <div className="video-preview-error">
@@ -96,11 +129,27 @@ function VideoPreview({ file, vfs }) {
   }
   
   return (
-    <div className="video-preview">
+    <div className="video-preview" style={{ 
+      padding: 'var(--spacing-md)', 
+      backgroundColor: 'var(--surface-pearl)', 
+      borderRadius: 'var(--rounded-md)',
+      marginTop: 'var(--spacing-md)',
+      maxHeight: '500px',
+      overflow: 'auto',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center'
+    }}>
       <video
         src={videoUrl}
         controls
-        style={{ width: '100%', maxHeight: '400px', borderRadius: '8px' }}
+        style={{ 
+          width: '100%', 
+          maxWidth: '100%',
+          maxHeight: '450px', 
+          borderRadius: '8px',
+          display: 'block'
+        }}
       />
     </div>
   )
@@ -278,6 +327,84 @@ function Breadcrumb({ path, onNavigate }) {
   )
 }
 
+// 将 ArrayBuffer 转换为字符串
+function arrayBufferToString(buffer) {
+  if (!buffer) return ''
+  if (typeof buffer === 'string') return buffer
+  if (buffer instanceof ArrayBuffer) {
+    return new TextDecoder('utf-8').decode(buffer)
+  }
+  return String(buffer)
+}
+
+// =====================================================
+// 文本预览组件
+// =====================================================
+function TextPreview({ file, vfs }) {
+  const [content, setContent] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  
+  useEffect(() => {
+    const loadText = async () => {
+      try {
+        setLoading(true)
+        const data = await vfs.readFile(file.path)
+        // 处理 ArrayBuffer 类型
+        const text = arrayBufferToString(data)
+        setContent(text)
+        setError('')
+      } catch (e) {
+        setError(`无法读取文件：${e.message}`)
+      } finally {
+        setLoading(false)
+      }
+    }
+    
+    if (file) {
+      loadText()
+    }
+  }, [file, vfs])
+  
+  if (loading) {
+    return (
+      <div className="text-preview-loading">
+        <span>加载中...</span>
+      </div>
+    )
+  }
+  
+  if (error) {
+    return (
+      <div className="text-preview-error">
+        <span>❌ {error}</span>
+      </div>
+    )
+  }
+  
+  return (
+    <div className="text-preview">
+      <pre
+        className="file-preview"
+        style={{
+          whiteSpace: 'pre-wrap',
+          wordWrap: 'break-word',
+          fontFamily: 'monospace',
+          fontSize: '13px',
+          lineHeight: '1.6',
+          padding: '12px',
+          backgroundColor: '#f8f9fa',
+          borderRadius: '4px',
+          maxHeight: '400px',
+          overflow: 'auto',
+        }}
+      >
+        <code>{content}</code>
+      </pre>
+    </div>
+  )
+}
+
 // =====================================================
 // 文件详情面板
 // =====================================================
@@ -304,12 +431,14 @@ function FileDetail({ file, vfs, onClose, onEdit, onDelete }) {
         try {
           setLoading(true)
           const fileContent = await vfs.readFile(file.path)
-          setContent(fileContent)
+          // 处理 ArrayBuffer 类型
+          const textContent = arrayBufferToString(fileContent)
+          setContent(textContent)
           
           // 检查是否为 JSON
           if (file.path.endsWith('.json')) {
             try {
-              const parsed = JSON.parse(fileContent)
+              const parsed = JSON.parse(textContent)
               setIsJson(true)
               setContent(JSON.stringify(parsed, null, 2))
             } catch (e) {
@@ -493,7 +622,123 @@ function FileDetail({ file, vfs, onClose, onEdit, onDelete }) {
     )
   }
   
-  // 文本/JSON 文件
+// 文本文件预览（包括 .txt, .md, .srt 等）
+  const ext = file.name?.split('.').pop()?.toLowerCase()
+  const isTextFile = file.type?.startsWith('text/') || 
+                     ['txt', 'md', 'srt', 'vtt', 'ass', 'js', 'jsx', 'ts', 'tsx', 'css', 'html', 'json'].includes(ext)
+  
+  // 可编辑的文件类型（.txt, .json 等默认进入编辑模式）
+  const editableExtensions = ['txt', 'json', 'md', 'js', 'jsx', 'ts', 'tsx', 'css', 'html']
+  const isEditableFile = editableExtensions.includes(ext)
+  
+  // 如果是可编辑文件类型，自动进入编辑模式
+  useEffect(() => {
+    if (isEditableFile && !isEditing && !loading) {
+      setIsEditing(true)
+    }
+  }, [isEditableFile, isEditing, loading])
+  
+  if (isTextFile && !file.isDirectory) {
+    return (
+      <div className="file-detail">
+        <div className="file-detail-header">
+          <div className="file-detail-title">
+            <FileIcon isDirectory={file.isDirectory} fileName={file.name} type={file.type} />
+            <span>{file.name}</span>
+          </div>
+          <div className="file-detail-actions">
+            {!file.isDirectory && (
+              <>
+                <button
+                  className="btn btn-sm"
+                  onClick={() => setIsEditing(!isEditing)}
+                  disabled={loading}
+                >
+                  {isEditing ? '取消' : '编辑'}
+                </button>
+                {isEditing && (
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={handleSave}
+                    disabled={loading}
+                  >
+                    {loading ? '保存中...' : '保存'}
+                  </button>
+                )}
+              </>
+            )}
+            <button
+              className="btn btn-danger btn-sm"
+              onClick={handleDelete}
+              title="删除"
+            >
+              🗑️ 删除
+            </button>
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={onClose}
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+        
+        <div className="file-detail-info">
+          <div className="info-row">
+            <span className="info-label">路径:</span>
+            <span className="info-value">{file.path}</span>
+          </div>
+          {!file.isDirectory && (
+            <>
+              <div className="info-row">
+                <span className="info-label">大小:</span>
+                <span className="info-value">
+                  {file.size < 1024 ? `${file.size} B` : 
+                   file.size < 1024 * 1024 ? `${(file.size / 1024).toFixed(1)} KB` :
+                   `${(file.size / 1024 / 1024).toFixed(1)} MB`}
+                </span>
+              </div>
+              <div className="info-row">
+                <span className="info-label">类型:</span>
+                <span className="info-value">{file.type || '未知'}</span>
+              </div>
+            </>
+          )}
+        </div>
+        
+        {!file.isDirectory && (
+          <div className="file-detail-content">
+            {loading && !isEditing ? (
+              <span>加载中...</span>
+            ) : isEditing ? (
+              <textarea
+                className="file-editor"
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                style={{ 
+                  fontFamily: isJson ? 'monospace' : 'inherit',
+                  width: '100%',
+                  minHeight: '300px',
+                  maxHeight: '500px',
+                  padding: '12px',
+                  fontSize: '13px',
+                  lineHeight: '1.6',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  resize: 'vertical',
+                }}
+                disabled={loading}
+              />
+            ) : (
+              <TextPreview file={file} vfs={vfs} />
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
+  
+  // 其他文件类型（默认显示信息）
   return (
     <div className="file-detail">
       <div className="file-detail-header">
@@ -502,26 +747,6 @@ function FileDetail({ file, vfs, onClose, onEdit, onDelete }) {
           <span>{file.name}</span>
         </div>
         <div className="file-detail-actions">
-          {!file.isDirectory && (
-            <>
-              <button
-                className="btn btn-sm"
-                onClick={() => setIsEditing(!isEditing)}
-                disabled={loading}
-              >
-                {isEditing ? '取消' : '编辑'}
-              </button>
-              {isEditing && (
-                <button
-                  className="btn btn-primary btn-sm"
-                  onClick={handleSave}
-                  disabled={loading}
-                >
-                  {loading ? '保存中...' : '保存'}
-                </button>
-              )}
-            </>
-          )}
           <button
             className="btn btn-danger btn-sm"
             onClick={handleDelete}
@@ -543,43 +768,26 @@ function FileDetail({ file, vfs, onClose, onEdit, onDelete }) {
           <span className="info-label">路径:</span>
           <span className="info-value">{file.path}</span>
         </div>
-        {!file.isDirectory && (
-          <>
-            <div className="info-row">
-              <span className="info-label">大小:</span>
-              <span className="info-value">
-                {file.size < 1024 ? `${file.size} B` : 
-                 file.size < 1024 * 1024 ? `${(file.size / 1024).toFixed(1)} KB` :
-                 `${(file.size / 1024 / 1024).toFixed(1)} MB`}
-              </span>
-            </div>
-            <div className="info-row">
-              <span className="info-label">类型:</span>
-              <span className="info-value">{file.type || '未知'}</span>
-            </div>
-          </>
-        )}
+        <div className="info-row">
+          <span className="info-label">大小:</span>
+          <span className="info-value">
+            {file.size < 1024 ? `${file.size} B` : 
+             file.size < 1024 * 1024 ? `${(file.size / 1024).toFixed(1)} KB` :
+             `${(file.size / 1024 / 1024).toFixed(1)} MB`}
+          </span>
+        </div>
+        <div className="info-row">
+          <span className="info-label">类型:</span>
+          <span className="info-value">{file.type || '未知'}</span>
+        </div>
       </div>
       
-      {!file.isDirectory && (
-        <div className="file-detail-content">
-          {loading && !isEditing ? (
-            <span>加载中...</span>
-          ) : isEditing ? (
-            <textarea
-              className="file-editor"
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              style={{ fontFamily: isJson ? 'monospace' : 'inherit' }}
-              disabled={loading}
-            />
-          ) : (
-            <pre className="file-preview">
-              <code>{content}</code>
-            </pre>
-          )}
+      <div className="file-detail-content">
+        <div className="empty-state">
+          <span className="empty-icon">📄</span>
+          <p className="empty-text">不支持预览此文件类型</p>
         </div>
-      )}
+      </div>
     </div>
   )
 }
@@ -1001,7 +1209,8 @@ function ProjectQuickNav({ vfs, currentPath, onNavigate }) {
     loadProjects()
   }, [vfs, currentPath])
   
-  if (loading || projects.length === 0) return null
+  // 始终显示侧边栏，即使没有项目
+  if (loading) return null
   
   return (
     <div className="project-quick-nav">
@@ -1013,19 +1222,25 @@ function ProjectQuickNav({ vfs, currentPath, onNavigate }) {
           </span>
         )}
       </div>
-      <div className="project-nav-list">
-        {projects.map(project => (
-          <button
-            key={project.path}
-            className={`project-nav-item ${currentProject?.path === project.path ? 'active' : ''}`}
-            onClick={() => onNavigate(project.path)}
-            title={`点击进入项目：${project.path}`}
-          >
-            <span className="project-nav-icon">🎬</span>
-            <span className="project-nav-name">{project.name}</span>
-          </button>
-        ))}
-      </div>
+      {projects.length === 0 ? (
+        <div className="caption text-muted" style={{ padding: 'var(--spacing-sm)', fontSize: '12px' }}>
+          暂无项目，请上传文件创建项目
+        </div>
+      ) : (
+        <div className="project-nav-list">
+          {projects.map(project => (
+            <button
+              key={project.path}
+              className={`project-nav-item ${currentProject?.path === project.path ? 'active' : ''}`}
+              onClick={() => onNavigate(project.path)}
+              title={`点击进入项目：${project.path}`}
+            >
+              <span className="project-nav-icon">🎬</span>
+              <span className="project-nav-name">{project.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -1044,9 +1259,27 @@ function ProjectShortcuts({ vfs, currentPath, onNavigate }) {
     { name: '项目配置', path: '/project.json', icon: '⚙️', type: 'json' },
   ]
   
+  // 检查是否在 /raw 目录下
+  const isInRaw = currentPath === '/raw' || currentPath === '/raw/'
+  
   // 检查是否在项目目录中（新结构：/raw/项目名）
   // 允许 /raw/项目名 或其任何子目录
-  const isInProject = currentPath.startsWith('/raw/') && currentPath !== '/raw' && currentPath !== '/raw/'
+  const isInProject = currentPath.startsWith('/raw/') && !isInRaw
+  
+  // 在 /raw 目录下显示提示信息
+  if (isInRaw) {
+    return (
+      <div className="project-shortcuts">
+        <div className="caption text-muted" style={{ padding: 'var(--spacing-sm)', fontSize: '12px', lineHeight: '1.5' }}>
+          💡 提示：
+          <br />
+          1. 点击左侧项目导航进入项目
+          <br />
+          2. 或上传文件创建新项目
+        </div>
+      </div>
+    )
+  }
   
   if (!isInProject) return null
   
@@ -1086,7 +1319,7 @@ function ProjectShortcuts({ vfs, currentPath, onNavigate }) {
 // =====================================================
 // 主文件浏览器组件
 // =====================================================
-function FileBrowser({ vfs, onFileSelect, onFileOpen, className, initialPath = '/' }) {
+function FileBrowser({ vfs, onFileSelect, onFileOpen, className, initialPath = '/raw' }) {
   const [currentPath, setCurrentPath] = useState(initialPath)
   const [items, setItems] = useState([])
   const [selectedFile, setSelectedFile] = useState(null)
@@ -1099,14 +1332,34 @@ function FileBrowser({ vfs, onFileSelect, onFileOpen, className, initialPath = '
   const [showUploadDialog, setShowUploadDialog] = useState(false)
   const [loading, setLoading] = useState(false)
   const [filterType, setFilterType] = useState('all') // 'all' | 'video' | 'audio' | 'image' | 'document'
-  const [showProjectNav, setShowProjectNav] = useState(true)
   
   // 初始化路径
   useEffect(() => {
-    if (initialPath && initialPath !== currentPath) {
-      setCurrentPath(initialPath)
+    const initPath = async () => {
+      // 确保 /raw 目录存在
+      if (!vfs.exists('/raw')) {
+        try {
+          await vfs.mkdir('/raw', true)
+        } catch (e) {
+          console.error('创建 /raw 目录失败:', e)
+        }
+      }
+      
+      // 设置初始路径为 /raw
+      const targetPath = initialPath || '/raw'
+      if (targetPath && targetPath !== currentPath) {
+        try {
+          vfs.cd(targetPath)
+          setCurrentPath(vfs.pwd())
+        } catch (e) {
+          console.error('初始化路径失败:', e)
+          setCurrentPath('/raw')
+        }
+      }
     }
-  }, [initialPath])
+    
+    initPath()
+  }, [])
   
   // 加载目录内容
   const loadDirectory = useCallback(async () => {
@@ -1204,7 +1457,12 @@ function FileBrowser({ vfs, onFileSelect, onFileOpen, className, initialPath = '
   
   // 选择文件
   const handleSelect = (item) => {
-    setSelectedFile(item)
+    // 文件夹不显示详情面板，只选中
+    if (item.isDirectory) {
+      setSelectedFile(null)
+    } else {
+      setSelectedFile(item)
+    }
     onFileSelect?.(item)
   }
   
@@ -1241,59 +1499,26 @@ function FileBrowser({ vfs, onFileSelect, onFileOpen, className, initialPath = '
   
   return (
     <div className={`file-browser ${className || ''}`}>
-      {/* 侧边栏切换按钮（隐藏时显示） */}
-      {!showProjectNav && (
-        <button
-          className="sidebar-toggle-btn"
-          onClick={() => setShowProjectNav(true)}
-          title="显示侧边栏"
-        >
-          📁
-        </button>
-      )}
+      {/* 项目导航侧边栏 */}
+      <div className="file-browser-sidebar">
+        <ProjectQuickNav 
+          vfs={vfs} 
+          currentPath={currentPath}
+          onNavigate={navigateTo}
+        />
+        
+        <div className="sidebar-divider" />
+        
+        <ProjectShortcuts
+          vfs={vfs}
+          currentPath={currentPath}
+          onNavigate={navigateTo}
+        />
+      </div>
       
-      {/* 项目导航 */}
-      {showProjectNav && (
-        <div className="file-browser-sidebar">
-          <ProjectQuickNav 
-            vfs={vfs} 
-            currentPath={currentPath}
-            onNavigate={navigateTo}
-          />
-          
-          <div className="sidebar-divider" />
-          
-          <ProjectShortcuts
-            vfs={vfs}
-            currentPath={currentPath}
-            onNavigate={navigateTo}
-          />
-          
-          <div className="sidebar-divider" />
-          
-          <button
-            className="btn btn-ghost btn-sm sidebar-toggle"
-            onClick={() => setShowProjectNav(false)}
-            title="隐藏侧边栏"
-          >
-            隐藏侧边栏
-          </button>
-        </div>
-      )}
-      
-      <div className="file-browser-main" style={{ marginLeft: showProjectNav ? '220px' : '0' }}>
+      <div className="file-browser-main" style={{ marginLeft: '220px' }}>
         {/* 工具栏 */}
         <div className="file-browser-toolbar">
-          {!showProjectNav && (
-            <button
-              className="btn btn-ghost btn-sm"
-              onClick={() => setShowProjectNav(true)}
-              title="显示项目导航"
-            >
-              📁
-            </button>
-          )}
-          
           <Breadcrumb path={currentPath} onNavigate={navigateTo} />
           
           <div className="toolbar-actions">
@@ -1460,14 +1685,6 @@ function FileBrowser({ vfs, onFileSelect, onFileOpen, className, initialPath = '
       )}
     </div>
     
-      {/* 侧边栏遮罩 */}
-      {showProjectNav && (
-        <div 
-          className="sidebar-overlay"
-          onClick={() => setShowProjectNav(false)}
-        />
-      )}
-      
       {/* 创建对话框 */}
       {showCreateDialog && (
         <CreateDialog
@@ -1495,4 +1712,4 @@ function FileBrowser({ vfs, onFileSelect, onFileOpen, className, initialPath = '
 export default FileBrowser
 
 // 导出预览组件供其他组件使用
-export { VideoPreview, AudioPreview, ImagePreview }
+export { VideoPreview, AudioPreview, ImagePreview, TextPreview }

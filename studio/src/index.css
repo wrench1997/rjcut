@@ -774,6 +774,22 @@ body {
   margin-top: var(--spacing-md);
 }
 
+.video-preview {
+  max-height: 500px;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.video-preview video {
+  width: 100%;
+  max-width: 100%;
+  max-height: 450px;
+  border-radius: 8px;
+  display: block;
+}
+
 .video-preview-loading,
 .video-preview-error {
   display: flex;

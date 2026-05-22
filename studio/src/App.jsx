@@ -5,6 +5,7 @@ import FileBrowser from './components/FileBrowser'
 import VideoProjectManager from './components/VideoProjectManager'
 import AIChat from './components/AIChat'
 import BatchProcessor from './components/BatchProcessor'
+import DigitalHumanManager from './components/DigitalHumanManager'
 
 // =====================================================
 // API 配置
@@ -500,6 +501,12 @@ function App() {
               任务列表
             </button>
             <button 
+              className={`btn btn-utility ${activeTab === 'digital-human' ? 'text-primary' : ''}`}
+              onClick={() => setActiveTab('digital-human')}
+            >
+              🎭 数字人
+            </button>
+            <button 
               className={`btn btn-utility ${activeTab === 'ai' ? 'text-primary' : ''}`}
               onClick={() => setActiveTab('ai')}
             >
@@ -533,6 +540,7 @@ function App() {
           {activeTab === 'files' && '文件浏览器'}
           {activeTab === 'batch' && '批量视频处理'}
           {activeTab === 'tasks' && '任务管理'}
+          {activeTab === 'digital-human' && '数字人管理'}
           {activeTab === 'ai' && 'AI 智能助手'}
           {activeTab === 'settings' && '设置'}
         </span>
@@ -649,6 +657,13 @@ function App() {
                 ))
               )}
             </div>
+          </div>
+        )}
+        
+        {/* 数字人管理页面 */}
+        {!vfsLoading && activeTab === 'digital-human' && (
+          <div className="tile tile-light">
+            <DigitalHumanManager apiKey={apiKey} />
           </div>
         )}
         

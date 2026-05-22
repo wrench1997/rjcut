@@ -79,3 +79,40 @@ export const cancelTask = (task_id, reason = '用户取消') =>
 // 任务列表
 // =====================================================
 export const getTaskList = (limit = 50) => apiClient.get(`/v1/tasks?limit=${limit}`);
+
+// =====================================================
+// 数字人 API
+// =====================================================
+
+// 获取公共数字人列表
+export const getCommonPersons = () => apiClient.get('/v1/dh/persons/common');
+
+// 获取自定义数字人列表
+export const getCustomPersons = () => apiClient.get('/v1/dh/persons/custom');
+
+// 获取自定义数字人详情
+export const getCustomPersonDetail = (person_id) => apiClient.get(`/v1/dh/persons/custom/${person_id}`);
+
+// 同步自定义数字人
+export const syncCustomPersons = () => apiClient.post('/v1/dh/persons/custom/sync');
+
+// 删除自定义数字人
+export const deleteCustomPerson = (person_id) => apiClient.post(`/v1/dh/persons/custom/${person_id}/delete`);
+
+// 获取声音列表
+export const getVoices = () => apiClient.get('/v1/dh/voices');
+
+// 删除定制声音
+export const deleteVoice = (audio_id) => apiClient.post(`/v1/dh/voices/${audio_id}/delete`);
+
+// 创建视频生成任务
+export const createDhGenerateTask = (payload) => apiClient.post('/v1/dh/tasks/generate', payload);
+
+// 创建自定义数字人训练任务
+export const createDhPersonTask = (payload) => apiClient.post('/v1/dh/tasks/create-person', payload);
+
+// 删除视频任务
+export const deleteDhTask = (task_id) => apiClient.post(`/v1/dh/tasks/${task_id}/delete`);
+
+// 删除文件
+export const deleteDhFile = (file_id) => apiClient.post(`/v1/dh/files/${file_id}/delete`);
