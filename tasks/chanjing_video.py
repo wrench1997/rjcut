@@ -378,12 +378,17 @@ def run_dh_create_person_task(task_id: str, payload: dict, trace_id: str, mercha
                 task.finished_at = datetime.now(timezone.utc)
                 db.add(task)
 
-                # 获取数字人详情，提取 figure_type
+                # 获取数字人详情，提取 figure_type、cover_url 和 audio_man_id
                 person_detail = api.get_customised_person_status(person_id)
                 figure_type = None
+                cover_url = None
+                audio_man_id = None
                 if ChanjingStatusCode.is_success(person_detail.get('code')):
-                    figure_type = person_detail.get('data', {}).get('figure_type')
-                    api.logger.info(f"获取到形象类型：{figure_type}")
+                    person_data = person_detail.get('data', {})
+                    figure_type = person_data.get('figure_type')
+                    cover_url = person_data.get('cover_url')  # 🆕 获取封面图片
+                    audio_man_id = person_data.get('audio_man_id')  # 🆕 获取原生声音 ID
+                    api.logger.info(f"获取到形象类型：{figure_type}, 封面：{cover_url}, 声音 ID: {audio_man_id}")
                 
                 new_person = DhCustomPerson(
                     merchant_id=merchant_id,
@@ -391,6 +396,8 @@ def run_dh_create_person_task(task_id: str, payload: dict, trace_id: str, mercha
                     name=payload.get("name"),
                     status=30,
                     figure_type=figure_type,  # 形象类型
+                    cover_url=cover_url,  # 🆕 封面图片
+                    audio_man_id=audio_man_id,  # 🆕 原生声音 ID
                     source_task_id=task_id
                 )
                 db.add(new_person)

@@ -116,3 +116,22 @@ export const deleteDhTask = (task_id) => apiClient.post(`/v1/dh/tasks/${task_id}
 
 // 删除文件
 export const deleteDhFile = (file_id) => apiClient.post(`/v1/dh/files/${file_id}/delete`);
+
+// =====================================================
+// 数字人视频任务管理
+// =====================================================
+// 获取视频任务列表（支持筛选 dh_generate 类型）
+export const getDhTaskList = (status = null, limit = 20, offset = 0) => {
+  const params = new URLSearchParams({ limit, offset });
+  if (status) params.append('status', status);
+  return apiClient.get(`/v1/tasks?${params.toString()}`);
+};
+
+// 获取单个视频任务详情
+export const getDhTaskDetail = (task_id) => apiClient.get(`/v1/tasks/${task_id}`);
+
+// 删除视频任务
+export const deleteDhVideoTask = (task_id) => apiClient.post(`/v1/dh/tasks/${task_id}/delete`);
+
+// 获取视频文件下载 URL
+export const getDhVideoUrl = (task_id) => apiClient.get(`/v1/tasks/${task_id}/files/final_video`);

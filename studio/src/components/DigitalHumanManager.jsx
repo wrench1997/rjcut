@@ -12,7 +12,11 @@ import {
   deleteDhTask,
   presignUpload,
   confirmUpload,
-  getTaskStatus
+  getTaskStatus,
+  getDhTaskList,
+  getDhTaskDetail,
+  deleteDhVideoTask,
+  getDhVideoUrl
 } from '../api/api'
 
 
@@ -93,12 +97,13 @@ function DigitalPersonCard({ person, isCustom, onSelect, onDelete, onRefresh }) 
   }
 
   const displayDetail = detail || person
+  const hasCover = displayDetail.cover_url || person.cover_url
 
   return (
     <div className="card mb-md" style={{ maxWidth: '400px' }}>
-      {displayDetail.cover_url && (
+      {hasCover ? (
         <img 
-          src={displayDetail.cover_url} 
+          src={displayDetail.cover_url || person.cover_url} 
           alt={person.name}
           style={{ 
             width: '100%', 
@@ -108,6 +113,21 @@ function DigitalPersonCard({ person, isCustom, onSelect, onDelete, onRefresh }) 
             marginBottom: 'var(--spacing-md)'
           }}
         />
+      ) : (
+        <div 
+          style={{ 
+            width: '100%', 
+            height: '200px', 
+            backgroundColor: 'var(--surface-pearl)',
+            borderRadius: 'var(--rounded-lg)',
+            marginBottom: 'var(--spacing-md)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}
+        >
+          <span className="text-muted" style={{ fontSize: '48px' }}>👤</span>
+        </div>
       )}
       
       <div className="flex justify-between items-center mb-sm">
@@ -676,10 +696,239 @@ function TrainPersonForm({ onSubmit, onCancel }) {
 }
 
 // =====================================================
+// 视频任务状态徽章
+// =====================================================
+function VideoTaskStatusBadge({ status }) {
+  const statusMap = {
+    queued: { label: '等待中', class: 'status-queued' },
+    processing: { label: '处理中', class: 'status-processing' },
+    succeeded: { label: '成功', class: 'status-succeeded' },
+    failed: { label: '失败', class: 'status-failed' },
+    cancelled: { label: '已取消', class: 'status-cancelled' },
+    timeout: { label: '超时', class: 'status-failed' },
+  }
+  
+  const { label, class: className } = statusMap[status] || { label: '未知', class: 'status-queued' }
+  
+  return (
+    <span className={`status-badge ${className}`}>
+      {label}
+    </span>
+  )
+}
+
+// =====================================================
+// 视频任务列表组件
+// =====================================================
+function VideoTaskList({ onBack }) {
+  const [tasks, setTasks] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [filterStatus, setFilterStatus] = useState('')
+  const [downloadingTaskId, setDownloadingTaskId] = useState(null)
+
+  const loadTasks = async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const res = await getDhTaskList(filterStatus || null, 50, 0)
+      if (res.data.code === 0) {
+        // 筛选 dh_generate 类型的任务
+        const dhTasks = (res.data.data.items || []).filter(t => t.task_type === 'dh_generate')
+        setTasks(dhTasks)
+      }
+    } catch (err) {
+      setError(`加载任务列表失败：${err.message}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadTasks()
+  }, [filterStatus])
+
+  const handleDownload = async (task) => {
+    setDownloadingTaskId(task.task_id)
+    try {
+      const res = await getDhVideoUrl(task.task_id)
+      if (res.data.code === 0) {
+        const { download_url } = res.data.data
+        // 在新窗口打开下载链接
+        window.open(download_url, '_blank')
+      } else {
+        alert(`获取下载链接失败：${res.data.message}`)
+      }
+    } catch (err) {
+      alert(`获取下载链接失败：${err.message}`)
+    } finally {
+      setDownloadingTaskId(null)
+    }
+  }
+
+  const handleDelete = async (task) => {
+    if (!confirm(`确定要删除视频任务"${task.task_id}"吗？此操作不可恢复，配额将退还。`)) return
+    
+    try {
+      const res = await deleteDhVideoTask(task.task_id)
+      if (res.data.code === 0) {
+        alert('任务已删除，配额已退还')
+        loadTasks()
+      } else {
+        alert(`删除失败：${res.data.message}`)
+      }
+    } catch (err) {
+      alert(`删除失败：${err.message}`)
+    }
+  }
+
+  const handleRefresh = async (task) => {
+    try {
+      const res = await getDhTaskDetail(task.task_id)
+      if (res.data.code === 0) {
+        const updatedTask = res.data.data
+        setTasks(prev => prev.map(t => t.task_id === task.task_id ? updatedTask : t))
+      }
+    } catch (err) {
+      console.error('刷新任务状态失败:', err)
+    }
+  }
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-lg">
+        <div>
+          <h2 className="display-lg mb-sm">视频任务列表</h2>
+          <p className="lead mb-lg">查看和管理已生成的数字人视频任务</p>
+        </div>
+        <button className="btn btn-ghost btn-sm" onClick={onBack}>
+          ← 返回
+        </button>
+      </div>
+
+      {/* 筛选器 */}
+      <div className="flex gap-sm items-center mb-lg">
+        <span className="caption-strong">状态筛选:</span>
+        <select
+          className="input"
+          style={{ width: '150px' }}
+          value={filterStatus}
+          onChange={(e) => setFilterStatus(e.target.value)}
+        >
+          <option value="">全部</option>
+          <option value="queued">等待中</option>
+          <option value="processing">处理中</option>
+          <option value="succeeded">成功</option>
+          <option value="failed">失败</option>
+          <option value="cancelled">已取消</option>
+        </select>
+        <button className="btn btn-pearl-capsule btn-sm" onClick={loadTasks} disabled={loading}>
+          {loading ? '🔄 刷新中' : '🔄 刷新'}
+        </button>
+      </div>
+
+      {error && (
+        <div className="card mb-lg" style={{
+          backgroundColor: 'rgba(255, 59, 48, 0.1)',
+          border: '1px solid rgba(255, 59, 48, 0.3)',
+        }}>
+          <p className="caption" style={{ color: '#ff3b30' }}>{error}</p>
+        </div>
+      )}
+
+      {tasks.length === 0 ? (
+        <div className="text-center" style={{ padding: 'var(--spacing-xxl) 0' }}>
+          <p className="body text-muted">暂无视频任务</p>
+          <p className="caption text-muted mt-sm">去创建一个数字人视频吧！</p>
+        </div>
+      ) : (
+        <div className="table-container">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>任务 ID</th>
+                <th>状态</th>
+                <th>进度</th>
+                <th>参考 ID</th>
+                <th>创建时间</th>
+                <th>完成时间</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tasks.map(task => (
+                <tr key={task.task_id}>
+                  <td className="caption" style={{ fontFamily: 'monospace' }}>
+                    {task.task_id}
+                    {task.client_ref_id && (
+                      <div className="text-muted" style={{ fontSize: '11px' }}>
+                        参考：{task.client_ref_id}
+                      </div>
+                    )}
+                  </td>
+                  <td>
+                    <VideoTaskStatusBadge status={task.status} />
+                  </td>
+                  <td>
+                    {task.status === 'processing' || task.status === 'queued' ? (
+                      <div className="flex items-center gap-xs">
+                        <ProgressBar progress={task.progress || 0} />
+                        <span className="caption">{task.progress || 0}%</span>
+                      </div>
+                    ) : (
+                      <span className="caption text-muted">-</span>
+                    )}
+                  </td>
+                  <td className="caption">{task.cost || '-'}</td>
+                  <td className="caption">
+                    {task.created_at ? new Date(task.created_at).toLocaleString('zh-CN') : '-'}
+                  </td>
+                  <td className="caption">
+                    {task.finished_at ? new Date(task.finished_at).toLocaleString('zh-CN') : '-'}
+                  </td>
+                  <td>
+                    <div className="flex gap-xs flex-wrap">
+                      {task.status === 'succeeded' && (
+                        <button
+                          className="btn btn-primary btn-sm"
+                          onClick={() => handleDownload(task)}
+                          disabled={downloadingTaskId === task.task_id}
+                        >
+                          {downloadingTaskId === task.task_id ? '⏳ 下载中' : '⬇️ 下载'}
+                        </button>
+                      )}
+                      {(task.status === 'queued' || task.status === 'processing') && (
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          onClick={() => handleRefresh(task)}
+                        >
+                          🔄 刷新
+                        </button>
+                      )}
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        style={{ color: '#ff3b30' }}
+                        onClick={() => handleDelete(task)}
+                      >
+                        🗑️ 删除
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// =====================================================
 // 主组件：数字人管理器
 // =====================================================
 function DigitalHumanManager({ apiKey }) {
-  const [activeTab, setActiveTab] = useState('common') // 'common' | 'custom' | 'train' | 'create-video'
+  const [activeTab, setActiveTab] = useState('common') // 'common' | 'custom' | 'train' | 'create-video' | 'video-tasks'
   const [commonPersons, setCommonPersons] = useState([])
   const [customPersons, setCustomPersons] = useState([])
   const [voices, setVoices] = useState([])
@@ -810,6 +1059,12 @@ function DigitalHumanManager({ apiKey }) {
           >
             训练新数字人
           </button>
+          <button 
+            className={`btn btn-sm ${activeTab === 'video-tasks' ? 'btn-primary' : 'btn-pearl-capsule'}`}
+            onClick={() => setActiveTab('video-tasks')}
+          >
+            🎬 视频任务
+          </button>
         </div>
         
         {activeTab === 'custom' && (
@@ -911,6 +1166,11 @@ function DigitalHumanManager({ apiKey }) {
             }}
           />
         </div>
+      )}
+      
+      {/* 视频任务列表 */}
+      {activeTab === 'video-tasks' && (
+        <VideoTaskList onBack={() => setActiveTab('common')} />
       )}
     </div>
   )
