@@ -15,6 +15,7 @@ import {
   getTaskStatus
 } from '../api/api'
 
+
 // =====================================================
 // 状态徽章组件
 // =====================================================
@@ -202,7 +203,7 @@ function CreateVideoForm({ person, voices, onSubmit, onCancel }) {
     text: '',
     person_id: person?.id || '',
     audio_man_id: '',
-    figure_type: person?.figure_type || 'sit_body',
+    figure_type: person?.figure_type || 'whole_body',
     drive_mode: 'random',
     bg_type: 'color',
     bg_color: '#EDEDED',
@@ -315,10 +316,9 @@ function CreateVideoForm({ person, voices, onSubmit, onCancel }) {
             value={formData.figure_type}
             onChange={(e) => setFormData({ ...formData, figure_type: e.target.value })}
           >
-            <option value="sit_body">坐姿</option>
-            <option value="whole_body">全身</option>
-            <option value="head_shot">半身</option>
-            <option value="half_body">半身（旧）</option>
+            <option value="whole_body">whole_body</option>
+            <option value="head_shot">head_shot</option>
+            <option value="half_body">half_body</option>
           </select>
           {person?.figure_type && (
             <p className="caption text-muted mt-xs">

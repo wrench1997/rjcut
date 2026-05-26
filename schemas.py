@@ -203,7 +203,7 @@ class DhGenerateVideoRequest(BaseModel):
     text: str
     person_id: Optional[str] = None
     audio_man_id: Optional[str] = None  # 🆕 改为可选，为空时自动使用数字人原生声音
-    figure_type: str = "sit_body"
+    figure_type: str = "whole_body"
     drive_mode: str = "random"
     bg_type: str = "color"
     bg_color: str = "#EDEDED"

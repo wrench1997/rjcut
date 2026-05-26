@@ -111,6 +111,9 @@ class DhCustomPerson(Base):
     status = Column(Integer, default=10, nullable=False)
     cover_url = Column(Text, nullable=True)
     
+    # 形象类型（英文）：whole_body, head_shot, half_body 等
+    figure_type = Column(String(64), nullable=True)
+    
     # 关联生成该数字人的任务 ID，方便追溯
     source_task_id = Column(String(64), ForeignKey("tasks.id"), nullable=True)
 

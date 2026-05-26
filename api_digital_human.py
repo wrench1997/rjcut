@@ -50,7 +50,7 @@ def list_common_persons(_: Merchant = Depends(verify_api_key)):
             
             result_list.append({
                 "id": person_id,
-                "name": f"{person_name} ({_get_figure_type_name(figure_type)})",
+                "name": f"{person_name} ({figure_type})",
                 "person_id": person_id,  # 原始数字人 ID
                 "figure_type": figure_type,  # 形象类型
                 "cover_url": cover,
@@ -62,15 +62,6 @@ def list_common_persons(_: Merchant = Depends(verify_api_key)):
     return ok(result_list)
 
 
-def _get_figure_type_name(figure_type: str) -> str:
-    """获取形象类型的中文名称"""
-    type_map = {
-        "sit_body": "坐姿",
-        "whole_body": "全身",
-        "head_shot": "半身",
-        "half_body": "半身",
-    }
-    return type_map.get(figure_type, figure_type)
 
 # @router.get("/persons/custom")
 # def list_custom_persons(_: Merchant = Depends(verify_api_key)):
@@ -95,10 +86,12 @@ def list_custom_persons(
     
     result_list = [
         {
-            "id": p.chanjing_person_id, # 前端生成视频时，需要传这个 ID 给蝉镜
+            "id": p.chanjing_person_id,
             "name": p.name,
             "status": p.status,
             "cover_url": p.cover_url,
+            "figure_type": p.figure_type,  # 形象类型
+            "audio_man_id": p.audio_man_id,  # 声音 ID
             "created_at": p.created_at.isoformat() if p.created_at else None
         }
         for p in persons
@@ -200,6 +193,7 @@ def sync_custom_persons(
         chanjing_status = person_data.get('status', 0)
         cover_url = person_data.get('cover_url')
         audio_man_id = person_data.get('audio_man_id')  # 🆕 获取声音 ID
+        figure_type = person_data.get('figure_type')  # 🆕 获取形象类型
         
         # 映射蝉镜状态到本地状态 (根据 chanjing_api.py：1=制作中，2=成功，4=失败)
         local_status = 30 if chanjing_status == 2 else (40 if chanjing_status in (4, 40, -1) else 10)
@@ -219,6 +213,7 @@ def sync_custom_persons(
             existing.status = local_status
             existing.cover_url = cover_url
             existing.audio_man_id = audio_man_id  # 🆕 同步声音 ID
+            existing.figure_type = figure_type  # 🆕 同步形象类型
             existing.updated_at = datetime.now(timezone.utc)
             db.add(existing)
         else:
@@ -229,7 +224,8 @@ def sync_custom_persons(
                 name=name,
                 status=local_status,
                 cover_url=cover_url,
-                audio_man_id=audio_man_id  # 🆕 保存声音 ID
+                audio_man_id=audio_man_id,  # 🆕 保存声音 ID
+                figure_type=figure_type  # 🆕 保存形象类型
             )
             db.add(new_person)
         

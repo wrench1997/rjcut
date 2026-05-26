@@ -378,11 +378,19 @@ def run_dh_create_person_task(task_id: str, payload: dict, trace_id: str, mercha
                 task.finished_at = datetime.now(timezone.utc)
                 db.add(task)
 
+                # 获取数字人详情，提取 figure_type
+                person_detail = api.get_customised_person_status(person_id)
+                figure_type = None
+                if ChanjingStatusCode.is_success(person_detail.get('code')):
+                    figure_type = person_detail.get('data', {}).get('figure_type')
+                    api.logger.info(f"获取到形象类型：{figure_type}")
+                
                 new_person = DhCustomPerson(
                     merchant_id=merchant_id,
                     chanjing_person_id=person_id,
                     name=payload.get("name"),
                     status=30,
+                    figure_type=figure_type,  # 形象类型
                     source_task_id=task_id
                 )
                 db.add(new_person)
