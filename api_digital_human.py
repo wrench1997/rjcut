@@ -140,7 +140,8 @@ def get_custom_person_detail(
         local_status = 30 if chanjing_status == 2 else (40 if chanjing_status in (4, 40, -1) else 10)
         
         local_person.status = local_status
-        local_person.cover_url = data.get('cover_url')
+        # 🎬 不要覆盖本地封面！本地存储的是从源视频第一帧提取的封面，比蝉镜的默认头像更有意义
+        # local_person.cover_url = data.get('cover_url')
         local_person.audio_man_id = data.get('audio_man_id')  # 🆕 同步声音 ID
         local_person.updated_at = datetime.now(timezone.utc)
         db.add(local_person)
@@ -217,7 +218,9 @@ def sync_custom_persons(
         if existing:
             # 更新现有记录
             existing.status = local_status
-            existing.cover_url = cover_url
+            # 🎬 保留本地封面！如果本地已有从源视频第一帧提取的封面，不要覆盖
+            if not existing.cover_url:
+                existing.cover_url = cover_url
             existing.audio_man_id = audio_man_id  # 🆕 同步声音 ID
             existing.figure_type = figure_type  # 🆕 同步形象类型
             existing.updated_at = datetime.now(timezone.utc)

@@ -506,12 +506,14 @@ function App() {
             >
               🎭 数字人
             </button>
+            {/* AI 助手功能已屏蔽
             <button 
               className={`btn btn-utility ${activeTab === 'ai' ? 'text-primary' : ''}`}
               onClick={() => setActiveTab('ai')}
             >
               🤖 AI 助手
             </button>
+            */}
             <button 
               className={`btn btn-utility ${activeTab === 'settings' ? 'text-primary' : ''}`}
               onClick={() => setActiveTab('settings')}
@@ -541,7 +543,7 @@ function App() {
           {activeTab === 'batch' && '批量视频处理'}
           {activeTab === 'tasks' && '任务管理'}
           {activeTab === 'digital-human' && '数字人管理'}
-          {activeTab === 'ai' && 'AI 智能助手'}
+          {/* {activeTab === 'ai' && 'AI 智能助手'} */}
           {activeTab === 'settings' && '设置'}
         </span>
         
@@ -667,7 +669,7 @@ function App() {
           </div>
         )}
         
-        {/* AI 聊天页面 */}
+        {/* AI 聊天页面 (已屏蔽)
         {!vfsLoading && activeTab === 'ai' && vfs && (
           <div style={{ height: 'calc(100vh - 200px)' }}>
             <AIChat
@@ -682,6 +684,7 @@ function App() {
             />
           </div>
         )}
+        */}
         
         {/* 设置页面 */}
         {!vfsLoading && activeTab === 'settings' && (
