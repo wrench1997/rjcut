@@ -6,6 +6,7 @@ import os
 import shutil
 import json
 import hashlib
+import subprocess
 import traceback
 import time
 from datetime import datetime, timezone
@@ -15,7 +16,7 @@ from config import get_settings
 from database import get_db_session
 from models import Task, TaskStatus, DhCustomPerson
 from quota import confirm_quota, refund_quota
-from oss import download_file_from_oss, is_oss_key
+from oss import download_file_from_oss, is_oss_key, upload_file_to_oss
 from chanjing_api import ChanjingAPI, ChanjingStatusCode
 from tasks import register_task
 from tasks.components import TaskContext, FileManagerComponent
@@ -235,13 +236,38 @@ def run_dh_create_person_task(task_id: str, payload: dict, trace_id: str, mercha
         _update_task(task_id, status=TaskStatus.processing, progress=5, stage="downloading_source", started_at=datetime.now(timezone.utc))
         if _is_task_cancelled(task_id):
             raise InterruptedError("task cancelled")
-
-        source_key = payload.get("source_video_oss_key")
+source_key = payload.get("source_video_oss_key")
         local_source = os.path.join(task_dir, "source.mp4")
         _download_input_file(source_key, local_source)
 
+        # 🎬 从源视频提取第一帧作为封面图
+        cover_image_path = os.path.join(task_dir, "cover.jpg")
+        try:
+            subprocess.run(
+                ["ffmpeg", "-nostdin", "-y", "-ss", "00:00:00.000", "-i", local_source, "-vframes", "1", "-q:v", "2", cover_image_path],
+                check=True,
+                capture_output=True,
+                timeout=30
+            )
+            api.logger.info(f"成功提取视频第一帧：{cover_image_path}")
+        except Exception as e:
+            api.logger.warning(f"提取视频封面失败：{e}，将使用蝉镜 API 返回的封面")
+            cover_image_path = None
+
         _update_task(task_id, progress=15, stage="uploading_to_chanjing")
         chanjing_file_id = api.upload_file(local_source, service="customised_person")
+        
+        # 📸 上传封面图到 OSS
+        cover_oss_key = None
+        if cover_image_path and os.path.exists(cover_image_path):
+            try:
+                from oss import generate_oss_key
+                cover_oss_key = generate_oss_key(merchant_id, "covers", f"{task_id}_cover.jpg")
+                upload_file_to_oss(cover_image_path, cover_oss_key, "image/jpeg")
+                api.logger.info(f"封面图已上传至 OSS: {cover_oss_key}")
+            except Exception as e:
+                api.logger.warning(f"上传封面图到 OSS 失败：{e}")
+                cover_oss_key = None
 
         _update_task(task_id, progress=25, stage="submitting_train_task")
         # 添加重试机制，等待文件在蝉镜服务端处理就绪
@@ -378,7 +404,7 @@ def run_dh_create_person_task(task_id: str, payload: dict, trace_id: str, mercha
                 task.finished_at = datetime.now(timezone.utc)
                 db.add(task)
 
-                # 获取数字人详情，提取 figure_type、cover_url 和 audio_man_id
+# 获取数字人详情，提取 figure_type、cover_url 和 audio_man_id
                 person_detail = api.get_customised_person_status(person_id)
                 figure_type = None
                 cover_url = None
@@ -386,22 +412,22 @@ def run_dh_create_person_task(task_id: str, payload: dict, trace_id: str, mercha
                 if ChanjingStatusCode.is_success(person_detail.get('code')):
                     person_data = person_detail.get('data', {})
                     figure_type = person_data.get('figure_type')
-                    cover_url = person_data.get('cover_url')  # 🆕 获取封面图片
+                    # 🎬 优先使用从源视频提取的封面图，其次使用蝉镜 API 返回的封面
+                    cover_url = cover_oss_key  # 使用本地上传的封面图
                     audio_man_id = person_data.get('audio_man_id')  # 🆕 获取原生声音 ID
                     api.logger.info(f"获取到形象类型：{figure_type}, 封面：{cover_url}, 声音 ID: {audio_man_id}")
                 
-                new_person = DhCustomPerson(
+new_person = DhCustomPerson(
                     merchant_id=merchant_id,
                     chanjing_person_id=person_id,
                     name=payload.get("name"),
                     status=30,
                     figure_type=figure_type,  # 形象类型
-                    cover_url=cover_url,  # 🆕 封面图片
+                    cover_url=cover_url,  # 🎬 使用源视频第一帧作为封面
                     audio_man_id=audio_man_id,  # 🆕 原生声音 ID
                     source_task_id=task_id
                 )
                 db.add(new_person)
-
                 confirm_quota(db, task)
 
         callback = payload.get("callback") or {}

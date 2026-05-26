@@ -14,6 +14,7 @@ from chanjing_api import ChanjingAPI, ChanjingStatusCode
 from schemas import DhGenerateVideoRequest
 from schemas import DhCreateCustomPersonRequest
 from models import DhCustomPerson # 引入模型
+from oss import get_minio_client, get_settings as get_oss_settings
 
 
 router = APIRouter(prefix="/v1/dh", tags=["Digital Human"])
@@ -84,12 +85,17 @@ def list_custom_persons(
         .all()
     )
     
+    # 获取 MinIO 配置用于生成封面图 URL
+    oss_settings = get_oss_settings()
+    minio_external = oss_settings.MINIO_EXTERNAL_ENDPOINT.rstrip("/")
+    bucket = oss_settings.MINIO_BUCKET
+    
     result_list = [
         {
             "id": p.chanjing_person_id,
             "name": p.name,
             "status": p.status,
-            "cover_url": p.cover_url,
+            "cover_url": f"{minio_external}/{bucket}/{p.cover_url}" if p.cover_url and not p.cover_url.startswith("http") else p.cover_url,
             "figure_type": p.figure_type,  # 形象类型
             "audio_man_id": p.audio_man_id,  # 声音 ID
             "created_at": p.created_at.isoformat() if p.created_at else None

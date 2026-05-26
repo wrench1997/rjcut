@@ -1096,7 +1096,15 @@ function DigitalHumanManager({ apiKey }) {
               <p className="body text-muted">暂无公共数字人</p>
             </div>
           ) : (
-            <div className="flex gap-lg flex-wrap">
+            <div 
+              className="flex gap-lg flex-wrap"
+              style={{ 
+                maxHeight: 'calc(100vh - 250px)',
+                overflowY: 'auto',
+                paddingRight: 'var(--spacing-sm)',
+                padding: 'var(--spacing-md)'
+              }}
+            >
               {commonPersons.map(person => (
                 <DigitalPersonCard
                   key={person.id}
@@ -1127,7 +1135,15 @@ function DigitalHumanManager({ apiKey }) {
               </button>
             </div>
           ) : (
-            <div className="flex gap-lg flex-wrap">
+            <div 
+              className="flex gap-lg flex-wrap"
+              style={{ 
+                maxHeight: 'calc(100vh - 250px)',
+                overflowY: 'auto',
+                paddingRight: 'var(--spacing-sm)',
+                padding: 'var(--spacing-md)'
+              }}
+            >
               {customPersons.map(person => (
                 <DigitalPersonCard
                   key={person.id}
