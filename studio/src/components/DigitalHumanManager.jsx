@@ -19,13 +19,19 @@ import {
 // 状态徽章组件
 // =====================================================
 function StatusBadge({ status }) {
+  // 状态码说明：
+  // 蝉镜 API: 0=定制中，1=制作中，2=成功，4=失败
+  // 本地映射：10=训练中，30=成功，40=失败
   const statusMap = {
+    // 本地状态码
     10: { label: '训练中', class: 'status-processing' },
     30: { label: '成功', class: 'status-succeeded' },
     40: { label: '失败', class: 'status-failed' },
+    // 蝉镜 API 原始状态码（用于直接显示 API 返回的状态）
     0: { label: '定制中', class: 'status-processing' },
-    1: { label: '已完成', class: 'status-succeeded' },
+    1: { label: '制作中', class: 'status-processing' },
     2: { label: '已完成', class: 'status-succeeded' },
+    4: { label: '失败', class: 'status-failed' },
   }
   
   const { label, class: className } = statusMap[status] || { label: '未知', class: 'status-queued' }
@@ -105,7 +111,7 @@ function DigitalPersonCard({ person, isCustom, onSelect, onDelete, onRefresh }) 
       
       <div className="flex justify-between items-center mb-sm">
         <h3 className="body-strong">{person.name}</h3>
-        <StatusBadge status={displayDetail.status || person.status} />
+        {isCustom && <StatusBadge status={displayDetail.status || person.status} />}
       </div>
       
       {isCustom && displayDetail.progress !== undefined && (
@@ -131,8 +137,24 @@ function DigitalPersonCard({ person, isCustom, onSelect, onDelete, onRefresh }) 
         </div>
       )}
       
+      {person.preview_video_url && (
+        <div className="mb-sm">
+          <a 
+            href={person.preview_video_url} 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="caption text-primary"
+          >
+            ▶️ 查看预览视频
+          </a>
+        </div>
+      )}
+      
       <div className="caption text-muted mb-sm">
         <div>ID: {person.id}</div>
+        {person.figure_type && (
+          <div>🎭 形象：{person.figure_type}</div>
+        )}
         {displayDetail.audio_man_id && (
           <div>🎤 声音 ID: {displayDetail.audio_man_id}</div>
         )}
@@ -180,7 +202,7 @@ function CreateVideoForm({ person, voices, onSubmit, onCancel }) {
     text: '',
     person_id: person?.id || '',
     audio_man_id: '',
-    figure_type: 'sit_body',
+    figure_type: person?.figure_type || 'sit_body',
     drive_mode: 'random',
     bg_type: 'color',
     bg_color: '#EDEDED',
@@ -246,6 +268,11 @@ function CreateVideoForm({ person, voices, onSubmit, onCancel }) {
             disabled
             style={{ backgroundColor: 'var(--surface-pearl)' }}
           />
+          {person?.figure_type && (
+            <p className="caption text-muted mt-xs">
+              形象：{person.figure_type}（已自动选择）
+            </p>
+          )}
         </div>
         
         <div className="mb-md">
@@ -291,7 +318,13 @@ function CreateVideoForm({ person, voices, onSubmit, onCancel }) {
             <option value="sit_body">坐姿</option>
             <option value="whole_body">全身</option>
             <option value="head_shot">半身</option>
+            <option value="half_body">半身（旧）</option>
           </select>
+          {person?.figure_type && (
+            <p className="caption text-muted mt-xs">
+              💡 当前数字人默认形象：{person.figure_type}
+            </p>
+          )}
         </div>
         
         <div className="mb-md">

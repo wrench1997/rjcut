@@ -29,10 +29,48 @@ def fail(code, msg, status_code=400): return {"code": code, "message": msg}
 
 @router.get("/persons/common")
 def list_common_persons(_: Merchant = Depends(verify_api_key)):
+    """获取公共数字人列表（展开 figures 为独立选项）"""
     api = get_chanjing_api()
     res = api.list_common_digital_persons(page=1, size=100)
-    # 此处可以直接映射数据结构，或者直接返回
-    return ok(res.get("data", {}).get("list", []))
+    
+    persons = res.get("data", {}).get("list", [])
+    
+    # 展开 figures：每个 figure 作为一个独立的数字人选项
+    result_list = []
+    for person in persons:
+        person_id = person.get("id", "")
+        person_name = person.get("name", "")
+        audio_man_id = person.get("audio_man_id", "")
+        figures = person.get("figures", [])
+        
+        for figure in figures:
+            figure_type = figure.get("type", "")
+            cover = figure.get("cover", "")
+            preview_video = figure.get("preview_video_url", "")
+            
+            result_list.append({
+                "id": person_id,
+                "name": f"{person_name} ({_get_figure_type_name(figure_type)})",
+                "person_id": person_id,  # 原始数字人 ID
+                "figure_type": figure_type,  # 形象类型
+                "cover_url": cover,
+                "preview_video_url": preview_video,
+                "audio_man_id": audio_man_id,
+                "gender": person.get("gender", ""),
+            })
+    
+    return ok(result_list)
+
+
+def _get_figure_type_name(figure_type: str) -> str:
+    """获取形象类型的中文名称"""
+    type_map = {
+        "sit_body": "坐姿",
+        "whole_body": "全身",
+        "head_shot": "半身",
+        "half_body": "半身",
+    }
+    return type_map.get(figure_type, figure_type)
 
 # @router.get("/persons/custom")
 # def list_custom_persons(_: Merchant = Depends(verify_api_key)):
@@ -99,7 +137,8 @@ def get_custom_person_detail(
     # 在更新本地数据库记录时，添加 audio_man_id 的同步
     if local_person:
         chanjing_status = data.get('status', 0)
-        local_status = 30 if chanjing_status == 1 else (40 if chanjing_status == 40 else 10)
+        # 根据 chanjing_api.py 定义：1=制作中，2=成功，4=失败
+        local_status = 30 if chanjing_status == 2 else (40 if chanjing_status in (4, 40, -1) else 10)
         
         local_person.status = local_status
         local_person.cover_url = data.get('cover_url')
@@ -162,8 +201,8 @@ def sync_custom_persons(
         cover_url = person_data.get('cover_url')
         audio_man_id = person_data.get('audio_man_id')  # 🆕 获取声音 ID
         
-        # 映射蝉镜状态到本地状态
-        local_status = 30 if chanjing_status == 1 else (40 if chanjing_status == 40 else 10)
+        # 映射蝉镜状态到本地状态 (根据 chanjing_api.py：1=制作中，2=成功，4=失败)
+        local_status = 30 if chanjing_status == 2 else (40 if chanjing_status in (4, 40, -1) else 10)
         
         # 检查是否已存在
         existing = (
