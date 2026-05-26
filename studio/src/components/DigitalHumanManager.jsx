@@ -184,29 +184,34 @@ function DigitalPersonCard({ person, isCustom, onSelect, onDelete, onRefresh }) 
         )}
       </div>
       
-      <div className="flex gap-sm flex-wrap">
+      <div className="dh-card-actions">
         <button 
-          className="btn btn-primary btn-sm"
+          className="btn btn-primary btn-sm dh-action-btn"
           onClick={() => onSelect && onSelect(person)}
+          title="使用此数字人创建视频"
         >
-          使用此数字人
+          <span className="dh-action-icon">🎬</span>
+          <span className="dh-action-text">使用</span>
         </button>
         
         {isCustom && (
           <>
             <button 
-              className="btn btn-pearl-capsule btn-sm"
+              className="btn btn-pearl-capsule btn-sm dh-action-btn"
               onClick={handleRefresh}
               disabled={loading}
+              title="刷新数字人状态"
             >
-              {loading ? '🔄 刷新中' : '🔄 刷新'}
+              <span className="dh-action-icon">🔄</span>
+              <span className="dh-action-text">{loading ? '刷新中' : '刷新'}</span>
             </button>
             <button 
-              className="btn btn-ghost btn-sm"
-              style={{ color: '#ff3b30' }}
+              className="btn btn-ghost btn-sm dh-action-btn dh-action-delete"
               onClick={handleDelete}
+              title="删除此数字人"
             >
-              🗑️ 删除
+              <span className="dh-action-icon">🗑️</span>
+              <span className="dh-action-text">删除</span>
             </button>
           </>
         )}

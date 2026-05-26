@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  # 开发环境服务
+  studio-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: rjcut-studio-dev
+    ports:
+      - "5173:5173"
+    volumes:
+      - .:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - VITE_API_BASE_URL=http://localhost:8000
+    command: npm run dev -- --host 0.0.0.0
+    restart: unless-stopped
+
+  # 生产环境服务（构建并运行静态服务器）
+  studio-prod:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rjcut-studio-prod
+    ports:
+      - "80:80"
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8000
+    restart: unless-stopped
+    depends_on:
+      - studio-dev

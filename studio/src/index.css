@@ -1986,3 +1986,48 @@ body {
   font-weight: 500;
   border: 1px solid var(--hairline);
 }
+/* =====================================================
+   数字人管理器卡片按钮样式
+   ===================================================== */
+.dh-card-actions {
+  display: flex;
+  gap: var(--spacing-xs);
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  align-items: center;
+}
+
+.dh-action-btn {
+  flex: 0 0 auto;
+  min-width: unset;
+  padding: 6px 10px;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.dh-action-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.dh-action-text {
+  font-weight: 500;
+}
+
+.dh-action-delete {
+  color: #ff3b30 !important;
+}
+
+.dh-action-delete:hover {
+  background-color: rgba(255, 59, 48, 0.1);
+}
+
+/* 卡片内按钮容器优化 */
+.card .dh-card-actions {
+  margin-top: var(--spacing-sm);
+  padding-top: var(--spacing-sm);
+  border-top: 1px solid var(--divider-soft);
+}

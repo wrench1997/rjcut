@@ -236,7 +236,7 @@ def run_dh_create_person_task(task_id: str, payload: dict, trace_id: str, mercha
         _update_task(task_id, status=TaskStatus.processing, progress=5, stage="downloading_source", started_at=datetime.now(timezone.utc))
         if _is_task_cancelled(task_id):
             raise InterruptedError("task cancelled")
-source_key = payload.get("source_video_oss_key")
+        source_key = payload.get("source_video_oss_key")
         local_source = os.path.join(task_dir, "source.mp4")
         _download_input_file(source_key, local_source)
 
@@ -417,7 +417,7 @@ source_key = payload.get("source_video_oss_key")
                     audio_man_id = person_data.get('audio_man_id')  # 🆕 获取原生声音 ID
                     api.logger.info(f"获取到形象类型：{figure_type}, 封面：{cover_url}, 声音 ID: {audio_man_id}")
                 
-new_person = DhCustomPerson(
+                new_person = DhCustomPerson(
                     merchant_id=merchant_id,
                     chanjing_person_id=person_id,
                     name=payload.get("name"),
