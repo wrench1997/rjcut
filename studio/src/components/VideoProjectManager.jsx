@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { VideoPreview } from './FileBrowser'
+import { DigitalHumanVFSImporter } from './DigitalHumanVFSImporter'
 
 // =====================================================
 // 项目卡片组件
@@ -402,6 +403,51 @@ function ProjectVideoViewer({ project, vfs, onNavigate }) {
           )}
         </div>
       </div>
+      
+      {/* 数字人视频导入模态框 */}
+      {showDHImporter && (
+        <DigitalHumanVFSImporter
+          projectPath={project.path}
+          onImportComplete={(videoInfo) => {
+            setImportStatus({ 
+              success: true, 
+              message: `视频已导入：${videoInfo.name}`,
+              video: videoInfo 
+            })
+            setShowDHImporter(false)
+            // 重新加载项目配置
+            loadProject()
+          }}
+          onClose={() => setShowDHImporter(false)}
+          onError={(err) => {
+            setImportStatus({ success: false, message: err.message })
+            setShowDHImporter(false)
+          }}
+        />
+      )}
+      
+      {/* 导入状态提示 */}
+      {importStatus && (
+        <div 
+          className={`toast ${importStatus.success ? 'toast-success' : 'toast-error'}`}
+          onClick={() => setImportStatus(null)}
+          style={{
+            position: 'fixed',
+            bottom: '20px',
+            right: '20px',
+            padding: 'var(--spacing-md)',
+            borderRadius: 'var(--rounded-md)',
+            backgroundColor: importStatus.success 
+              ? 'rgba(52, 199, 89, 0.9)' 
+              : 'rgba(255, 59, 48, 0.9)',
+            color: 'white',
+            cursor: 'pointer',
+            zIndex: 10000,
+          }}
+        >
+          {importStatus.success ? '✓' : '✗'} {importStatus.message}
+        </div>
+      )}
     </div>
   )
 }
@@ -413,21 +459,23 @@ function ProjectDetail({ project, vfs, onBack, onOpen, onNavigate }) {
   const [config, setConfig] = useState(null)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('overview') // 'overview' | 'scripts' | 'videos' | 'files' | 'settings'
+  const [showDHImporter, setShowDHImporter] = useState(false)
+  const [importStatus, setImportStatus] = useState(null)
+  
+  const loadProject = async () => {
+    try {
+      setLoading(true)
+      const configData = await vfs.readJSON(`${project.path}/project.json`)
+      setConfig(configData)
+    } catch (e) {
+      console.error('加载项目配置失败:', e)
+      setConfig({ error: true, message: e.message })
+    } finally {
+      setLoading(false)
+    }
+  }
   
   useEffect(() => {
-    const loadProject = async () => {
-      try {
-        setLoading(true)
-        const configData = await vfs.readJSON(`${project.path}/project.json`)
-        setConfig(configData)
-      } catch (e) {
-        console.error('加载项目配置失败:', e)
-        setConfig({ error: true, message: e.message })
-      } finally {
-        setLoading(false)
-      }
-    }
-    
     if (project) {
       loadProject()
     }
@@ -462,6 +510,13 @@ function ProjectDetail({ project, vfs, onBack, onOpen, onNavigate }) {
         </div>
         
         <div className="project-detail-actions">
+          <button
+            className="btn btn-ghost"
+            onClick={() => setShowDHImporter(true)}
+            title="导入数字人视频"
+          >
+            🎭 导入数字人视频
+          </button>
           <button
             className="btn btn-primary"
             onClick={() => onOpen(project)}
