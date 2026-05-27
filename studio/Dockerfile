@@ -13,7 +13,7 @@ ENV https_proxy=${HTTPS_PROXY}
 WORKDIR /app
 
 # 复制 package 文件
-COPY package*.json ./
+COPY package*.json /app
 
 # 安装依赖
 RUN npm install
