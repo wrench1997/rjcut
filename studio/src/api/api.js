@@ -3,18 +3,36 @@
  */
 import axios from 'axios';
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001';
+const DEFAULT_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001';
 const DEFAULT_API_KEY = 'rjk_oG3u1bRu10myprstb5o2AYVW6v9HipNT33ALuJTmFxaqemUC';
+
+// 获取 API 地址（支持从 localStorage 读取用户配置）
+const getBaseUrl = () => {
+  if (typeof localStorage !== 'undefined') {
+    return localStorage.getItem('rjcut_api_base_url') || DEFAULT_BASE_URL;
+  }
+  return DEFAULT_BASE_URL;
+};
 
 // 创建 axios 实例
 const apiClient = axios.create({
-  baseURL: BASE_URL,
+  baseURL: getBaseUrl(),
   headers: {
     'Content-Type': 'application/json',
   },
 });
 
-// 请求拦截器 - 添加 API Key
+// 请求拦截器 - 动态设置 baseURL 和 API Key
+apiClient.interceptors.request.use((config) => {
+  // 每次请求前检查是否有新的 API 地址配置
+  const baseUrl = getBaseUrl();
+  if (baseUrl && config.baseURL !== baseUrl) {
+    config.baseURL = baseUrl;
+  }
+  return config;
+});
+
+// 设置 API Key
 export const setApiKey = (apiKey) => {
   apiClient.defaults.headers.common['Authorization'] = `Bearer ${apiKey}`;
 };

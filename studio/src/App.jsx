@@ -10,7 +10,7 @@ import DigitalHumanManager from './components/DigitalHumanManager'
 // =====================================================
 // API 配置
 // =====================================================
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001'
+const DEFAULT_API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001'
 const DEFAULT_API_KEY = 'rjk_oG3u1bRu10myprstb5o2AYVW6v9HipNT33ALuJTmFxaqemUC'
 
 // =====================================================
@@ -18,8 +18,8 @@ const DEFAULT_API_KEY = 'rjk_oG3u1bRu10myprstb5o2AYVW6v9HipNT33ALuJTmFxaqemUC'
 // =====================================================
 const generateTraceId = () => 'trace_' + Math.random().toString(36).substring(2, 18)
 
-const apiRequest = async (endpoint, options = {}, apiKey = DEFAULT_API_KEY) => {
-  const url = `${API_BASE_URL}${endpoint}`
+const apiRequest = async (endpoint, options = {}, apiKey = DEFAULT_API_KEY, baseUrl = DEFAULT_API_BASE_URL) => {
+  const url = `${baseUrl}${endpoint}`
   const config = {
     ...options,
     headers: {
@@ -219,9 +219,9 @@ function ProjectSelectorItem({ project, selected, onToggle }) {
 // =====================================================
 // 任务列表项 (修复了下载功能，支持下载所有产物)
 // =====================================================
-function TaskListItem({ task, onRefresh, onCancel }) {
+function TaskListItem({ task, onRefresh, onCancel, apiBaseUrl }) {
   const [loading, setLoading] = useState(false)
-  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001'
+  const effectiveApiUrl = apiBaseUrl || 'http://localhost:8001'
   
   const handleRefresh = async () => {
     setLoading(true)
@@ -246,7 +246,7 @@ function TaskListItem({ task, onRefresh, onCancel }) {
   const handleDownload = async (fileKey) => {
     try {
       const apiKey = localStorage.getItem('rjcut_api_key');
-      const res = await fetch(`${API_BASE_URL}/v1/tasks/${task.task_id}/files/${fileKey}`, {
+      const res = await fetch(`${effectiveApiUrl}/v1/tasks/${task.task_id}/files/${fileKey}`, {
         headers: { 'Authorization': `Bearer ${apiKey}` }
       });
       const data = await res.json();
@@ -366,6 +366,9 @@ function App() {
   const [apiKey, setApiKey] = useState(() => 
     localStorage.getItem('rjcut_api_key') || DEFAULT_API_KEY
   )
+  const [apiBaseUrl, setApiBaseUrl] = useState(() => 
+    localStorage.getItem('rjcut_api_base_url') || DEFAULT_API_BASE_URL
+  )
   const [tasks, setTasks] = useState([])
   
   // UI 状态
@@ -402,44 +405,49 @@ function App() {
     localStorage.setItem('rjcut_api_key', apiKey)
   }, [apiKey])
   
+  // 保存 API 地址
+  useEffect(() => {
+    localStorage.setItem('rjcut_api_base_url', apiBaseUrl)
+  }, [apiBaseUrl])
+  
   // 获取商户信息
   const fetchMerchantInfo = useCallback(async () => {
     try {
-      const res = await apiRequest('/v1/merchant/info', {}, apiKey)
+      const res = await apiRequest('/v1/merchant/info', {}, apiKey, apiBaseUrl)
       setMerchantInfo(res.data)
     } catch (err) {
       console.error('获取商户信息失败:', err)
     }
-  }, [apiKey])
+  }, [apiKey, apiBaseUrl])
   
   // 获取任务列表
   const fetchTasks = useCallback(async () => {
     try {
-      const res = await apiRequest('/v1/tasks?limit=50', {}, apiKey)
+      const res = await apiRequest('/v1/tasks?limit=50', {}, apiKey, apiBaseUrl)
       setTasks(res.data.items || [])
     } catch (err) {
       console.error('获取任务列表失败:', err)
     }
-  }, [apiKey])
+  }, [apiKey, apiBaseUrl])
   
   // 刷新单个任务
   const refreshTask = useCallback(async (taskId) => {
     try {
-      const res = await apiRequest(`/v1/tasks/${taskId}`, {}, apiKey)
+      const res = await apiRequest(`/v1/tasks/${taskId}`, {}, apiKey, apiBaseUrl)
       setTasks(prev => prev.map(t => t.task_id === taskId ? res.data : t))
     } catch (err) {
       throw err
     }
-  }, [apiKey])
+  }, [apiKey, apiBaseUrl])
   
   // 取消任务
   const cancelTask = useCallback(async (taskId) => {
     await apiRequest(`/v1/tasks/${taskId}/cancel`, {
       method: 'POST',
       body: JSON.stringify({ reason: '用户取消' }),
-    }, apiKey)
+    }, apiKey, apiBaseUrl)
     await refreshTask(taskId)
-  }, [apiKey, refreshTask])
+  }, [apiKey, apiBaseUrl, refreshTask])
   
   // 初始化加载
   useEffect(() => {
@@ -655,6 +663,7 @@ function App() {
                     task={task}
                     onRefresh={refreshTask}
                     onCancel={cancelTask}
+                    apiBaseUrl={apiBaseUrl}
                   />
                 ))
               )}
@@ -718,12 +727,12 @@ function App() {
                   <input
                     type="text"
                     className="input"
-                    value={API_BASE_URL}
-                    disabled
-                    style={{ backgroundColor: 'var(--surface-pearl)', cursor: 'not-allowed' }}
+                    value={apiBaseUrl}
+                    onChange={(e) => setApiBaseUrl(e.target.value)}
+                    placeholder="http://localhost:8001"
                   />
                   <p className="caption text-muted mb-sm" style={{ marginTop: 'var(--spacing-xs)' }}>
-                    如需修改，请编辑 .env 文件或 vite.config.js
+                    API 地址将保存在本地浏览器中
                   </p>
                 </div>
                 
