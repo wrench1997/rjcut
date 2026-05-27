@@ -1,53 +1,33 @@
 version: '3.8'
 
 services:
-  # 生产环境 - 使用 nginx 服务前端静态文件
-  studio:
-    image: nginx:alpine
-    container_name: rjcut-studio
+  # 开发环境服务
+  studio-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: rjcut-studio-dev
+    ports:
+      - "5173:5173"
+    volumes:
+      - .:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - VITE_API_BASE_URL=http://localhost:8000
+    command: npm run dev -- --host 0.0.0.0
+    restart: unless-stopped
+
+  # 生产环境服务（构建并运行静态服务器）
+  studio-prod:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rjcut-studio-prod
     ports:
       - "80:80"
-    volumes:
-      - ./dist:/usr/share/nginx/html:ro
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
     environment:
       - VITE_API_BASE_URL=http://localhost:8000
-    restart: always
+    restart: unless-stopped
     depends_on:
-      - api
-
-  # API 后端服务
-  api:
-    image: rjcut:latest
-    container_name: rjcut-studio-api
-    ports:
-      - "8000:8000"
-    environment:
-      - DATABASE_URL=postgresql://rjcut:rjcut_secret_2024@postgres:5432/rjcut
-      - REDIS_URL=redis://redis:6379/0
-    restart: always
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-
-  # 依赖服务 - PostgreSQL
-  postgres:
-    image: postgres:17
-    container_name: rjcut-studio-postgres
-    environment:
-      POSTGRES_DB: rjcut
-      POSTGRES_USER: rjcut
-      POSTGRES_PASSWORD: rjcut_secret_2024
-    volumes:
-      - ./pgdata:/var/lib/postgresql/data
-    restart: always
-
-  # 依赖服务 - Redis
-  redis:
-    image: redis:7-alpine
-    container_name: rjcut-studio-redis
-    restart: always
+      - studio-dev
