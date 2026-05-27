@@ -23,7 +23,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      args:
     container_name: rjcut-studio-prod
     ports:
       - "80:80"
