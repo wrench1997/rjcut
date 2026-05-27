@@ -224,11 +224,15 @@ function DigitalPersonCard({ person, isCustom, onSelect, onDelete, onRefresh }) 
 // 创建视频任务表单
 // =====================================================
 function CreateVideoForm({ person, voices, onSubmit, onCancel }) {
+  // 🎭 获取该数字人支持的所有形象类型
+  const availableFigureTypes = person?.available_figure_types || []
+  const defaultFigureType = person?.figure_type || availableFigureTypes?.[0] || 'whole_body'
+  
   const [formData, setFormData] = useState({
     text: '',
     person_id: person?.id || '',
     audio_man_id: '',
-    figure_type: person?.figure_type || 'whole_body',
+    figure_type: defaultFigureType,
     drive_mode: 'random',
     bg_type: 'color',
     bg_color: '#EDEDED',
@@ -341,13 +345,24 @@ function CreateVideoForm({ person, voices, onSubmit, onCancel }) {
             value={formData.figure_type}
             onChange={(e) => setFormData({ ...formData, figure_type: e.target.value })}
           >
-            <option value="whole_body">whole_body</option>
-            <option value="head_shot">head_shot</option>
-            <option value="half_body">half_body</option>
+            {availableFigureTypes.length > 0 ? (
+              availableFigureTypes.map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
+              ))
+            ) : (
+              <>
+                <option value="whole_body">whole_body</option>
+                <option value="sit_body">sit_body</option>
+                <option value="head_shot">head_shot</option>
+                <option value="half_body">half_body</option>
+              </>
+            )}
           </select>
-          {person?.figure_type && (
+          {availableFigureTypes.length > 0 && (
             <p className="caption text-muted mt-xs">
-              💡 当前数字人默认形象：{person.figure_type}
+              💡 当前数字人支持 {availableFigureTypes.length} 种形象：{availableFigureTypes.join(', ')}
             </p>
           )}
         </div>

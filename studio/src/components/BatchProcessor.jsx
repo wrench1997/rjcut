@@ -184,7 +184,7 @@ function BatchStats({ stats }) {
 // =====================================================
 // 文件选择器组件
 // =====================================================
-function FileSelector({ label, vfs, selectedFile, onSelect, accept, disabled, initialPath = '/raw', selectDirectory = false }) {
+function FileSelector({ label, vfs, selectedFile, onSelect, accept, disabled, initialPath = '/raw', selectDirectory = false, multiple = false }) {
   const [showBrowser, setShowBrowser] = useState(false)
   const [browserPath, setBrowserPath] = useState(initialPath)
   const [browserItems, setBrowserItems] = useState([])
@@ -246,8 +246,17 @@ function FileSelector({ label, vfs, selectedFile, onSelect, accept, disabled, in
   const handleFileSelect = (item) => {
     if (!item.isDirectory) {
       if (!selectDirectory) {
-        onSelect(item.path)
-        setShowBrowser(false)
+        if (multiple) {
+          // 多选模式：添加到列表，不关闭浏览器
+          const currentFiles = selectedFile || []
+          if (!currentFiles.includes(item.path)) {
+            onSelect([...currentFiles, item.path])
+          }
+          // 多选模式下不自动关闭，让用户继续选择
+        } else {
+          onSelect(item.path)
+          setShowBrowser(false)
+        }
       }
     } else {
       loadDirectory(item.path)
@@ -264,21 +273,51 @@ function FileSelector({ label, vfs, selectedFile, onSelect, accept, disabled, in
       <label className="caption-strong mb-sm" style={{ display: 'block' }}>
         {label}
       </label>
-      {selectedFile ? (
+      {selectedFile && ((multiple && Array.isArray(selectedFile) && selectedFile.length > 0) || (!multiple && selectedFile)) ? (
         <div className="flex gap-sm items-center" style={{ flexWrap: 'wrap' }}>
-          <span className="body" style={{ 
-            flex: 1, 
-            minWidth: '200px',
-            padding: '8px',
-            backgroundColor: 'rgba(0, 122, 255, 0.05)',
-            borderRadius: '4px',
-            border: '1px solid var(--primary)',
-          }}>
-            📄 {selectedFile}
-          </span>
+          {multiple && Array.isArray(selectedFile) ? (
+            // 多选模式：显示文件列表
+            <div style={{ flex: 1, minWidth: '200px' }}>
+              {selectedFile.map((file, idx) => (
+                <div key={idx} className="flex items-center gap-xs mb-xs" style={{ 
+                  padding: '6px 8px',
+                  backgroundColor: 'rgba(0, 122, 255, 0.05)',
+                  borderRadius: '4px',
+                  border: '1px solid var(--primary)',
+                }}>
+                  <span className="body" style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    📄 {file.split('/').pop()}
+                  </span>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => {
+                      const newFiles = selectedFile.filter((_, i) => i !== idx)
+                      onSelect(newFiles.length > 0 ? newFiles : null)
+                    }}
+                    disabled={disabled}
+                    style={{ padding: '2px 6px' }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            // 单选模式
+            <span className="body" style={{ 
+              flex: 1, 
+              minWidth: '200px',
+              padding: '8px',
+              backgroundColor: 'rgba(0, 122, 255, 0.05)',
+              borderRadius: '4px',
+              border: '1px solid var(--primary)',
+            }}>
+              📄 {typeof selectedFile === 'string' ? selectedFile : selectedFile}
+            </span>
+          )}
           <button
             className="btn btn-ghost btn-sm"
-            onClick={() => onSelect(null)}
+            onClick={() => onSelect(multiple ? [] : null)}
             disabled={disabled}
           >
             清除
@@ -322,10 +361,20 @@ function FileSelector({ label, vfs, selectedFile, onSelect, accept, disabled, in
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex justify-between items-center mb-md">
-              <h3 className="tagline">选择文件</h3>
-              <button className="btn btn-ghost btn-sm" onClick={() => setShowBrowser(false)}>
-                ✕
-              </button>
+              <h3 className="tagline">选择文件 {multiple && '(多选模式)'}</h3>
+              <div className="flex gap-xs">
+                {multiple && (
+                  <button 
+                    className="btn btn-primary btn-sm" 
+                    onClick={() => setShowBrowser(false)}
+                  >
+                    ✓ 完成选择
+                  </button>
+                )}
+                <button className="btn btn-ghost btn-sm" onClick={() => setShowBrowser(false)}>
+                  ✕
+                </button>
+              </div>
             </div>
 
             {/* 路径导航 */}
@@ -379,31 +428,57 @@ function FileSelector({ label, vfs, selectedFile, onSelect, accept, disabled, in
                   <span>空目录</span>
                 </div>
               ) : (
-                browserItems.map(item => (
-                  <div
-                    key={item.path}
-                    className="flex items-center gap-sm"
-                    style={{
-                      padding: '10px',
-                      borderBottom: '1px solid var(--hairline)',
-                      cursor: 'pointer',
-                      backgroundColor: 'transparent',
-                    }}
-                    onClick={() => handleFileSelect(item)}
-                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(0, 122, 255, 0.05)'}
-                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                  >
-                    <span style={{ fontSize: '18px' }}>
-                      {item.isDirectory ? '📁' : '📄'}
-                    </span>
-                    <span className="body">{item.name}</span>
-                    {item.size && (
-                      <span className="caption text-muted" style={{ marginLeft: 'auto' }}>
-                        {(item.size / 1024 / 1024).toFixed(2)} MB
+                browserItems.map(item => {
+                  // 多选模式下检查是否已选中
+                  const isSelected = multiple && Array.isArray(selectedFile) && selectedFile.includes(item.path)
+                  return (
+                    <div
+                      key={item.path}
+                      className="flex items-center gap-sm"
+                      style={{
+                        padding: '10px',
+                        borderBottom: '1px solid var(--hairline)',
+                        cursor: 'pointer',
+                        backgroundColor: isSelected ? 'rgba(0, 122, 255, 0.15)' : 'transparent',
+                      }}
+                      onClick={() => handleFileSelect(item)}
+                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = isSelected ? 'rgba(0, 122, 255, 0.2)' : 'rgba(0, 122, 255, 0.05)'}
+                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = isSelected ? 'rgba(0, 122, 255, 0.15)' : 'transparent'}
+                    >
+                      {/* 多选模式下显示复选框 */}
+                      {multiple && !item.isDirectory && (
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleFileSelect(item)
+                          }}
+                          style={{ 
+                            width: '18px', 
+                            height: '18px', 
+                            cursor: 'pointer',
+                            accentColor: 'var(--primary)',
+                          }}
+                        />
+                      )}
+                      <span style={{ fontSize: '18px' }}>
+                        {item.isDirectory ? '📁' : '📄'}
                       </span>
-                    )}
-                  </div>
-                ))
+                      <span className="body" style={{ 
+                        flex: 1, 
+                        color: isSelected ? 'var(--primary)' : 'inherit',
+                        fontWeight: isSelected ? 600 : 400,
+                      }}>{item.name}</span>
+                      {item.size && (
+                        <span className="caption text-muted" style={{ marginLeft: 'auto' }}>
+                          {(item.size / 1024 / 1024).toFixed(2)} MB
+                        </span>
+                      )}
+                    </div>
+                  )
+                })
               )}
             </div>
 
@@ -462,27 +537,24 @@ function FileSelector({ label, vfs, selectedFile, onSelect, accept, disabled, in
 // 批量处理器主组件
 // =====================================================
 function BatchProcessor({ vfs, apiKey, className }) {
-  const [selectedProjects, setSelectedProjects] = useState([])
   const [showConfigEditor, setShowConfigEditor] = useState(false)
   const [batchConfig, setBatchConfig] = useState({
     customConfig: '',
   })
-  // 文件指定选项（只保留自定义文件模式）
+  // 文件指定选项（支持多视频 + 单配置模式）
   const [projectCustomFiles, setProjectCustomFiles] = useState({
-    video: null,
+    videos: [],  // 支持多个视频文件
     script: null,
     corrections: null,
     bgm: null,
     scenes: null,
   })
   const [maxConcurrent, setMaxConcurrent] = useState(3)
-  const [autoCompose, setAutoCompose] = useState(true)
   const [localError, setLocalError] = useState('')
 
   const {
     tasks,
     isRunning,
-    isPaused,
     startTime,
     endTime,
     startBatch,
@@ -497,65 +569,30 @@ function BatchProcessor({ vfs, apiKey, className }) {
 
   const stats = getTaskStats()
 
-  const [projects, setProjects] = useState([])
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    const loadProjects = async () => {
-      try {
-        setLoading(true)
-        const projectList = await vfs.getVideoProjects()
-        setProjects(projectList)
-      } catch (e) {
-        console.error('加载项目列表失败:', e)
-        setLocalError(`加载项目失败：${e.message}`)
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    if (vfs) {
-      loadProjects()
-    }
-  }, [vfs])
-
-  const handleToggleProject = (project) => {
-    const isSelected = selectedProjects.some(p => p.path === project.path)
-    if (isSelected) {
-      setSelectedProjects(selectedProjects.filter(p => p.path !== project.path))
-    } else {
-      setSelectedProjects([...selectedProjects, project])
-    }
-  }
-
-  const handleSelectAll = () => {
-    if (selectedProjects.length === projects.length) {
-      setSelectedProjects([])
-    } else {
-      setSelectedProjects([...projects])
-    }
-  }
-
   const prepareProjectTasks = useCallback(() => {
-    return selectedProjects.map(project => {
-      const videoPath = projectCustomFiles.video
-      const scriptPath = projectCustomFiles.script
-      const correctionsPath = projectCustomFiles.corrections
-      const bgmPath = projectCustomFiles.bgm
-      const scenesPath = projectCustomFiles.scenes
-      
-      return {
-        id: project.name,
+    // 支持多视频模式：每个视频生成一个任务，共享相同的配置（脚本、修正、BGM、场景）
+    const tasks = []
+    const { videos, script, corrections, bgm, scenes } = projectCustomFiles
+    
+    if (!videos || videos.length === 0) {
+      return []
+    }
+    
+    videos.forEach((videoPath, index) => {
+      tasks.push({
+        id: `video_${index + 1}_${videoPath.split('/').pop()}`,
         vfsVideoPath: videoPath,
-        vfsScriptPath: scriptPath,
-        vfsCorrectionsPath: correctionsPath,
-        vfsBgmPath: bgmPath,
-        vfsScenesPath: scenesPath,
+        vfsScriptPath: script,
+        vfsCorrectionsPath: corrections,
+        vfsBgmPath: bgm,
+        vfsScenesPath: scenes,
         stage: 'idle',
         progress: 0,
-      }
+      })
     })
-  }, [selectedProjects, projectCustomFiles])
+    
+    return tasks
+  }, [projectCustomFiles])
 
   const prepareTasks = useCallback(() => {
     return prepareProjectTasks()
@@ -564,13 +601,8 @@ function BatchProcessor({ vfs, apiKey, className }) {
   const handleStartBatch = async () => {
     setLocalError('')
     
-    if (selectedProjects.length === 0) {
-      setLocalError('请至少选择一个项目')
-      return
-    }
-
-    if (!projectCustomFiles.video) {
-      setLocalError('请选择视频文件')
+    if (!projectCustomFiles.videos || projectCustomFiles.videos.length === 0) {
+      setLocalError('请至少选择一个视频文件')
       return
     }
 
@@ -618,7 +650,7 @@ function BatchProcessor({ vfs, apiKey, className }) {
             {tasks.map(task => (
               <TaskCard key={task.id} task={task} />
             ))}
-          </div>
+</div>
 
           <div className="flex gap-md justify-center mt-xxl">
             {isRunning && (
@@ -635,237 +667,158 @@ function BatchProcessor({ vfs, apiKey, className }) {
                 className="btn btn-primary"
                 onClick={() => {
                   reset()
-                  setSelectedProjects([])
-                  setProjectCustomFiles({ video: null, script: null, corrections: null, bgm: null, scenes: null })
+                  setProjectCustomFiles({ videos: [], script: null, corrections: null, bgm: null, scenes: null })
                 }}
               >
-                返回选择
+                重置
               </button>
             )}
           </div>
         </>
       ) : (
+        <>
+          <div className="card mb-xxl">
+            <h3 className="tagline mb-md">📁 选择视频文件（支持多选）</h3>
+          <p className="caption text-muted mb-md">
+            选择一个或多个数字人视频文件，它们将使用相同的脚本、场景、修正和背景音乐进行批量合成。
+          </p>
+          
+          <FileSelector
+            label="视频文件（支持多选）*"
+            vfs={vfs}
+            selectedFile={projectCustomFiles.videos}
+            onSelect={(paths) => setProjectCustomFiles({ ...projectCustomFiles, videos: paths })}
+            accept="video/*"
+            disabled={isRunning}
+            multiple={true}
+          />
+
+          <FileSelector
+            label="脚本文件 (可选)"
+            vfs={vfs}
+            selectedFile={projectCustomFiles.script}
+            onSelect={(path) => setProjectCustomFiles({ ...projectCustomFiles, script: path })}
+            accept=".json"
+            disabled={isRunning}
+          />
+
+          <FileSelector
+            label="场景文件目录 (可选)"
+            vfs={vfs}
+            selectedFile={projectCustomFiles.scenes}
+            onSelect={(path) => setProjectCustomFiles({ ...projectCustomFiles, scenes: path })}
+            accept="directory"
+            selectDirectory={true}
+            disabled={isRunning}
+          />
+
+          <FileSelector
+            label="修正文件 (可选)"
+            vfs={vfs}
+            selectedFile={projectCustomFiles.corrections}
+            onSelect={(path) => setProjectCustomFiles({ ...projectCustomFiles, corrections: path })}
+            accept=".json"
+            disabled={isRunning}
+          />
+
+          <FileSelector
+            label="背景音乐 (可选)"
+            vfs={vfs}
+            selectedFile={projectCustomFiles.bgm}
+            onSelect={(path) => setProjectCustomFiles({ ...projectCustomFiles, bgm: path })}
+            accept="audio/*"
+            disabled={isRunning}
+/>
+        </div>
+
         <div className="card mb-xxl">
           <div className="flex justify-between items-center mb-md">
-            <h3 className="tagline">选择项目</h3>
-            <button 
-              className="btn btn-pearl-capsule"
-              onClick={handleSelectAll}
+            <h3 className="tagline">处理配置</h3>
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => setShowConfigEditor(!showConfigEditor)}
             >
-              {selectedProjects.length === projects.length ? '取消全选' : '全选'}
+              {showConfigEditor ? '收起' : '展开'}
             </button>
           </div>
 
-          {loading ? (
-            <div className="empty-state">
-              <span>加载项目中...</span>
+          <div className="flex gap-lg items-center" style={{ flexWrap: 'wrap' }}>
+            <div>
+              <label className="caption-strong mb-sm" style={{ display: 'block' }}>
+                最大并发数
+              </label>
+              <select 
+                className="input" 
+                value={maxConcurrent}
+                onChange={(e) => setMaxConcurrent(Number(e.target.value))}
+                style={{ width: 'auto', minWidth: '120px' }}
+                disabled={isRunning}
+              >
+                <option value={1}>1</option>
+                <option value={2}>2</option>
+                <option value={3}>3</option>
+                <option value={5}>5</option>
+                <option value={10}>10</option>
+              </select>
             </div>
-          ) : projects.length === 0 ? (
-            <div className="empty-state">
-              <span className="empty-icon">🎬</span>
-              <p className="empty-text">暂无项目</p>
-            </div>
-          ) : (
-            <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
-              {projects.map(project => (
-                <div
-                  key={project.path}
-                  className={`project-selector-item ${
-                    selectedProjects.some(p => p.path === project.path) ? 'selected' : ''
-                  }`}
-                  onClick={() => handleToggleProject(project)}
-                  style={{
-                    padding: 'var(--spacing-md)',
-                    borderRadius: 'var(--rounded-md)',
-                    cursor: 'pointer',
-                    backgroundColor: selectedProjects.some(p => p.path === project.path) 
-                      ? 'rgba(0, 122, 255, 0.1)' 
-                      : 'transparent',
-                    border: selectedProjects.some(p => p.path === project.path)
-                      ? '1px solid var(--primary)'
-                      : '1px solid var(--hairline)',
-                    marginBottom: 'var(--spacing-sm)',
+          </div>
+
+          {showConfigEditor && (
+            <div className="mt-md">
+              <div className="mb-md">
+                <label className="caption-strong mb-sm" style={{ display: 'block' }}>
+                  自定义配置 (JSON，可选)
+                </label>
+                <textarea
+                  className="input"
+                  value={batchConfig.customConfig}
+                  onChange={(e) => setBatchConfig({ ...batchConfig, customConfig: e.target.value })}
+                  placeholder='{"pipeline": {"remove_keyword": "转场"}, "subtitle": {"effect": "ad"}}'
+                  rows={4}
+                  disabled={isRunning}
+                  style={{ 
+                    fontFamily: 'monospace',
+                    fontSize: '14px',
                   }}
-                >
-                  <div className="flex items-center gap-sm">
-                    <input
-                      type="checkbox"
-                      checked={selectedProjects.some(p => p.path === project.path)}
-                      onChange={() => {}}
-                      onClick={(e) => e.stopPropagation()}
-                      style={{ width: '18px', height: '18px' }}
-                    />
-                    <span className="body-strong">{project.name}</span>
-                  </div>
-                  <p className="caption text-muted mt-xs">
-                    更新于 {new Date(project.updatedAt).toLocaleString('zh-CN')}
-                  </p>
-                </div>
-              ))}
+                />
+              </div>
             </div>
           )}
         </div>
-      )}
 
-      {tasks.length === 0 && (
-        <>
-          <div className="card mb-xxl">
-            <div className="mb-md">
-                <FileSelector
-                  label="视频文件 *"
-                  vfs={vfs}
-                  selectedFile={projectCustomFiles.video}
-                  onSelect={(path) => setProjectCustomFiles({ ...projectCustomFiles, video: path })}
-                  accept="video/*"
-                  disabled={isRunning}
-                />
-
-                <FileSelector
-                  label="脚本文件 (可选)"
-                  vfs={vfs}
-                  selectedFile={projectCustomFiles.script}
-                  onSelect={(path) => setProjectCustomFiles({ ...projectCustomFiles, script: path })}
-                  accept=".json"
-                  disabled={isRunning}
-                />
-
-                <FileSelector
-                  label="场景文件目录 (可选)"
-                  vfs={vfs}
-                  selectedFile={projectCustomFiles.scenes}
-                  onSelect={(path) => setProjectCustomFiles({ ...projectCustomFiles, scenes: path })}
-                  accept="directory"
-                  selectDirectory={true}
-                  disabled={isRunning}
-                />
-
-                <FileSelector
-                  label="修正文件 (可选)"
-                  vfs={vfs}
-                  selectedFile={projectCustomFiles.corrections}
-                  onSelect={(path) => setProjectCustomFiles({ ...projectCustomFiles, corrections: path })}
-                  accept=".json"
-                  disabled={isRunning}
-                />
-
-                <FileSelector
-                  label="背景音乐 (可选)"
-                  vfs={vfs}
-                  selectedFile={projectCustomFiles.bgm}
-                  onSelect={(path) => setProjectCustomFiles({ ...projectCustomFiles, bgm: path })}
-                  accept="audio/*"
-                  disabled={isRunning}
-                />
-              </div>
+{localError && (
+          <div className="card mb-xxl" style={{
+            backgroundColor: 'rgba(255, 59, 48, 0.1)',
+            border: '1px solid rgba(255, 59, 48, 0.3)',
+          }}>
+            <p className="body-strong" style={{ color: '#ff3b30' }}>{localError}</p>
           </div>
+        )}
 
-          <div className="card mb-xxl">
-            <div className="flex justify-between items-center mb-md">
-              <h3 className="tagline">处理配置</h3>
-              <button
-                className="btn btn-ghost btn-sm"
-                onClick={() => setShowConfigEditor(!showConfigEditor)}
-              >
-                {showConfigEditor ? '收起' : '展开'}
-              </button>
-            </div>
-
-            <div className="flex gap-lg items-center" style={{ flexWrap: 'wrap' }}>
-              <div>
-                <label className="caption-strong mb-sm" style={{ display: 'block' }}>
-                  最大并发数
-                </label>
-                <select 
-                  className="input" 
-                  value={maxConcurrent}
-                  onChange={(e) => setMaxConcurrent(Number(e.target.value))}
-                  style={{ width: 'auto', minWidth: '120px' }}
-                  disabled={isRunning}
-                >
-                  <option value={1}>1</option>
-                  <option value={2}>2</option>
-                  <option value={3}>3</option>
-                  <option value={5}>5</option>
-                  <option value={10}>10</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="caption-strong mb-sm" style={{ display: 'block' }}>
-                  自动合成
-                </label>
-                <div className="flex items-center gap-xs">
-                  <input
-                    type="checkbox"
-                    id="auto-compose"
-                    checked={autoCompose}
-                    onChange={(e) => setAutoCompose(e.target.checked)}
-                    style={{ width: '18px', height: '18px' }}
-                    disabled={isRunning}
-                  />
-                  <label htmlFor="auto-compose" className="body">
-                    {autoCompose ? '启用' : '禁用'}
-                  </label>
-                </div>
-              </div>
-            </div>
-
-            {showConfigEditor && (
-              <div className="mt-md">
-                <div className="mb-md">
-                  <label className="caption-strong mb-sm" style={{ display: 'block' }}>
-                    自定义配置 (JSON，可选)
-                  </label>
-                  <textarea
-                    className="input"
-                    value={batchConfig.customConfig}
-                    onChange={(e) => setBatchConfig({ ...batchConfig, customConfig: e.target.value })}
-                    placeholder='{"pipeline": {"remove_keyword": "转场"}, "subtitle": {"effect": "ad"}}'
-                    rows={4}
-                    disabled={isRunning}
-                    style={{ 
-                      fontFamily: 'monospace',
-                      fontSize: '14px',
-                    }}
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-
-          {localError && (
-            <div className="card mb-xxl" style={{
-              backgroundColor: 'rgba(255, 59, 48, 0.1)',
-              border: '1px solid rgba(255, 59, 48, 0.3)',
-            }}>
-              <p className="body-strong" style={{ color: '#ff3b30' }}>{localError}</p>
-            </div>
+        <div className="text-center">
+          <button
+            className="btn btn-primary"
+            onClick={handleStartBatch}
+            disabled={
+              !projectCustomFiles.videos || 
+              projectCustomFiles.videos.length === 0 || 
+              isRunning
+            }
+            style={{
+              fontSize: '18px',
+              padding: '14px 40px',
+              fontWeight: 300,
+            }}
+          >
+            {isRunning 
+              ? `处理中 (${stats.running}/${stats.total})` 
+              : `启动 ${projectCustomFiles.videos?.length || 0} 个视频任务`}
+          </button>
+          {(!projectCustomFiles.videos || projectCustomFiles.videos.length === 0) && (
+            <p className="caption text-muted mt-sm" style={{ color: '#ff3b30' }}>
+              ⚠️ 请至少选择一个视频文件
+            </p>
           )}
-
-          <div className="text-center">
-            <button
-              className="btn btn-primary"
-              onClick={handleStartBatch}
-              disabled={
-                selectedProjects.length === 0 || 
-                isRunning ||
-                !projectCustomFiles.video
-              }
-              style={{
-                fontSize: '18px',
-                padding: '14px 40px',
-                fontWeight: 300,
-              }}
-            >
-              {isRunning 
-                ? `处理中 (${stats.running}/${stats.total})` 
-                : `启动 ${selectedProjects.length} 个项目`}
-            </button>
-            {!projectCustomFiles.video && (
-              <p className="caption text-muted mt-sm" style={{ color: '#ff3b30' }}>
-                ⚠️ 请选择视频文件
-              </p>
-            )}
           </div>
         </>
       )}

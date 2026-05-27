@@ -1046,7 +1046,7 @@ function UploadDialog({ vfs, currentPath, onClose, onUploaded }) {
               ) : (
                 projects.map(project => (
                   <option key={project.path} value={project.path}>
-                    {project.name}
+                    {project.name} ({project.path}) - {new Date(project.updatedAt).toLocaleDateString('zh-CN')}
                   </option>
                 ))
               )}

@@ -148,8 +148,16 @@ function NewProjectDialog({ vfs, onClose, onCreated }) {
               onChange={(e) => setTemplate(e.target.value)}
             >
               <option value="default">空白项目</option>
-              <option value="script_template">脚本模板</option>
+              <option value="speaking_video">📢 口播视频 - 单人讲解、产品介绍</option>
+              <option value="documentary">🎬 纪录片风格 - 故事叙述、品牌宣传</option>
+              <option value="short_video">⚡ 快节奏短视频 - 抖音/快手风格</option>
             </select>
+            <p className="caption text-muted mt-xs" style={{ fontSize: '12px' }}>
+              {template === 'default' && '从头开始创建项目，使用默认配置'}
+              {template === 'speaking_video' && '适用于口播、讲解类视频，自动优化停顿和字幕大小'}
+              {template === 'documentary' && '适用于纪录片、宣传片，保留更多情感表达'}
+              {template === 'short_video' && '适用于短视频平台，快节奏剪辑和醒目字幕'}
+            </p>
           </div>
           
           <div className="modal-actions">

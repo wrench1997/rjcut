@@ -270,14 +270,85 @@ export class VirtualFileSystem {
       },
     })
     
-    // 创建示例脚本模板
-    await this.writeJSON('/templates/script_template.json', {
+    // 创建示例脚本模板 - 口播视频
+    await this.writeJSON('/templates/speaking_video.json', {
+      description: '口播视频模板 - 适用于单人讲解、产品介绍等场景',
+      config: {
+        pipeline: {
+          remove_keyword: '转场，好，那么',
+          margin: 0.2,
+          min_segment_duration: 0.5,
+        },
+        subtitle: {
+          effect: 'ad',
+          font_size: 96,
+          position: 'bottom',
+        },
+      },
       scenes: [
         {
           start_time: 0,
           end_time: 5,
-          text: '这是一个示例场景',
-          keywords: ['示例', '场景'],
+          text: '大家好，今天我来介绍一下我们的产品',
+          keywords: ['介绍', '产品'],
+        },
+      ],
+    })
+    
+    // 创建示例脚本模板 - 纪录片风格
+    await this.writeJSON('/templates/documentary.json', {
+      description: '纪录片风格模板 - 适用于故事叙述、品牌宣传等场景',
+      config: {
+        pipeline: {
+          remove_keyword: '转场',
+          margin: 0.15,
+          min_segment_duration: 0.3,
+        },
+        subtitle: {
+          effect: 'classic',
+          font_size: 80,
+          position: 'bottom',
+        },
+        audio: {
+          bgm_volume: 0.4,
+          original_volume: 0.8,
+        },
+      },
+      scenes: [
+        {
+          start_time: 0,
+          end_time: 10,
+          text: '这是一个关于创新与梦想的故事',
+          keywords: ['创新', '梦想', '故事'],
+        },
+      ],
+    })
+    
+    // 创建示例脚本模板 - 快节奏短视频
+    await this.writeJSON('/templates/short_video.json', {
+      description: '快节奏短视频模板 - 适用于抖音、快手等短视频平台',
+      config: {
+        pipeline: {
+          remove_keyword: '转场，好，那么，然后',
+          margin: 0.1,
+          min_segment_duration: 0.2,
+        },
+        subtitle: {
+          effect: 'highlight',
+          font_size: 100,
+          position: 'center',
+        },
+        audio: {
+          bgm_volume: 0.5,
+          original_volume: 1.0,
+        },
+      },
+      scenes: [
+        {
+          start_time: 0,
+          end_time: 3,
+          text: '三秒钟告诉你这个技巧有多实用！',
+          keywords: ['技巧', '实用'],
         },
       ],
     })
@@ -403,18 +474,17 @@ export class VirtualFileSystem {
         await dbOperations.putDirectory(dirData)
         
         // 添加到父目录的 children
-        if (parentPath) {
-          const parent = this.directories.get(parentPath)
-          if (parent) {
-            parent.children.add(currentPath)
-            await dbOperations.putDirectory({
-              path: parentPath,
-              name: parent.name,
-              parent: parent.parent,
-              children: Array.from(parent.children),
-              createdAt: parent.createdAt,
-            })
-          }
+        const actualParentPath = parentPath || ROOT_PATH
+        const parent = this.directories.get(actualParentPath)
+        if (parent) {
+          parent.children.add(currentPath)
+          await dbOperations.putDirectory({
+            path: actualParentPath,
+            name: parent.name,
+            parent: parent.parent,
+            children: Array.from(parent.children),
+            createdAt: parent.createdAt,
+          })
         }
       }
     }
@@ -578,12 +648,13 @@ export class VirtualFileSystem {
       }
       
       // 从父目录移除
-      if (dir.parent) {
-        const parent = this.directories.get(dir.parent)
+      const parentPath = dir.parent !== undefined ? (dir.parent || ROOT_PATH) : ROOT_PATH
+      if (dir.parent !== undefined || normalizedPath.startsWith('/raw/') || normalizedPath === '/raw') {
+        const parent = this.directories.get(parentPath)
         if (parent) {
           parent.children.delete(normalizedPath)
           await dbOperations.putDirectory({
-            path: dir.parent,
+            path: parentPath,
             name: parent.name,
             parent: parent.parent,
             children: Array.from(parent.children),

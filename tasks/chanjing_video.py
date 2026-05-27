@@ -100,11 +100,21 @@ def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merch
         if not audio_man_id:
             raise Exception("缺少 audio_man_id：请提供 audio_man_id 或确保数字人已关联声音 ID")
 
+        # 🎭 获取 figure_type：优先使用 payload 中传递的值（前端已根据数字人类型正确设置）
+        # 如果 payload 中未提供，则尝试获取默认值
+        figure_type = payload.get("figure_type")
+        
+        if not figure_type:
+            # 前端未传递 figure_type 时，记录警告并使用一个保守的默认值
+            # 注意：公共数字人的 figure_type 应该由前端根据用户选择的 figure 来确定
+            figure_type = "sit_body"  # 修改默认值为 sit_body，这是公共数字人常见的形象类型
+            api.logger.warning(f"payload 中未提供 figure_type，使用默认值：{figure_type}。建议前端传递正确的 figure_type。")
+
         video_params = {
             "digital_person_id": digital_person_id,
             "text": payload.get("text"),
             "audio_man_id": audio_man_id,
-            "figure_type": payload.get("figure_type"),
+            "figure_type": figure_type,
             "drive_mode": payload.get("drive_mode"),
             "person_x": 0,
             "person_y": 0,

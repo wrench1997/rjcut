@@ -30,13 +30,13 @@ def fail(code, msg, status_code=400): return {"code": code, "message": msg}
 
 @router.get("/persons/common")
 def list_common_persons(_: Merchant = Depends(verify_api_key)):
-    """获取公共数字人列表（展开 figures 为独立选项）"""
+    """获取公共数字人列表（包含所有可选形象类型）"""
     api = get_chanjing_api()
     res = api.list_common_digital_persons(page=1, size=100)
     
     persons = res.get("data", {}).get("list", [])
     
-    # 展开 figures：每个 figure 作为一个独立的数字人选项
+    # 返回完整的数字人信息，包含所有可选的 figures
     result_list = []
     for person in persons:
         person_id = person.get("id", "")
@@ -44,21 +44,24 @@ def list_common_persons(_: Merchant = Depends(verify_api_key)):
         audio_man_id = person.get("audio_man_id", "")
         figures = person.get("figures", [])
         
-        for figure in figures:
-            figure_type = figure.get("type", "")
-            cover = figure.get("cover", "")
-            preview_video = figure.get("preview_video_url", "")
-            
-            result_list.append({
-                "id": person_id,
-                "name": f"{person_name} ({figure_type})",
-                "person_id": person_id,  # 原始数字人 ID
-                "figure_type": figure_type,  # 形象类型
-                "cover_url": cover,
-                "preview_video_url": preview_video,
-                "audio_man_id": audio_man_id,
-                "gender": person.get("gender", ""),
-            })
+        # 提取所有可选的 figure_type 列表
+        available_figure_types = [fig.get("type", "") for fig in figures if fig.get("type")]
+        
+        # 使用第一个 figure 作为默认封面和预览
+        default_figure = figures[0] if figures else {}
+        
+        result_list.append({
+            "id": person_id,
+            "name": person_name,
+            "person_id": person_id,
+            "figure_type": default_figure.get("type", "whole_body"),  # 默认形象类型
+            "available_figure_types": available_figure_types,  # 🎭 所有可选的形象类型
+            "cover_url": default_figure.get("cover", ""),
+            "preview_video_url": default_figure.get("preview_video_url", ""),
+            "audio_man_id": audio_man_id,
+            "gender": person.get("gender", ""),
+            "figures": figures,  # 保留完整的 figures 数组供前端使用
+        })
     
     return ok(result_list)
 
