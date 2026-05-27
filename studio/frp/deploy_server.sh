@@ -8,7 +8,7 @@ echo "  FRP 服务端快速部署脚本"
 echo "========================================="
 
 # 配置变量（请根据实际情况修改）
-FRP_VERSION="0.52.3"
+FRP_VERSION="0.69.0"
 FRP_DIR="/opt/rjcut-frp"
 TOKEN="YOUR_SECURE_TOKEN_$(date +%s | sha256sum | head -c 32)"
 DASHBOARD_PWD="Admin@$(date +%s | sha256sum | head -c 8)"
@@ -39,7 +39,7 @@ mkdir -p ${FRP_DIR}/frp
 # 下载 FRP 服务端
 echo "下载 FRP ${FRP_VERSION}..."
 cd /tmp
-wget -q https://github.com/fatedier/frp/releases/download/v${FRP_VERSION}/frp_${FRP_VERSION}_linux_amd64.tar.gz
+wget -q https://ghfast.top/https://github.com/fatedier/frp/releases/download/v${FRP_VERSION}/frp_${FRP_VERSION}_linux_amd64.tar.gz
 tar -xzf frp_${FRP_VERSION}_linux_amd64.tar.gz
 mv frp_${FRP_VERSION}_linux_amd64/frps ${FRP_DIR}/frp/
 chmod +x ${FRP_DIR}/frp/frps
