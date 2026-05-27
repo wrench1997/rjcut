@@ -1,6 +1,23 @@
 version: '3.8'
 
 services:
+  # FRP 客户端服务 - 用于内网穿透
+  frp-client:
+    build:
+      context: ./frp
+      dockerfile: Dockerfile
+    container_name: rjcut-frp-client
+    volumes:
+      - ./frp/frpc.ini:/frp/frpc.ini
+      - frp-logs:/frp/log
+    ports:
+      - "7400:7400"  # FRP 管理界面
+    restart: unless-stopped
+    depends_on:
+      - studio-prod
+    networks:
+      - studio-network
+
   # 开发环境服务
   studio-dev:
     build:
@@ -31,3 +48,14 @@ services:
     restart: unless-stopped
     depends_on:
       - studio-dev
+    networks:
+      - studio-network
+
+# 定义网络
+networks:
+  studio-network:
+    driver: bridge
+
+# 定义数据卷
+volumes:
+  frp-logs:

@@ -1,0 +1,31 @@
+# FRP 服务端 Docker 镜像
+FROM alpine:latest
+
+# 安装必要的工具
+RUN apk add --no-cache curl ca-certificates
+
+# 设置 FRP 版本
+ENV FRP_VERSION=0.52.3
+
+# 下载并安装 FRP 服务端
+RUN curl -L https://github.com/fatedier/frp/releases/download/v${FRP_VERSION}/frp_${FRP_VERSION}_linux_amd64.tar.gz -o /tmp/frp.tar.gz && \
+    tar -xzvf /tmp/frp.tar.gz -C /tmp && \
+    mv /tmp/frp_${FRP_VERSION}_linux_amd64/frps /usr/bin/frps && \
+    chmod +x /usr/bin/frps && \
+    rm -rf /tmp/frp.tar.gz /tmp/frp_${FRP_VERSION}_linux_amd64
+
+# 创建日志目录
+RUN mkdir -p /frp/log
+
+# 复制配置文件
+COPY frps.ini /frp/frps.ini
+
+# 暴露端口
+# 7000: FRP 客户端连接端口
+# 7500: 管理仪表板端口
+# 80: HTTP 虚拟主机端口（可选）
+# 443: HTTPS 虚拟主机端口（可选）
+EXPOSE 7000 7000/udp 7500 80 443
+
+# 启动 FRP 服务端
+CMD ["frps", "-c", "/frp/frps.ini"]

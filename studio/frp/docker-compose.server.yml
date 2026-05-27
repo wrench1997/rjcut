@@ -1,0 +1,36 @@
+# FRP 服务端 Docker Compose - 公网服务器部署
+version: '3.8'
+
+services:
+  # FRP 服务端
+  frp-server:
+    build:
+      context: ./frp
+      dockerfile: Dockerfile.server
+    container_name: rjcut-frp-server
+    volumes:
+      - ./frp/frps.ini:/frp/frps.ini
+      - frp-logs:/frp/log
+    ports:
+      # FRP 客户端连接端口
+      - "7000:7000"
+      # KCP 加速端口（可选）
+      - "7000:7000/udp"
+      # 管理仪表板
+      - "7500:7500"
+      # HTTP 虚拟主机端口（用于域名访问）
+      - "80:80"
+      # HTTPS 虚拟主机端口（可选）
+      - "443:443"
+    restart: unless-stopped
+    networks:
+      - frp-network
+
+# 网络配置
+networks:
+  frp-network:
+    driver: bridge
+
+# 数据卷配置
+volumes:
+  frp-logs:
