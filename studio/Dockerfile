@@ -2,6 +2,14 @@
 # 第一阶段：构建
 FROM node:20-alpine AS builder
 
+# 代理设置（通过 build-args 传入）
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ENV HTTP_PROXY=${HTTP_PROXY}
+ENV HTTPS_PROXY=${HTTPS_PROXY}
+ENV http_proxy=${HTTP_PROXY}
+ENV https_proxy=${HTTPS_PROXY}
+
 WORKDIR /app
 
 # 复制 package 文件

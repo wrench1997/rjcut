@@ -23,11 +23,16 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        - HTTP_PROXY=http://192.168.166.8:7890
+        - HTTPS_PROXY=http://192.168.166.8:7890
     container_name: rjcut-studio-prod
     ports:
       - "80:80"
     environment:
       - VITE_API_BASE_URL=http://localhost:8000
+      - HTTP_PROXY=http://192.168.166.8:7890
+      - HTTPS_PROXY=http://192.168.166.8:7890
     restart: unless-stopped
     depends_on:
       - studio-dev
