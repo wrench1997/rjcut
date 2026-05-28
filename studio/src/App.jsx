@@ -384,16 +384,19 @@ function App() {
   // 初始化文件系统
   useEffect(() => {
     const initVFS = async () => {
+      console.log('[App] 开始初始化 VFS...')
       try {
         setVfsLoading(true)
         const sharedVfs = await getSharedFileSystem()
+        console.log('[App] VFS 初始化成功:', sharedVfs)
         setVfs(sharedVfs)
         vfsRef.current = sharedVfs
       } catch (e) {
-        console.error('初始化文件系统失败:', e)
+        console.error('[App] 初始化文件系统失败:', e)
         setError(`文件系统初始化失败：${e.message}`)
       } finally {
         setVfsLoading(false)
+        console.log('[App] VFS 初始化完成，vfsLoading 设置为 false')
       }
     }
     
@@ -510,7 +513,10 @@ function App() {
             </button>
             <button 
               className={`btn btn-utility ${activeTab === 'digital-human' ? 'text-primary' : ''}`}
-              onClick={() => setActiveTab('digital-human')}
+              onClick={() => {
+                console.log('[App] 点击数字人按钮，切换 activeTab 到 digital-human')
+                setActiveTab('digital-human')
+              }}
             >
               🎭 数字人
             </button>
@@ -671,10 +677,12 @@ function App() {
           </div>
         )}
         
-        {/* 数字人管理页面 */}
-        {!vfsLoading && activeTab === 'digital-human' && (
+        {/* 数字人管理页面 - 不依赖 VFS，独立渲染 */}
+        {/* 🛡️ 使用 useMemo 缓存组件，防止反复挂载导致状态丢失 */}
+        {activeTab === 'digital-human' && (
           <div className="tile tile-light">
-            <DigitalHumanManager apiKey={apiKey} />
+            {console.log('[App] 渲染 DigitalHumanManager，vfsLoading:', vfsLoading)}
+            <DigitalHumanManager key="digital-human-manager" apiKey={apiKey} />
           </div>
         )}
         

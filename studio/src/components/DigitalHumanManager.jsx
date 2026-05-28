@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   getCommonPersons,
   getCustomPersons,
@@ -956,10 +956,49 @@ function DigitalHumanManager({ apiKey }) {
   const [error, setError] = useState('')
   const [successMsg, setSuccessMsg] = useState('')
   const [selectedPerson, setSelectedPerson] = useState(null)
+  
+  // 🛡️ 使用 ref 跟踪组件挂载状态和数据加载状态，防止竞态条件
+  const isMountedRef = useRef(true)
+  const hasLoadedDataRef = useRef(false)
+  
+  // 🔍 调试：组件挂载
+  useEffect(() => {
+    console.log('[DigitalHumanManager] 组件已挂载')
+    isMountedRef.current = true
+    return () => {
+      console.log('[DigitalHumanManager] 组件即将卸载')
+      isMountedRef.current = false
+    }
+  }, [])
+  
+  // 🔍 调试：监听 activeTab 变化
+  useEffect(() => {
+    console.log('[DigitalHumanManager] activeTab 变化:', activeTab)
+  }, [activeTab])
+  
+  // 🔍 调试：监听 commonPersons 变化
+  useEffect(() => {
+    console.log('[DigitalHumanManager] 🔍 commonPersons 变化 - 数量:', commonPersons.length)
+    if (commonPersons.length > 0) {
+      console.log('[DigitalHumanManager] 🔍 数字人 IDs:', commonPersons.map(p => ({ id: p.id, name: p.name })))
+    }
+  }, [commonPersons])
+  
+  // 🔍 调试：监听组件渲染
+  useEffect(() => {
+    console.log('[DigitalHumanManager] 🔄 组件渲染，activeTab:', activeTab, 'commonPersons:', commonPersons.length)
+  }, [activeTab, commonPersons.length])
 
   // 加载数据
   const loadData = useCallback(async () => {
-    console.log('[DigitalHumanManager] loadData 开始执行')
+    // 🛡️ 防止重复加载
+    if (hasLoadedDataRef.current) {
+      console.log('[DigitalHumanManager] loadData 已加载过，跳过')
+      return
+    }
+    hasLoadedDataRef.current = true
+    
+    console.log('[DigitalHumanManager] loadData 开始执行，当前 commonPersons:', commonPersons.length)
     setLoading(true)
     setError('')
     
@@ -967,11 +1006,18 @@ function DigitalHumanManager({ apiKey }) {
       // 加载公共数字人
       console.log('[DigitalHumanManager] 请求公共数字人...')
       const commonRes = await getCommonPersons()
-      console.log('[DigitalHumanManager] 公共数字人响应:', commonRes.data)
+      console.log('[DigitalHumanManager] 公共数字人响应 code:', commonRes.data.code)
+      console.log('[DigitalHumanManager] 公共数字人响应 data:', commonRes.data.data)
       if (commonRes.data.code === 0) {
         const persons = commonRes.data.data || []
-        console.log('[DigitalHumanManager] 设置公共数字人数量:', persons.length)
-        setCommonPersons(persons)
+        console.log('[DigitalHumanManager] ✅ 准备设置公共数字人数量:', persons.length, 'IDs:', persons.map(p => p.id))
+        // 🛡️ 检查组件是否仍挂载
+        if (isMountedRef.current) {
+          setCommonPersons(persons)
+          console.log('[DigitalHumanManager] ✅ setCommonPersons 调用完成')
+        } else {
+          console.warn('[DigitalHumanManager] ⚠️ 组件已卸载，跳过 setCommonPersons')
+        }
       } else {
         console.warn('[DigitalHumanManager] 公共数字人 API 返回错误:', commonRes.data.message)
       }
@@ -980,7 +1026,7 @@ function DigitalHumanManager({ apiKey }) {
       console.log('[DigitalHumanManager] 请求自定义数字人...')
       const customRes = await getCustomPersons()
       console.log('[DigitalHumanManager] 自定义数字人响应:', customRes.data)
-      if (customRes.data.code === 0) {
+      if (customRes.data.code === 0 && isMountedRef.current) {
         setCustomPersons(customRes.data.data || [])
       }
       
@@ -988,14 +1034,18 @@ function DigitalHumanManager({ apiKey }) {
       console.log('[DigitalHumanManager] 请求声音列表...')
       const voicesRes = await getVoices()
       console.log('[DigitalHumanManager] 声音列表响应:', voicesRes.data)
-      if (voicesRes.data.code === 0) {
+      if (voicesRes.data.code === 0 && isMountedRef.current) {
         setVoices(voicesRes.data.data || [])
       }
     } catch (err) {
       console.error('[DigitalHumanManager] loadData 错误:', err)
-      setError(`加载数据失败：${err.message}`)
+      if (isMountedRef.current) {
+        setError(`加载数据失败：${err.message}`)
+      }
     } finally {
-      setLoading(false)
+      if (isMountedRef.current) {
+        setLoading(false)
+      }
       console.log('[DigitalHumanManager] loadData 执行完成')
     }
   }, [])
@@ -1111,18 +1161,13 @@ function DigitalHumanManager({ apiKey }) {
         )}
       </div>
       
-      {/* 加载中 */}
-      {loading && !activeTab && (
-        <div className="text-center" style={{ padding: 'var(--spacing-xxl) 0' }}>
-          <p className="body text-muted">加载中...</p>
-        </div>
-      )}
-      
       {/* 公共数字人列表 */}
       {activeTab === 'common' && (
         <div>
           <h2 className="display-lg mb-sm">公共数字人</h2>
           <p className="lead mb-lg">平台提供的共享数字人模型</p>
+          
+          {console.log('[DigitalHumanManager] 渲染公共数字人列表，commonPersons 数量:', commonPersons.length)}
           
           {commonPersons.length === 0 ? (
             <div className="text-center" style={{ padding: 'var(--spacing-xxl) 0' }}>
