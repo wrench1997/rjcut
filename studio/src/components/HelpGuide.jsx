@@ -10,6 +10,7 @@ function HelpGuide({ onClose }) {
   const tabs = [
     { id: 'quickstart', label: '快速开始', icon: '🚀' },
     { id: 'script', label: '脚本格式', icon: '📝' },
+    { id: 'corrections', label: '纠错字典', icon: '📖' },
     { id: 'config', label: '自定义配置', icon: '⚙️' },
     { id: 'faq', label: '常见问题', icon: '❓' },
   ];
@@ -128,6 +129,7 @@ function HelpGuide({ onClose }) {
         >
           {activeTab === 'quickstart' && <QuickStartContent />}
           {activeTab === 'script' && <ScriptFormatContent />}
+          {activeTab === 'corrections' && <CorrectionsContent />}
           {activeTab === 'config' && <CustomConfigContent />}
           {activeTab === 'faq' && <FAQContent />}
         </div>
@@ -526,6 +528,136 @@ function ScriptFormatContent() {
 }
 
 /**
+ * 纠错字典内容
+ */
+function CorrectionsContent() {
+  const codeBlockStyle = {
+    backgroundColor: '#1d1d1f',
+    color: '#f5f5f7',
+    padding: '16px',
+    borderRadius: '8px',
+    fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+    fontSize: '12px',
+    overflowX: 'auto',
+    margin: '12px 0',
+    lineHeight: 1.5,
+  };
+
+  return (
+    <div style={{ lineHeight: 1.6, color: '#1d1d1f' }}>
+      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', color: '#1d1d1f' }}>
+        📖 纠错字典格式说明
+      </h3>
+      <p style={{ marginBottom: '16px', color: '#3a3a3c' }}>
+        纠错字典用于 ASR 识别后的文本校正，帮助修正专有名词、人名、产品名等易错词。
+      </p>
+
+      <h4 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '12px', color: '#1d1d1f' }}>
+        基础结构
+      </h4>
+      <pre style={codeBlockStyle}>
+{`{
+  "corrections": {
+    "雪": "血",
+    "路茸": "鹿茸",
+    "路场": "鹿场",
+    "地板架": "地板价"
+  }
+}`}
+      </pre>
+
+      <h4 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '12px', marginTop: '24px', color: '#1d1d1f' }}>
+        字段说明
+      </h4>
+      <table
+        style={{
+          width: '100%',
+          borderCollapse: 'collapse',
+          fontSize: '13px',
+          backgroundColor: '#fff',
+          border: '1px solid #e5e5e5',
+          marginBottom: '20px',
+        }}
+      >
+        <thead>
+          <tr style={{ backgroundColor: '#f5f5f7' }}>
+            <th style={{ padding: '10px', textAlign: 'left', borderBottom: '1px solid #e5e5e5' }}>字段</th>
+            <th style={{ padding: '10px', textAlign: 'left', borderBottom: '1px solid #e5e5e5' }}>类型</th>
+            <th style={{ padding: '10px', textAlign: 'left', borderBottom: '1px solid #e5e5e5' }}>必填</th>
+            <th style={{ padding: '10px', textAlign: 'left', borderBottom: '1px solid #e5e5e5' }}>说明</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style={{ padding: '10px', borderBottom: '1px solid #e5e5e5', fontFamily: 'monospace' }}>corrections</td>
+            <td style={{ padding: '10px', borderBottom: '1px solid #e5e5e5' }}>对象</td>
+            <td style={{ padding: '10px', borderBottom: '1px solid #e5e5e5' }}><strong>是</strong></td>
+            <td style={{ padding: '10px', borderBottom: '1px solid #e5e5e5' }}>包含所有纠错映射的字典对象</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h4 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '12px', marginTop: '24px', color: '#1d1d1f' }}>
+        纠错映射规则
+      </h4>
+      <div
+        style={{
+          backgroundColor: '#f5f5f7',
+          borderRadius: '8px',
+          padding: '16px',
+          marginBottom: '20px',
+        }}
+      >
+        <p style={{ margin: '0 0 12px 0', color: '#3a3a3c', fontSize: '13px' }}>
+          <strong>格式：</strong> <code style={{ backgroundColor: '#e5e5e5', padding: '2px 4px', borderRadius: '3px' }}>"错误词": "正确词"</code>
+        </p>
+        <ul style={{ margin: 0, paddingLeft: '20px', color: '#3a3a3c', fontSize: '13px' }}>
+          <li><strong>Key（错误词）：</strong> ASR 可能识别错误的词</li>
+          <li><strong>Value（正确词）：</strong> 应该替换成的正确词汇</li>
+        </ul>
+      </div>
+
+      <h4 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '12px', marginTop: '24px', color: '#1d1d1f' }}>
+        完整示例
+      </h4>
+      <pre style={codeBlockStyle}>
+{`{
+  "corrections": {
+    "雪": "血",
+    "路茸": "鹿茸",
+    "路场": "鹿场",
+    "地板架": "地板价",
+    "梅花鹿": "梅花鹿",
+    "营养价植": "营养价值",
+    "干播": "干播"
+  }
+}`}
+      </pre>
+
+      <div
+        style={{
+          backgroundColor: '#e7f3ff',
+          border: '1px solid #0071e3',
+          borderRadius: '8px',
+          padding: '16px',
+          marginTop: '24px',
+        }}
+      >
+        <h4 style={{ margin: '0 0 8px 0', fontSize: '14px', fontWeight: 600, color: '#0071e3' }}>
+          💡 使用建议
+        </h4>
+        <ul style={{ margin: 0, paddingLeft: '20px', color: '#0071e3', fontSize: '13px' }}>
+          <li>针对视频中的专有名词、人名、产品名等添加纠错规则</li>
+          <li>可以根据 ASR 识别结果不断优化纠错字典</li>
+          <li>纠错字典可以复用到多个相似主题的视频中</li>
+          <li>系统会在 ASR 识别后自动进行文本替换，无需手动修改</li>
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+/**
  * 自定义配置内容
  */
 function CustomConfigContent() {
@@ -832,6 +964,18 @@ function CustomConfigContent() {
  * 常见问题内容
  */
 function FAQContent() {
+  const codeBlockStyle = {
+    backgroundColor: '#1d1d1f',
+    color: '#f5f5f7',
+    padding: '16px',
+    borderRadius: '8px',
+    fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+    fontSize: '12px',
+    overflowX: 'auto',
+    margin: '12px 0',
+    lineHeight: 1.5,
+  };
+
   return (
     <div style={{ lineHeight: 1.6, color: '#1d1d1f' }}>
       <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '20px', color: '#1d1d1f' }}>
@@ -942,35 +1086,6 @@ function FAQContent() {
             API Key 仅保存在您的浏览器本地存储中，不会上传到服务器。清除浏览器缓存会导致 Key 丢失，请妥善保管。
           </p>
         </div>
-      </div>
-
-      <h4 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '12px', marginTop: '24px', color: '#1d1d1f' }}>
-        📖 纠错字典格式
-      </h4>
-      <p style={{ marginBottom: '12px', color: '#3a3a3c', fontSize: '13px' }}>
-        纠错字典用于 ASR 识别后的文本校正，帮助修正专有名词、人名、产品名等易错词。
-      </p>
-      <pre style={codeBlockStyle}>
-{`{
-  "corrections": {
-    "雪": "血",
-    "路茸": "鹿茸",
-    "路场": "鹿场",
-    "地板架": "地板价"
-  }
-}`}
-      </pre>
-      <div
-        style={{
-          backgroundColor: '#f5f5f7',
-          borderRadius: '8px',
-          padding: '12px 16px',
-          marginTop: '12px',
-        }}
-      >
-        <p style={{ margin: 0, color: '#3a3a3c', fontSize: '13px' }}>
-          <strong>说明：</strong> Key 为 ASR 可能识别错误的词，Value 为正确的词。系统会在 ASR 识别后自动进行文本替换。
-        </p>
       </div>
 
       <div
