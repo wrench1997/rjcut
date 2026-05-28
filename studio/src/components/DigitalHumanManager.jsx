@@ -959,31 +959,44 @@ function DigitalHumanManager({ apiKey }) {
 
   // 加载数据
   const loadData = useCallback(async () => {
+    console.log('[DigitalHumanManager] loadData 开始执行')
     setLoading(true)
     setError('')
     
     try {
       // 加载公共数字人
+      console.log('[DigitalHumanManager] 请求公共数字人...')
       const commonRes = await getCommonPersons()
+      console.log('[DigitalHumanManager] 公共数字人响应:', commonRes.data)
       if (commonRes.data.code === 0) {
-        setCommonPersons(commonRes.data.data || [])
+        const persons = commonRes.data.data || []
+        console.log('[DigitalHumanManager] 设置公共数字人数量:', persons.length)
+        setCommonPersons(persons)
+      } else {
+        console.warn('[DigitalHumanManager] 公共数字人 API 返回错误:', commonRes.data.message)
       }
       
       // 加载自定义数字人
+      console.log('[DigitalHumanManager] 请求自定义数字人...')
       const customRes = await getCustomPersons()
+      console.log('[DigitalHumanManager] 自定义数字人响应:', customRes.data)
       if (customRes.data.code === 0) {
         setCustomPersons(customRes.data.data || [])
       }
       
       // 加载声音列表
+      console.log('[DigitalHumanManager] 请求声音列表...')
       const voicesRes = await getVoices()
+      console.log('[DigitalHumanManager] 声音列表响应:', voicesRes.data)
       if (voicesRes.data.code === 0) {
         setVoices(voicesRes.data.data || [])
       }
     } catch (err) {
+      console.error('[DigitalHumanManager] loadData 错误:', err)
       setError(`加载数据失败：${err.message}`)
     } finally {
       setLoading(false)
+      console.log('[DigitalHumanManager] loadData 执行完成')
     }
   }, [])
 
