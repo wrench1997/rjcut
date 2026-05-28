@@ -50,14 +50,18 @@ def list_common_persons(_: Merchant = Depends(verify_api_key)):
         # 使用第一个 figure 作为默认封面和预览
         default_figure = figures[0] if figures else {}
         
+        # 🎭 如果 figures 为空，尝试从 person 直接获取封面（兼容旧数据）
+        cover_url = default_figure.get("cover") or person.get("cover_url") or ""
+        preview_video_url = default_figure.get("preview_video_url") or person.get("preview_video_url") or ""
+        
         result_list.append({
             "id": person_id,
             "name": person_name,
             "person_id": person_id,
             "figure_type": default_figure.get("type", "whole_body"),  # 默认形象类型
             "available_figure_types": available_figure_types,  # 🎭 所有可选的形象类型
-            "cover_url": default_figure.get("cover", ""),
-            "preview_video_url": default_figure.get("preview_video_url", ""),
+            "cover_url": cover_url,
+            "preview_video_url": preview_video_url,
             "audio_man_id": audio_man_id,
             "gender": person.get("gender", ""),
             "figures": figures,  # 保留完整的 figures 数组供前端使用
