@@ -6,6 +6,7 @@ import VideoProjectManager from './components/VideoProjectManager'
 import AIChat from './components/AIChat'
 import BatchProcessor from './components/BatchProcessor'
 import DigitalHumanManager from './components/DigitalHumanManager'
+import HelpGuide from './components/HelpGuide'
 
 // =====================================================
 // API 配置
@@ -381,6 +382,9 @@ function App() {
   // AI 聊天相关状态
   const [currentProject, setCurrentProject] = useState(null)
   
+  // 帮助指南状态
+  const [showHelp, setShowHelp] = useState(false)
+  
   // 初始化文件系统
   useEffect(() => {
     const initVFS = async () => {
@@ -534,9 +538,19 @@ function App() {
             >
               设置
             </button>
+            <button 
+              className="btn btn-utility"
+              onClick={() => setShowHelp(true)}
+              title="使用帮助"
+            >
+              ❓ 帮助
+            </button>
           </div>
         </div>
       </nav>
+
+      {/* 帮助指南弹窗 */}
+      {showHelp && <HelpGuide onClose={() => setShowHelp(false)} />}
       
       {/* 子导航 */}
       <div style={{
