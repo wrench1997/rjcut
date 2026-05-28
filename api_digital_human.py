@@ -44,27 +44,51 @@ def list_common_persons(_: Merchant = Depends(verify_api_key)):
         audio_man_id = person.get("audio_man_id", "")
         figures = person.get("figures", [])
         
+        # 🔍 调试日志
+        import logging
+        logger = logging.getLogger("uvicorn.error")
+        logger.info(f"数字人：{person_name}, figures 数量：{len(figures)}")
+        if figures:
+            logger.info(f"  第一个 figure: {figures[0]}")
+        
         # 提取所有可选的 figure_type 列表
         available_figure_types = [fig.get("type", "") for fig in figures if fig.get("type")]
         
-        # 使用第一个 figure 作为默认封面和预览
-        default_figure = figures[0] if figures else {}
+        # 🎭 从 figures 中获取第一个有 cover 的 figure
+        cover_url = ""
+        preview_video_url = ""
+        figure_type = "whole_body"
         
-        # 🎭 如果 figures 为空，尝试从 person 直接获取封面（兼容旧数据）
-        cover_url = default_figure.get("cover") or person.get("cover_url") or ""
-        preview_video_url = default_figure.get("preview_video_url") or person.get("preview_video_url") or ""
+        if figures and len(figures) > 0:
+            # 找第一个有 cover 的 figure
+            for fig in figures:
+                if fig.get("cover"):
+                    cover_url = fig.get("cover", "")
+                    preview_video_url = fig.get("preview_video_url", "")
+                    figure_type = fig.get("type", "whole_body")
+                    break
+            # 如果都没有 cover，使用第一个 figure
+            if not cover_url and figures[0]:
+                cover_url = figures[0].get("cover", "")
+                preview_video_url = figures[0].get("preview_video_url", "")
+                figure_type = figures[0].get("type", "whole_body")
+        
+        # 如果 figures 为空，尝试从 person 直接获取封面（兼容旧数据）
+        if not cover_url:
+            cover_url = person.get("cover_url", "")
+            preview_video_url = person.get("preview_video_url", "")
         
         result_list.append({
             "id": person_id,
             "name": person_name,
             "person_id": person_id,
-            "figure_type": default_figure.get("type", "whole_body"),  # 默认形象类型
-            "available_figure_types": available_figure_types,  # 🎭 所有可选的形象类型
+            "figure_type": figure_type,
+            "available_figure_types": available_figure_types,
             "cover_url": cover_url,
             "preview_video_url": preview_video_url,
             "audio_man_id": audio_man_id,
             "gender": person.get("gender", ""),
-            "figures": figures,  # 保留完整的 figures 数组供前端使用
+            "figures": figures,
         })
     
     return ok(result_list)
