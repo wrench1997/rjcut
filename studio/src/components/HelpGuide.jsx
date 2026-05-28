@@ -944,6 +944,35 @@ function FAQContent() {
         </div>
       </div>
 
+      <h4 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '12px', marginTop: '24px', color: '#1d1d1f' }}>
+        📖 纠错字典格式
+      </h4>
+      <p style={{ marginBottom: '12px', color: '#3a3a3c', fontSize: '13px' }}>
+        纠错字典用于 ASR 识别后的文本校正，帮助修正专有名词、人名、产品名等易错词。
+      </p>
+      <pre style={codeBlockStyle}>
+{`{
+  "corrections": {
+    "雪": "血",
+    "路茸": "鹿茸",
+    "路场": "鹿场",
+    "地板架": "地板价"
+  }
+}`}
+      </pre>
+      <div
+        style={{
+          backgroundColor: '#f5f5f7',
+          borderRadius: '8px',
+          padding: '12px 16px',
+          marginTop: '12px',
+        }}
+      >
+        <p style={{ margin: 0, color: '#3a3a3c', fontSize: '13px' }}>
+          <strong>说明：</strong> Key 为 ASR 可能识别错误的词，Value 为正确的词。系统会在 ASR 识别后自动进行文本替换。
+        </p>
+      </div>
+
       <div
         style={{
           backgroundColor: '#e7f3ff',
