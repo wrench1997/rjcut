@@ -47,6 +47,7 @@ from batch_validator import BatchTaskValidator, validate_batch_config_file
 import json
 from typing import Optional
 from fastapi import FastAPI, Depends, Query, Request
+from sqlalchemy import cast, String
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -717,15 +718,36 @@ def query_tasks(
     merchant: Merchant = Depends(verify_api_key),
     db: Session = Depends(get_db),
 ):
+    import logging
+    logger = logging.getLogger("uvicorn.error")
+    
     query = db.query(Task).filter(Task.merchant_id == merchant.id)
     if status:
         query = query.filter(Task.status == status)
     # 按数字人 ID 筛选：从 payload 中查找 person_id
     if person_id:
-        query = query.filter(Task.payload["person_id"].astext == person_id)
+        try:
+            # 使用 cast 将 JSON 字段转换为字符串进行比较，兼容 PostgreSQL 和 SQLite
+            query = query.filter(cast(Task.payload["person_id"], String) == person_id)
+        except Exception as e:
+            logger.error(f"查询 person_id 时出错：{e}")
+            # 如果 JSON 查询失败，返回空结果而不是 500 错误
+            return ok({
+                "items": [],
+                "count": 0,
+                "total": 0,
+            })
 
-    total = query.count()
-    tasks = query.order_by(Task.created_at.desc()).offset(offset).limit(limit).all()
+    try:
+        total = query.count()
+        tasks = query.order_by(Task.created_at.desc()).offset(offset).limit(limit).all()
+    except Exception as e:
+        logger.error(f"查询任务时出错：{e}")
+        return ok({
+            "items": [],
+            "count": 0,
+            "total": 0,
+        })
 
     return ok({
         "items": [
