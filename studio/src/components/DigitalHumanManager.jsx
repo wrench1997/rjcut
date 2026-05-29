@@ -188,16 +188,28 @@ function DigitalPersonCard({ person, isCustom, onSelect, onDelete, onRefresh }) 
         <button 
           className="btn btn-primary btn-sm dh-action-btn"
           onClick={() => onSelect && onSelect(person)}
-          title="使用此数字人创建视频"
+          title="查看该数字人生成的批量视频"
         >
           <span className="dh-action-icon">🎬</span>
-          <span className="dh-action-text">使用</span>
+          <span className="dh-action-text">查看批量视频</span>
+        </button>
+        
+        <button 
+          className="btn btn-pearl-capsule btn-sm dh-action-btn"
+          onClick={(e) => {
+            e.stopPropagation()
+            onSelect && onSelect(person)
+          }}
+          title="为该数字人创建新视频"
+        >
+          <span className="dh-action-icon">✨</span>
+          <span className="dh-action-text">新建视频</span>
         </button>
         
         {isCustom && (
           <>
             <button 
-              className="btn btn-pearl-capsule btn-sm dh-action-btn"
+              className="btn btn-ghost btn-sm dh-action-btn"
               onClick={handleRefresh}
               disabled={loading}
               title="刷新数字人状态"
@@ -221,13 +233,14 @@ function DigitalPersonCard({ person, isCustom, onSelect, onDelete, onRefresh }) 
 }
 
 // =====================================================
-// 创建视频任务表单
+// 创建视频任务表单 - 支持批量创建
 // =====================================================
 function CreateVideoForm({ person, voices, onSubmit, onCancel }) {
   // 🎭 获取该数字人支持的所有形象类型
   const availableFigureTypes = person?.available_figure_types || []
   const defaultFigureType = person?.figure_type || availableFigureTypes?.[0] || 'whole_body'
   
+  const [batchMode, setBatchMode] = useState(false)
   const [formData, setFormData] = useState({
     text: '',
     person_id: person?.id || '',
@@ -254,16 +267,48 @@ function CreateVideoForm({ person, voices, onSubmit, onCancel }) {
     setError('')
     
     try {
-      const payload = {
-        ...formData,
-        audio_man_id: formData.audio_man_id || undefined
-      }
-      
-      const res = await createDhGenerateTask(payload)
-      if (res.data.code === 0) {
-        onSubmit && onSubmit(res.data.data)
+      // 批量模式：按行分割文本，每行创建一个视频任务
+      if (batchMode) {
+        const lines = formData.text.split('\n').filter(line => line.trim())
+        if (lines.length === 0) {
+          setError('请输入至少一行文本内容')
+          setLoading(false)
+          return
+        }
+        
+        const tasks = []
+        for (const line of lines) {
+          const payload = {
+            ...formData,
+            text: line.trim(),
+            audio_man_id: formData.audio_man_id || undefined,
+            client_ref_id: formData.client_ref_id || `batch_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`
+          }
+          const res = await createDhGenerateTask(payload)
+          if (res.data.code === 0) {
+            tasks.push(res.data.data)
+          } else {
+            setError(`任务 "${line.substring(0, 20)}..." 创建失败：${res.data.message}`)
+            break
+          }
+        }
+        
+        if (tasks.length > 0) {
+          onSubmit && onSubmit({ tasks, count: tasks.length })
+        }
       } else {
-        setError(res.data.message || '创建任务失败')
+        // 单个任务模式
+        const payload = {
+          ...formData,
+          audio_man_id: formData.audio_man_id || undefined
+        }
+        
+        const res = await createDhGenerateTask(payload)
+        if (res.data.code === 0) {
+          onSubmit && onSubmit(res.data.data)
+        } else {
+          setError(res.data.message || '创建任务失败')
+        }
       }
     } catch (err) {
       setError(err.message || '创建任务失败')
@@ -274,7 +319,29 @@ function CreateVideoForm({ person, voices, onSubmit, onCancel }) {
 
   return (
     <div className="card">
-      <h3 className="tagline mb-md">创建视频生成任务</h3>
+      <div className="flex justify-between items-center mb-md">
+        <h3 className="tagline">创建视频生成任务</h3>
+        <label className="flex items-center gap-xs">
+          <input
+            type="checkbox"
+            checked={batchMode}
+            onChange={(e) => setBatchMode(e.target.checked)}
+          />
+          <span className="caption-strong">批量模式</span>
+        </label>
+      </div>
+      
+      {batchMode && (
+        <div className="mb-md" style={{ 
+          padding: 'var(--spacing-sm)',
+          backgroundColor: 'rgba(0, 122, 255, 0.1)',
+          borderRadius: 'var(--rounded-sm)',
+        }}>
+          <p className="caption" style={{ color: '#007aff' }}>
+            💡 批量模式：每行文本将生成一个独立视频，适合快速批量生产
+          </p>
+        </div>
+      )}
       
       {error && (
         <div className="mb-md" style={{ 
@@ -307,14 +374,14 @@ function CreateVideoForm({ person, voices, onSubmit, onCancel }) {
         
         <div className="mb-md">
           <label className="caption-strong mb-sm" style={{ display: 'block' }}>
-            文本内容 *
+            文本内容 * {batchMode && '(每行一个视频)'}
           </label>
           <textarea
             className="input"
-            rows={4}
+            rows={batchMode ? 8 : 4}
             value={formData.text}
             onChange={(e) => setFormData({ ...formData, text: e.target.value })}
-            placeholder="输入要合成的文本内容..."
+            placeholder={batchMode ? "每行输入一段文本，将批量生成多个视频..." : "输入要合成的文本内容..."}
           />
         </div>
         
@@ -738,20 +805,21 @@ function VideoTaskStatusBadge({ status }) {
 }
 
 // =====================================================
-// 视频任务列表组件
+// 视频任务列表组件 - 按数字人筛选
 // =====================================================
-function VideoTaskList({ onBack }) {
+function VideoTaskList({ onBack, selectedPersonId = null, personName = '' }) {
   const [tasks, setTasks] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [filterStatus, setFilterStatus] = useState('')
   const [downloadingTaskId, setDownloadingTaskId] = useState(null)
+  const [selectedTasks, setSelectedTasks] = useState([])
 
   const loadTasks = async () => {
     setLoading(true)
     setError('')
     try {
-      const res = await getDhTaskList(filterStatus || null, 50, 0)
+      const res = await getDhTaskList(filterStatus || null, 100, 0, selectedPersonId)
       if (res.data.code === 0) {
         // 筛选 dh_generate 类型的任务
         const dhTasks = (res.data.data.items || []).filter(t => t.task_type === 'dh_generate')
@@ -818,15 +886,19 @@ function VideoTaskList({ onBack }) {
     <div>
       <div className="flex justify-between items-center mb-lg">
         <div>
-          <h2 className="display-lg mb-sm">视频任务列表</h2>
-          <p className="lead mb-lg">查看和管理已生成的数字人视频任务</p>
+          <h2 className="display-lg mb-sm">
+            {personName ? `${personName} - 批量视频` : '视频任务列表'}
+          </h2>
+          <p className="lead mb-lg">
+            {personName ? '查看该数字人生成的所有视频' : '查看和管理已生成的数字人视频任务'}
+          </p>
         </div>
         <button className="btn btn-ghost btn-sm" onClick={onBack}>
           ← 返回
         </button>
       </div>
 
-      {/* 筛选器 */}
+      {/* 筛选器和批量操作 */}
       <div className="flex gap-sm items-center mb-lg">
         <span className="caption-strong">状态筛选:</span>
         <select
@@ -845,6 +917,44 @@ function VideoTaskList({ onBack }) {
         <button className="btn btn-pearl-capsule btn-sm" onClick={loadTasks} disabled={loading}>
           {loading ? '🔄 刷新中' : '🔄 刷新'}
         </button>
+        {selectedTasks.length > 0 && (
+          <div className="flex items-center gap-sm" style={{ marginLeft: 'auto' }}>
+            <span className="caption-strong">已选择 {selectedTasks.length} 个视频</span>
+            <button 
+              className="btn btn-primary btn-sm"
+              onClick={() => {
+                // TODO: 批量下载功能
+                alert('批量下载功能开发中...')
+              }}
+            >
+              ⬇️ 批量下载
+            </button>
+            <button 
+              className="btn btn-ghost btn-sm"
+              onClick={() => setSelectedTasks([])}
+            >
+              取消选择
+            </button>
+          </div>
+        )}
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
+          {!selectedPersonId && (
+            <button 
+              className="btn btn-pearl-capsule btn-sm" 
+              onClick={() => setActiveTab('common')}
+            >
+              ← 选择数字人
+            </button>
+          )}
+          {selectedPersonId && (
+            <button 
+              className="btn btn-primary btn-sm"
+              onClick={() => setActiveTab('create-video')}
+            >
+              ✨ 新建视频任务
+            </button>
+          )}
+        </div>
       </div>
 
       {error && (
@@ -859,13 +969,31 @@ function VideoTaskList({ onBack }) {
       {tasks.length === 0 ? (
         <div className="text-center" style={{ padding: 'var(--spacing-xxl) 0' }}>
           <p className="body text-muted">暂无视频任务</p>
-          <p className="caption text-muted mt-sm">去创建一个数字人视频吧！</p>
+          {personName ? (
+            <p className="caption text-muted mt-sm">该数字人还没有生成任何视频</p>
+          ) : (
+            <p className="caption text-muted mt-sm">去创建一个数字人视频吧！</p>
+          )}
         </div>
       ) : (
         <div className="table-container">
           <table className="table">
             <thead>
               <tr>
+                <th style={{ width: '40px' }}>
+                  <input
+                    type="checkbox"
+                    checked={selectedTasks.length === tasks.length && tasks.length > 0}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedTasks(tasks.map(t => t.task_id))
+                      } else {
+                        setSelectedTasks([])
+                      }
+                    }}
+                    style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                  />
+                </th>
                 <th>任务 ID</th>
                 <th>状态</th>
                 <th>进度</th>
@@ -878,6 +1006,20 @@ function VideoTaskList({ onBack }) {
             <tbody>
               {tasks.map(task => (
                 <tr key={task.task_id}>
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={selectedTasks.includes(task.task_id)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedTasks([...selectedTasks, task.task_id])
+                        } else {
+                          setSelectedTasks(selectedTasks.filter(id => id !== task.task_id))
+                        }
+                      }}
+                      style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                    />
+                  </td>
                   <td className="caption" style={{ fontFamily: 'monospace' }}>
                     {task.task_id}
                     {task.client_ref_id && (
@@ -1077,17 +1219,23 @@ function DigitalHumanManager({ apiKey }) {
     setTimeout(() => setSuccessMsg(''), 3000)
   }, [])
 
-  // 选择数字人
+  // 选择数字人 - 查看该数字人的批量视频
   const handleSelectPerson = useCallback((person) => {
     setSelectedPerson(person)
-    setActiveTab('create-video')
+    setActiveTab('video-tasks')
   }, [])
 
   // 创建视频任务成功
   const handleVideoTaskCreated = useCallback((taskData) => {
-    setSuccessMsg(`视频任务已创建：${taskData.task_id}`)
-    setActiveTab('custom')
-    setSelectedPerson(null)
+    if (taskData.count) {
+      // 批量创建模式
+      setSuccessMsg(`成功创建 ${taskData.count} 个视频任务`)
+    } else {
+      // 单个创建模式
+      setSuccessMsg(`视频任务已创建：${taskData.task_id}`)
+    }
+    setActiveTab('video-tasks')
+    // 保持 selectedPerson 不变，以便继续查看该数字人的视频列表
     setTimeout(() => setSuccessMsg(''), 5000)
   }, [])
 
@@ -1255,8 +1403,7 @@ function DigitalHumanManager({ apiKey }) {
             voices={voices}
             onSubmit={handleVideoTaskCreated}
             onCancel={() => {
-              setSelectedPerson(null)
-              setActiveTab('custom')
+              setActiveTab('video-tasks')
             }}
           />
         </div>
@@ -1264,7 +1411,14 @@ function DigitalHumanManager({ apiKey }) {
       
       {/* 视频任务列表 */}
       {activeTab === 'video-tasks' && (
-        <VideoTaskList onBack={() => setActiveTab('common')} />
+        <VideoTaskList 
+          onBack={() => {
+            setActiveTab('common')
+            setSelectedPerson(null)
+          }} 
+          selectedPersonId={selectedPerson?.id}
+          personName={selectedPerson?.name}
+        />
       )}
     </div>
   )

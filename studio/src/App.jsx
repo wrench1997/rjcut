@@ -522,7 +522,7 @@ function App() {
                 setActiveTab('digital-human')
               }}
             >
-              🎭 数字人
+              🎬 数字人批量视频
             </button>
             {/* AI 助手功能已屏蔽
             <button 
@@ -570,7 +570,7 @@ function App() {
           {activeTab === 'files' && '文件浏览器'}
           {activeTab === 'batch' && '批量视频处理'}
           {activeTab === 'tasks' && '任务管理'}
-          {activeTab === 'digital-human' && '数字人管理'}
+          {activeTab === 'digital-human' && '数字人批量视频'}
           {/* {activeTab === 'ai' && 'AI 智能助手'} */}
           {activeTab === 'settings' && '设置'}
         </span>

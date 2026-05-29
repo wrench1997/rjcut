@@ -713,12 +713,16 @@ def query_tasks(
     status: str = Query(None),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    person_id: str = Query(None, description="按数字人 ID 筛选（仅对 dh_generate 类型任务有效）"),
     merchant: Merchant = Depends(verify_api_key),
     db: Session = Depends(get_db),
 ):
     query = db.query(Task).filter(Task.merchant_id == merchant.id)
     if status:
         query = query.filter(Task.status == status)
+    # 按数字人 ID 筛选：从 payload 中查找 person_id
+    if person_id:
+        query = query.filter(Task.payload["person_id"].astext == person_id)
 
     total = query.count()
     tasks = query.order_by(Task.created_at.desc()).offset(offset).limit(limit).all()

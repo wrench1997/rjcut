@@ -138,10 +138,11 @@ export const deleteDhFile = (file_id) => apiClient.post(`/v1/dh/files/${file_id}
 // =====================================================
 // 数字人视频任务管理
 // =====================================================
-// 获取视频任务列表（支持筛选 dh_generate 类型）
-export const getDhTaskList = (status = null, limit = 20, offset = 0) => {
+// 获取视频任务列表（支持筛选 dh_generate 类型和数字人 ID）
+export const getDhTaskList = (status = null, limit = 20, offset = 0, personId = null) => {
   const params = new URLSearchParams({ limit, offset });
   if (status) params.append('status', status);
+  if (personId) params.append('person_id', personId);
   return apiClient.get(`/v1/tasks?${params.toString()}`);
 };
 
