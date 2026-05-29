@@ -6,6 +6,7 @@ import VideoProjectManager from './components/VideoProjectManager'
 import AIChat from './components/AIChat'
 import BatchProcessor from './components/BatchProcessor'
 import DigitalHumanManager from './components/DigitalHumanManager'
+import DigitalHumanStudio from './components/DigitalHumanStudio'
 import HelpGuide from './components/HelpGuide'
 
 // =====================================================
@@ -522,7 +523,16 @@ function App() {
                 setActiveTab('digital-human')
               }}
             >
-              🎬 数字人批量视频
+              🎬 数字人管理
+            </button>
+            <button 
+              className={`btn btn-utility ${activeTab === 'digital-human-studio' ? 'text-primary' : ''}`}
+              onClick={() => {
+                console.log('[App] 点击数字人创作台按钮，切换 activeTab 到 digital-human-studio')
+                setActiveTab('digital-human-studio')
+              }}
+            >
+              🎨 数字人创作台
             </button>
             {/* AI 助手功能已屏蔽
             <button 
@@ -570,7 +580,8 @@ function App() {
           {activeTab === 'files' && '文件浏览器'}
           {activeTab === 'batch' && '批量视频处理'}
           {activeTab === 'tasks' && '任务管理'}
-          {activeTab === 'digital-human' && '数字人批量视频'}
+          {activeTab === 'digital-human' && '数字人管理'}
+{activeTab === 'digital-human-studio' && '数字人视频创作工作台'}
           {/* {activeTab === 'ai' && 'AI 智能助手'} */}
           {activeTab === 'settings' && '设置'}
         </span>
@@ -697,6 +708,21 @@ function App() {
           <div className="tile tile-light">
             {console.log('[App] 渲染 DigitalHumanManager，vfsLoading:', vfsLoading)}
             <DigitalHumanManager key="digital-human-manager" apiKey={apiKey} />
+          </div>
+        )}
+        
+        {/* 数字人视频创作工作台 - 全新 UI 设计 */}
+        {activeTab === 'digital-human-studio' && (
+          <div style={{
+            position: 'fixed',
+            top: '96px',
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: '#f5f5f7',
+            overflow: 'hidden',
+          }}>
+            <DigitalHumanStudio apiKey={apiKey} apiBaseUrl={apiBaseUrl} />
           </div>
         )}
         

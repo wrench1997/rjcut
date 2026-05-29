@@ -65,7 +65,7 @@ function ProgressBar({ progress }) {
 // =====================================================
 // 数字人卡片组件
 // =====================================================
-function DigitalPersonCard({ person, isCustom, onSelect, onDelete, onRefresh }) {
+function DigitalPersonCard({ person, isCustom, onSelect, onCreateVideo, onDelete, onRefresh }) {
   const [loading, setLoading] = useState(false)
   const [detail, setDetail] = useState(null)
 
@@ -198,7 +198,11 @@ function DigitalPersonCard({ person, isCustom, onSelect, onDelete, onRefresh }) 
           className="btn btn-pearl-capsule btn-sm dh-action-btn"
           onClick={(e) => {
             e.stopPropagation()
-            onSelect && onSelect(person)
+            if (onCreateVideo) {
+              onCreateVideo(person)
+            } else if (onSelect) {
+              onSelect(person)
+            }
           }}
           title="为该数字人创建新视频"
         >
@@ -807,7 +811,7 @@ function VideoTaskStatusBadge({ status }) {
 // =====================================================
 // 视频任务列表组件 - 按数字人筛选
 // =====================================================
-function VideoTaskList({ onBack, selectedPersonId = null, personName = '' }) {
+function VideoTaskList({ onBack, selectedPersonId = null, personName = '', onCreateNew }) {
   const [tasks, setTasks] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -941,7 +945,7 @@ function VideoTaskList({ onBack, selectedPersonId = null, personName = '' }) {
           {!selectedPersonId && (
             <button 
               className="btn btn-pearl-capsule btn-sm" 
-              onClick={() => setActiveTab('common')}
+              onClick={onBack}
             >
               ← 选择数字人
             </button>
@@ -949,7 +953,7 @@ function VideoTaskList({ onBack, selectedPersonId = null, personName = '' }) {
           {selectedPersonId && (
             <button 
               className="btn btn-primary btn-sm"
-              onClick={() => setActiveTab('create-video')}
+              onClick={onCreateNew}
             >
               ✨ 新建视频任务
             </button>
@@ -1337,6 +1341,10 @@ function DigitalHumanManager({ apiKey }) {
                   person={person}
                   isCustom={false}
                   onSelect={handleSelectPerson}
+                  onCreateVideo={(p) => {
+                    setSelectedPerson(p)
+                    setActiveTab('create-video')
+                  }}
                 />
               ))}
             </div>
@@ -1376,6 +1384,10 @@ function DigitalHumanManager({ apiKey }) {
                   person={person}
                   isCustom={true}
                   onSelect={handleSelectPerson}
+                  onCreateVideo={(p) => {
+                    setSelectedPerson(p)
+                    setActiveTab('create-video')
+                  }}
                   onDelete={handleDeletePerson}
                   onRefresh={loadData}
                 />
@@ -1396,16 +1408,43 @@ function DigitalHumanManager({ apiKey }) {
       )}
       
       {/* 创建视频任务 */}
-      {activeTab === 'create-video' && selectedPerson && (
+      {activeTab === 'create-video' && (
         <div style={{ maxWidth: '600px' }}>
-          <CreateVideoForm
-            person={selectedPerson}
-            voices={voices}
-            onSubmit={handleVideoTaskCreated}
-            onCancel={() => {
-              setActiveTab('video-tasks')
-            }}
-          />
+          {selectedPerson ? (
+            <CreateVideoForm
+              person={selectedPerson}
+              voices={voices}
+              onSubmit={handleVideoTaskCreated}
+              onCancel={() => {
+                setActiveTab('video-tasks')
+              }}
+            />
+          ) : (
+            <div className="card">
+              <h3 className="tagline mb-md">⚠️ 请先选择数字人</h3>
+              <p className="lead mb-lg">创建视频任务需要先选择一个数字人</p>
+              <div className="flex gap-sm">
+                <button 
+                  className="btn btn-primary"
+                  onClick={() => setActiveTab('common')}
+                >
+                  选择公共数字人
+                </button>
+                <button 
+                  className="btn btn-pearl-capsule"
+                  onClick={() => setActiveTab('custom')}
+                >
+                  选择自定义数字人
+                </button>
+                <button 
+                  className="btn btn-ghost"
+                  onClick={() => setActiveTab('video-tasks')}
+                >
+                  返回
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
       
@@ -1416,6 +1455,9 @@ function DigitalHumanManager({ apiKey }) {
             setActiveTab('common')
             setSelectedPerson(null)
           }} 
+          onCreateNew={() => {
+            setActiveTab('create-video')
+          }}
           selectedPersonId={selectedPerson?.id}
           personName={selectedPerson?.name}
         />
