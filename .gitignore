@@ -16,3 +16,4 @@ deps/
 *.MP4
 *.MOV
 __pycache__/
+.next/

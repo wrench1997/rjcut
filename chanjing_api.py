@@ -60,7 +60,8 @@ class ChanjingAPI:
         self.base_url = "https://www.chanjing.cc/api/open/v1"
         self.logger = self._setup_logger()
         self.debug = False
-        self.access_token = self.get_access_token()
+        self.access_token = None  # 延迟获取 token
+        self._token_expired = False  # token 是否已失效标记
     
     def _setup_logger(self):
         """设置日志记录器"""
@@ -104,8 +105,27 @@ class ChanjingAPI:
             self.logger.error(f"获取访问令牌失败: {response}")
             raise Exception(f"获取访问令牌错误: {response}")
     
-    def _request(self, method, endpoint, params=None, data=None, headers=None):
-        """发送请求到 API"""
+    def _ensure_access_token(self):
+        """确保 access_token 有效，如果失效则重新获取"""
+        if not self.access_token or self._token_expired:
+            try:
+                self.access_token = self.get_access_token()
+                self._token_expired = False
+                self.logger.info("Access token 已刷新")
+            except Exception as e:
+                self.logger.error(f"刷新 access_token 失败：{e}")
+                raise
+    
+    def _request(self, method, endpoint, params=None, data=None, headers=None, retry=True):
+        """发送请求到 API
+        
+        Args:
+            retry: 是否允许在 token 失效时自动重试
+        """
+        # 确保 token 有效
+        if endpoint != '/access_token':
+            self._ensure_access_token()
+        
         url = f"{self.base_url}{endpoint}"
         
         if headers is None:
@@ -141,6 +161,14 @@ class ChanjingAPI:
             if not isinstance(result, dict):
                 self.logger.warning(f"API 返回非字典格式：{result}")
                 return {"code": -1, "msg": str(result), "data": None}
+            
+            # 🔴 检查 token 是否失效 (code 10400)
+            if result.get('code') == 10400 and retry:
+                self.logger.warning("Access token 已失效，尝试刷新后重试...")
+                self._token_expired = True
+                self.access_token = None  # 清除旧 token
+                return self._request(method, endpoint, params, data, headers, retry=False)  # 重试一次
+            
             return result
         except json.JSONDecodeError as e:
             self.logger.error(f"JSON 解析失败：{response.text}")

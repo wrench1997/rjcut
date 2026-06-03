@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { getSharedFileSystem } from '../utils/virtualFileSystem'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001'
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8001'
 
 const useBatchProcessStore = create((set, get) => ({
   tasks: [],

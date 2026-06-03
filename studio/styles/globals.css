@@ -1,0 +1,28 @@
+@import "tailwindcss";
+
+@layer utilities {
+  /* 现代化的自定义滚动条 */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 9999px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+  }
+}
+
+/* 隐藏部分原生焦点轮廓，交由 Tailwind focus:ring 接管 */
+input:focus, textarea:focus, select:focus, button:focus {
+  outline: none;
+}
+
+body {
+  @apply bg-slate-50 text-slate-800 antialiased;
+}

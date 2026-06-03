@@ -5,14 +5,13 @@ import FileBrowser from './components/FileBrowser'
 import VideoProjectManager from './components/VideoProjectManager'
 import AIChat from './components/AIChat'
 import BatchProcessor from './components/BatchProcessor'
-import DigitalHumanManager from './components/DigitalHumanManager'
 import DigitalHumanStudio from './components/DigitalHumanStudio'
 import HelpGuide from './components/HelpGuide'
 
 // =====================================================
 // API 配置
 // =====================================================
-const DEFAULT_API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001'
+const DEFAULT_API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8001'
 const DEFAULT_API_KEY = 'rjk_oG3u1bRu10myprstb5o2AYVW6v9HipNT33ALuJTmFxaqemUC'
 
 // =====================================================
@@ -516,15 +515,7 @@ function App() {
             >
               任务列表
             </button>
-            <button 
-              className={`btn btn-utility ${activeTab === 'digital-human' ? 'text-primary' : ''}`}
-              onClick={() => {
-                console.log('[App] 点击数字人按钮，切换 activeTab 到 digital-human')
-                setActiveTab('digital-human')
-              }}
-            >
-              🎬 数字人管理
-            </button>
+            
             <button 
               className={`btn btn-utility ${activeTab === 'digital-human-studio' ? 'text-primary' : ''}`}
               onClick={() => {
@@ -580,8 +571,7 @@ function App() {
           {activeTab === 'files' && '文件浏览器'}
           {activeTab === 'batch' && '批量视频处理'}
           {activeTab === 'tasks' && '任务管理'}
-          {activeTab === 'digital-human' && '数字人管理'}
-{activeTab === 'digital-human-studio' && '数字人视频创作工作台'}
+          {activeTab === 'digital-human-studio' && '数字人创作平台'}
           {/* {activeTab === 'ai' && 'AI 智能助手'} */}
           {activeTab === 'settings' && '设置'}
         </span>
@@ -702,14 +692,7 @@ function App() {
           </div>
         )}
         
-        {/* 数字人管理页面 - 不依赖 VFS，独立渲染 */}
-        {/* 🛡️ 使用 useMemo 缓存组件，防止反复挂载导致状态丢失 */}
-        {activeTab === 'digital-human' && (
-          <div className="tile tile-light">
-            {console.log('[App] 渲染 DigitalHumanManager，vfsLoading:', vfsLoading)}
-            <DigitalHumanManager key="digital-human-manager" apiKey={apiKey} />
-          </div>
-        )}
+        
         
         {/* 数字人视频创作工作台 - 全新 UI 设计 */}
         {activeTab === 'digital-human-studio' && (
