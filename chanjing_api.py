@@ -122,7 +122,7 @@ class ChanjingAPI:
         Args:
             retry: 是否允许在 token 失效时自动重试
         """
-        # 确保 token 有效
+        # 确保 token 有效（但 /access_token 接口本身不需要 token）
         if endpoint != '/access_token':
             self._ensure_access_token()
         
@@ -165,9 +165,28 @@ class ChanjingAPI:
             # 🔴 检查 token 是否失效 (code 10400)
             if result.get('code') == 10400 and retry:
                 self.logger.warning("Access token 已失效，尝试刷新后重试...")
-                self._token_expired = True
-                self.access_token = None  # 清除旧 token
-                return self._request(method, endpoint, params, data, headers, retry=False)  # 重试一次
+                # 强制刷新 token
+                try:
+                    self.access_token = self.get_access_token()
+                    self._token_expired = False
+                    self.logger.info("Access token 已刷新，重试请求...")
+                except Exception as e:
+                    self.logger.error(f"刷新 token 失败：{e}")
+                    return result  # 返回原错误结果
+                # 用新 token 重试（设置 retry=False 防止无限循环）
+                headers['access_token'] = self.access_token
+                response = requests.request(
+                    method=method, 
+                    url=url, 
+                    headers=headers,
+                    params=params,
+                    data=request_data,
+                    json=json_data
+                )
+                try:
+                    return response.json()
+                except json.JSONDecodeError:
+                    return {"code": -1, "msg": "JSON 解析失败", "data": None}
             
             return result
         except json.JSONDecodeError as e:
