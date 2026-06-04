@@ -1,6 +1,6 @@
 # api_digital_human.py
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from rq import Queue
@@ -118,21 +118,38 @@ def list_custom_persons(
     
     # 获取 MinIO 配置用于生成封面图 URL
     oss_settings = get_oss_settings()
-    minio_external = oss_settings.MINIO_EXTERNAL_ENDPOINT.rstrip("/")
+    minio_client = get_minio_client()
     bucket = oss_settings.MINIO_BUCKET
     
-    result_list = [
-        {
+    result_list = []
+    for p in persons:
+        cover_url = p.cover_url
+        if p.cover_url and not p.cover_url.startswith("http"):
+            # 🎬 为私有 MinIO 文件生成预签名 URL（有效期 7 天）
+            try:
+                from minio.error import S3Error
+                cover_url = minio_client.presigned_get_object(
+                    bucket_name=bucket,
+                    object_name=p.cover_url,
+                    expires=timedelta(days=7)
+                )
+            except S3Error as e:
+                import logging
+                logger = logging.getLogger("uvicorn.error")
+                logger.warning(f"生成封面图预签名 URL 失败：{p.cover_url}, 错误：{e}")
+                # 如果生成失败，尝试使用公开 URL
+                minio_external = oss_settings.MINIO_EXTERNAL_ENDPOINT.rstrip("/")
+                cover_url = f"{minio_external}/{bucket}/{p.cover_url}"
+        
+        result_list.append({
             "id": p.chanjing_person_id,
             "name": p.name,
             "status": p.status,
-            "cover_url": f"{minio_external}/{bucket}/{p.cover_url}" if p.cover_url and not p.cover_url.startswith("http") else p.cover_url,
+            "cover_url": cover_url,
             "figure_type": p.figure_type,  # 形象类型
             "audio_man_id": p.audio_man_id,  # 声音 ID
             "created_at": p.created_at.isoformat() if p.created_at else None
-        }
-        for p in persons
-    ]
+        })
     
     return ok(result_list)
 

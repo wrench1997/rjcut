@@ -22,6 +22,17 @@ input:focus, textarea:focus, select:focus, button:focus {
   outline: none;
 }
 
+/* 完全禁用 textarea 的 focus 样式 */
+textarea.no-focus-style:focus,
+textarea.no-focus-style:focus-visible {
+  outline: none !important;
+  border: none !important;
+  box-shadow: none !important;
+  border-color: transparent !important;
+  ring: none !important;
+  -webkit-focus-ring-color: transparent !important;
+}
+
 body {
   @apply bg-slate-50 text-slate-800 antialiased;
 }
@@ -867,7 +878,7 @@ body {
   outline: none;
 }
 
-input:focus, textarea:focus, select:focus {
+input:focus:not(.no-focus-style), textarea:focus:not(.no-focus-style), select:focus:not(.no-focus-style) {
   border-color: #3b82f6;
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
   outline: none;

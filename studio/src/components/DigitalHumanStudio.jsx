@@ -92,7 +92,12 @@ function BatchScriptInput({ scripts, setScripts }) {
       </div>
       <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
         {scripts.map((script, idx) => (
-          <div key={script.id} className="bg-white rounded-lg shadow-sm border border-slate-200 p-3">
+          <div key={script.id} className="bg-white rounded-lg shadow-sm border border-slate-200 p-3 cursor-text" onClick={(e) => {
+              if (e.target === e.currentTarget) {
+                const textarea = e.currentTarget.querySelector('textarea')
+                if (textarea) textarea.focus()
+              }
+            }}>
             <div className="flex justify-between items-center mb-2">
               <span className="text-xs font-bold text-slate-400">视频 {idx + 1}</span>
               {scripts.length > 1 && (
@@ -102,10 +107,14 @@ function BatchScriptInput({ scripts, setScripts }) {
               )}
             </div>
             <textarea
-              className="w-full h-24 text-sm resize-none focus:outline-none"
+              className="w-full h-24 text-sm resize-none border-0 bg-transparent focus:outline-none focus:ring-0 focus:border-0 no-focus-style cursor-text"
               placeholder="输入该视频的播报文案..."
               value={script.text}
               onChange={(e) => handleChange(script.id, e.target.value)}
+              onDoubleClick={(e) => {
+                e.target.focus()
+                e.target.select()
+              }}
             />
           </div>
         ))}
@@ -200,15 +209,24 @@ function SavePathConfig({ selectedProject, setSelectedProject, projects, onGener
 // =====================================================
 // 流水线进度面板 (覆盖层)
 // =====================================================
-function PipelineProgress({ tasks, onClose }) {
+function PipelineProgress({ tasks, onClose, onMinimize }) {
   if (tasks.length === 0) return null
+
+  const runningCount = tasks.filter(t => t.stage !== 'done' && t.stage !== 'failed').length
+  const successCount = tasks.filter(t => t.stage === 'done').length
+  const failedCount = tasks.filter(t => t.stage === 'failed').length
 
   return (
     <div className="absolute inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden">
         <div className="p-4 border-b border-slate-100 flex justify-between items-center">
           <h3 className="text-base font-bold text-slate-800" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Inbox size={16} /> 生成进度</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl">×</button>
+          <div className="flex items-center gap-2">
+            <button onClick={onMinimize} className="text-slate-400 hover:text-slate-600 text-sm px-2 py-1 rounded hover:bg-slate-100" title="最小化到右下角">
+              − 最小化
+            </button>
+            <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl">×</button>
+          </div>
         </div>
         <div className="p-4 space-y-3 max-h-96 overflow-y-auto custom-scrollbar">
           {tasks.map((task, idx) => (
@@ -248,6 +266,55 @@ function PipelineProgress({ tasks, onClose }) {
 }
 
 // =====================================================
+// 最小化进度悬浮窗 (右下角)
+// =====================================================
+function MinimizedProgress({ tasks, onExpand, onClose }) {
+  if (tasks.length === 0) return null
+
+  const runningCount = tasks.filter(t => t.stage !== 'done' && t.stage !== 'failed').length
+  const successCount = tasks.filter(t => t.stage === 'done').length
+  const failedCount = tasks.filter(t => t.stage === 'failed').length
+  const allDone = runningCount === 0
+
+  return (
+    <div className="fixed bottom-6 right-6 z-50 flex items-end gap-2">
+      {/* 关闭按钮 */}
+      <button
+        onClick={(e) => { e.stopPropagation(); onClose() }}
+        className="bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-full p-1.5 transition-colors shadow-lg"
+        title="关闭进度查看"
+      >
+        <X size={16} />
+      </button>
+      {/* 进度悬浮球 */}
+      <div 
+        className={`bg-white rounded-full shadow-2xl border-2 cursor-pointer transition-all duration-300 hover:scale-105 ${
+          allDone ? 'border-green-500' : 'border-blue-500 animate-pulse'
+        }`}
+        onClick={onExpand}
+        style={{ width: '64px', height: '64px' }}
+      >
+        <div className="w-full h-full flex flex-col items-center justify-center">
+          <Inbox size={20} className={allDone ? 'text-green-500' : 'text-blue-500'} />
+          <span className={`text-xs font-bold ${allDone ? 'text-green-600' : 'text-blue-600'}`}>
+            {runningCount > 0 ? runningCount : (failedCount > 0 ? '!' : '✓')}
+          </span>
+        </div>
+      </div>
+      {/* 简单状态提示 */}
+      <div className="absolute bottom-full right-0 mb-2 bg-slate-800 text-white px-3 py-2 rounded-lg text-xs whitespace-nowrap shadow-lg">
+        {allDone ? (
+          <span>✓ 全部完成 ({successCount}/{tasks.length})，点击展开查看详情</span>
+        ) : (
+          <span>⟳ 进行中：{runningCount} 个任务，点击展开查看详情</span>
+        )}
+        <div className="absolute top-full right-4 mt-1 border-4 border-transparent border-t-slate-800"></div>
+      </div>
+    </div>
+  )
+}
+
+// =====================================================
 // 主组件
 // =====================================================
 export default function DigitalHumanStudio({ apiKey, apiBaseUrl }) {
@@ -266,6 +333,7 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl }) {
   const [statusMsg, setStatusMsg] = useState('')
   const [pipelineTasks, setPipelineTasks] = useState([])
   const [showProgress, setShowProgress] = useState(false)
+  const [minimizedProgress, setMinimizedProgress] = useState(false)
 
   useEffect(() => {
     // 加载数字人、声音和项目列表
@@ -410,6 +478,8 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl }) {
       setStatusMsg('生成失败：' + err.message)
     } finally {
       setIsGenerating(false)
+      // 所有任务完成后，自动最小化进度窗口
+      setMinimizedProgress(true)
     }
   }
 
@@ -457,7 +527,17 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl }) {
       {showProgress && (
         <PipelineProgress 
           tasks={pipelineTasks} 
-          onClose={() => setShowProgress(false)} 
+          onClose={() => { setShowProgress(false); setMinimizedProgress(false) }} 
+          onMinimize={() => { setShowProgress(false); setMinimizedProgress(true) }}
+        />
+      )}
+
+      {/* 最小化进度悬浮窗 */}
+      {minimizedProgress && pipelineTasks.length > 0 && (
+        <MinimizedProgress 
+          tasks={pipelineTasks} 
+          onExpand={() => { setMinimizedProgress(false); setShowProgress(true) }}
+          onClose={() => setMinimizedProgress(false)}
         />
       )}
     </div>
