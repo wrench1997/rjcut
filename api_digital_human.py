@@ -296,14 +296,21 @@ def sync_custom_persons(
             logger.info(f"  ⚠️ 列表接口无封面，尝试从详情接口获取：{person_id}")
             try:
                 detail_resp = api.get_customised_person_status(person_id)
+                logger.info(f"  🔍 详情接口返回：code={detail_resp.get('code')}, data keys={list(detail_resp.get('data', {}).keys()) if detail_resp.get('data') else 'None'}")
                 if ChanjingStatusCode.is_success(detail_resp.get('code')):
                     detail_data = detail_resp.get('data', {})
+                    # 打印所有可能的封面字段
+                    logger.info(f"  🔍 pic_url={detail_data.get('pic_url', 'N/A')[:50] if detail_data.get('pic_url') else 'N/A'}")
+                    logger.info(f"  🔍 preview_url={detail_data.get('preview_url', 'N/A')[:50] if detail_data.get('preview_url') else 'N/A'}")
+                    logger.info(f"  🔍 cover_url={detail_data.get('cover_url', 'N/A')[:50] if detail_data.get('cover_url') else 'N/A'}")
                     # 蝉镜 API 返回的是 pic_url 和 preview_url，不是 cover_url
                     cover_url = detail_data.get('pic_url', '') or detail_data.get('preview_url', '') or detail_data.get('cover_url', '')
                     preview_video_url = detail_data.get('preview_url', '')  # 保存预览视频 URL
                     figure_type = detail_data.get('type', '') or detail_data.get('figure_type', '')
                     if cover_url:
                         logger.info(f"  ✅ 从详情接口获取到封面：{cover_url[:80]}...")
+                    else:
+                        logger.warning(f"  ❌ 详情接口也无封面图字段")
             except Exception as e:
                 logger.warning(f"  ❌ 获取详情失败：{e}")
         
