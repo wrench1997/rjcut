@@ -47,7 +47,7 @@ def list_common_persons(_: Merchant = Depends(verify_api_key)):
         # 🔍 调试日志
         import logging
         logger = logging.getLogger("uvicorn.error")
-        logger.info(f"数字人：{person_name}, figures 数量：{len(figures)}")
+        # logger.info(f"数字人：{person_name}, figures 数量：{len(figures)}")
         if figures:
             logger.info(f"  第一个 figure: {figures[0]}")
         
@@ -95,6 +95,8 @@ def list_common_persons(_: Merchant = Depends(verify_api_key)):
 
 
 
+
+
 # @router.get("/persons/custom")
 # def list_custom_persons(_: Merchant = Depends(verify_api_key)):
 #     api = get_chanjing_api()
@@ -109,6 +111,9 @@ def list_custom_persons(
     db: Session = Depends(get_db)
 ):
     """获取商户自己训练的私有数字人列表（数据隔离）"""
+    import logging
+    logger = logging.getLogger("uvicorn.error")
+    
     persons = (
         db.query(DhCustomPerson)
         .filter(DhCustomPerson.merchant_id == merchant.id)
@@ -116,14 +121,26 @@ def list_custom_persons(
         .all()
     )
     
+    # 🔍 打印自定义数字人详细信息
+    logger.info(f"===== 自定义数字人列表 (商户：{merchant.id}) =====")
+    logger.info(f"查询到 {len(persons)} 个自定义数字人")
+    
     # 获取 MinIO 配置用于生成封面图 URL
     oss_settings = get_oss_settings()
     minio_client = get_minio_client()
     bucket = oss_settings.MINIO_BUCKET
     
     result_list = []
-    for p in persons:
+    for i, p in enumerate(persons):
         cover_url = p.cover_url
+        logger.info(f"\n--- 数字人 [{i+1}/{len(persons)}] ---")
+        logger.info(f"  ID: {p.chanjing_person_id}")
+        logger.info(f"  名字：{p.name}")
+        logger.info(f"  状态：{p.status}")
+        logger.info(f"  原始 cover_url: {p.cover_url}")
+        logger.info(f"  figure_type: {p.figure_type}")
+        logger.info(f"  audio_man_id: {p.audio_man_id}")
+        
         if p.cover_url and not p.cover_url.startswith("http"):
             # 🎬 为私有 MinIO 文件生成预签名 URL（有效期 7 天）
             try:
@@ -133,13 +150,17 @@ def list_custom_persons(
                     object_name=p.cover_url,
                     expires=timedelta(days=7)
                 )
+                logger.info(f"  ✅ 生成预签名 URL: {cover_url[:100]}...")
             except S3Error as e:
-                import logging
-                logger = logging.getLogger("uvicorn.error")
-                logger.warning(f"生成封面图预签名 URL 失败：{p.cover_url}, 错误：{e}")
+                logger.warning(f"  ❌ 生成封面图预签名 URL 失败：{p.cover_url}, 错误：{e}")
                 # 如果生成失败，尝试使用公开 URL
                 minio_external = oss_settings.MINIO_EXTERNAL_ENDPOINT.rstrip("/")
                 cover_url = f"{minio_external}/{bucket}/{p.cover_url}"
+                logger.info(f"  🔄 使用公开 URL: {cover_url}")
+        elif p.cover_url:
+            logger.info(f"  ✅ 使用外部 URL: {p.cover_url[:100]}...")
+        else:
+            logger.warning(f"  ⚠️ 无封面图 (cover_url 为空)")
         
         result_list.append({
             "id": p.chanjing_person_id,
@@ -150,6 +171,8 @@ def list_custom_persons(
             "audio_man_id": p.audio_man_id,  # 声音 ID
             "created_at": p.created_at.isoformat() if p.created_at else None
         })
+    
+    logger.info(f"\n===== 返回 {len(result_list)} 个自定义数字人 =====")
     
     return ok(result_list)
 
