@@ -49,7 +49,8 @@ def list_common_persons(_: Merchant = Depends(verify_api_key)):
         logger = logging.getLogger("uvicorn.error")
         # logger.info(f"数字人：{person_name}, figures 数量：{len(figures)}")
         if figures:
-            logger.info(f"  第一个 figure: {figures[0]}")
+            pass
+            #logger.info(f"  第一个 figure: {figures[0]}")
         
         # 提取所有可选的 figure_type 列表
         available_figure_types = [fig.get("type", "") for fig in figures if fig.get("type")]
@@ -269,9 +270,26 @@ def sync_custom_persons(
         person_id = person_data.get('id')
         name = person_data.get('name', '')
         chanjing_status = person_data.get('status', 0)
-        cover_url = person_data.get('cover_url')
+        
+        # 🎬 从 figures 数组中提取封面图（蝉镜 API 的实际数据结构）
+        cover_url = ""
+        figures = person_data.get('figures', [])
+        if figures and len(figures) > 0:
+            for fig in figures:
+                if fig.get('cover'):
+                    cover_url = fig.get('cover', '')
+                    figure_type = fig.get('type', '')
+                    break
+            # 如果都没有 cover，使用第一个 figure
+            if not cover_url and figures[0]:
+                cover_url = figures[0].get('cover', '')
+                figure_type = figures[0].get('type', '')
+        # 兼容旧数据：如果 figures 为空，尝试直接获取 cover_url
+        if not cover_url:
+            cover_url = person_data.get('cover_url', '')
+            figure_type = person_data.get('figure_type', '')
+        
         audio_man_id = person_data.get('audio_man_id')  # 🆕 获取声音 ID
-        figure_type = person_data.get('figure_type')  # 🆕 获取形象类型
         
         # 映射蝉镜状态到本地状态 (根据 chanjing_api.py：1=制作中，2=成功，4=失败)
         local_status = 30 if chanjing_status == 2 else (40 if chanjing_status in (4, 40, -1) else 10)
