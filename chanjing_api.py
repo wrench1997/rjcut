@@ -248,10 +248,11 @@ class ChanjingAPI:
         response = self._request("GET", endpoint, params=params)
         
         # 🔍 调试：打印返回数据结构
-        self.logger.info(f"API 返回原始数据：{response}")
+        # self.logger.info(f"API 返回原始数据：{response}")
         if response.get('data', {}).get('list'):
             for p in response['data']['list'][:3]:  # 只打印前 3 个
-                self.logger.info(f"  - 数字人：{p.get('name')}, figures={p.get('figures')}, cover_url={p.get('cover_url')}")
+                pass
+                #self.logger.info(f"  - 数字人：{p.get('name')}, figures={p.get('figures')}, cover_url={p.get('cover_url')}")
         
         return response
     
