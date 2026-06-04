@@ -161,7 +161,7 @@ def list_custom_persons(
                             db.add(p)
                             db.commit()
                         except Exception as update_err:
-                            logger.iwarningnfo(f"  *** ⚠️ 更新数据库失败：{update_err}")
+                            logger.warning(f"  *** ⚠️ 更新数据库失败：{update_err}")
                             db.rollback()
                     else:
                         logger.error(f"  *** ❌ 蝉镜 API 也无封面字段，data keys={list(detail_data.keys())}")
