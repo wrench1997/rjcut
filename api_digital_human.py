@@ -144,23 +144,29 @@ def list_custom_persons(
         
         # 🎬 如果数据库中没有封面，尝试从蝉镜 API 动态获取
         if not cover_url:
+            logger.info(f"  *** 数据库无封面，尝试从蝉镜 API 获取详情...")
             try:
                 detail_resp = api.get_customised_person_status(p.chanjing_person_id)
+                logger.info(f"  *** 蝉镜 API 返回：code={detail_resp.get('code')}, data={detail_resp.get('data', {})}")
                 if ChanjingStatusCode.is_success(detail_resp.get('code')):
                     detail_data = detail_resp.get('data', {})
                     cover_url = detail_data.get('pic_url', '') or detail_data.get('preview_url', '') or detail_data.get('cover_url', '')
+                    logger.info(f"  *** cover_url 提取结果：{cover_url[:80] if cover_url else 'None'}...")
                     if cover_url:
-                        logger.info(f"  ✅ 从蝉镜 API 获取到封面：{cover_url[:80]}...")
+                        logger.info(f"  *** ✅ 从蝉镜 API 获取到封面！")
                         # 异步更新数据库（不阻塞响应）
                         try:
                             p.cover_url = cover_url
                             p.figure_type = detail_data.get('type', '') or p.figure_type
                             db.add(p)
                             db.commit()
-                        except:
+                        except Exception as update_err:
+                            logger.iwarningnfo(f"  *** ⚠️ 更新数据库失败：{update_err}")
                             db.rollback()
+                    else:
+                        logger.error(f"  *** ❌ 蝉镜 API 也无封面字段，data keys={list(detail_data.keys())}")
             except Exception as e:
-                logger.debug(f"  ⚠️ 动态获取封面失败：{e}")
+                 logger.error(f"  *** ❌ 调用蝉镜 API 失败：{e}")
         
         if p.cover_url and not p.cover_url.startswith("http"):
             # 🎬 为私有 MinIO 文件生成预签名 URL（有效期 7 天）
