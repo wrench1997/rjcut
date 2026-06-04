@@ -1,13 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { getSharedFileSystem } from '../src/utils/virtualFileSystem'
 import { setApiKey } from '../src/api/api'
-import { FolderOpen, Folder, Layers, Sparkles, Settings, HelpCircle, Gem } from 'lucide-react'
+import { FolderOpen, Folder, Layers, Sparkles, Settings, HelpCircle, Gem, Users } from 'lucide-react'
 
 // 导入你的各个组件
 import FileBrowser from '../src/components/FileBrowser'
 import VideoProjectManager from '../src/components/VideoProjectManager'
 import BatchProcessor from '../src/components/BatchProcessor'
 import DigitalHumanStudio from '../src/components/DigitalHumanStudio'
+import DigitalHumanManager from '../src/components/DigitalHumanManager'
 import HelpGuide from '../src/components/HelpGuide'
 
 const DEFAULT_API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8001'
@@ -35,6 +36,7 @@ const NAV_ITEMS = [
   { id: 'projects', label: '项目管理', icon: FolderOpen },
   { id: 'files', label: '文件浏览', icon: Folder },
   { id: 'digital-human-studio', label: '数字人创作平台', icon: Sparkles },
+  { id: 'digital-human', label: '数字人管理', icon: Users },
   { id: 'settings', label: '系统设置', icon: Settings },
 ]
 
@@ -177,6 +179,7 @@ export default function Home() {
             {activeTab === 'projects' && <VideoProjectManager vfs={vfs} onOpenProject={() => setActiveTab('files')} onNavigate={() => setActiveTab('files')} />}
             {activeTab === 'files' && <FileBrowser vfs={vfs} />}
             {activeTab === 'digital-human-studio' && <DigitalHumanStudio apiKey={apiKey} apiBaseUrl={apiBaseUrl} />}
+            {activeTab === 'digital-human' && <DigitalHumanManager apiKey={apiKey} apiBaseUrl={apiBaseUrl} />}
             
             {activeTab === 'settings' && (
               <div className="max-w-2xl mx-auto">

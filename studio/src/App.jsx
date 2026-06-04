@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createDefaultFileSystem, getSharedFileSystem } from './utils/virtualFileSystem'
 import { setApiKey } from './api/api'
-import { FolderOpen, Folder, Layers, Clapperboard, Settings, HelpCircle, Sparkles, Film, Scissors, FileText, Clock, RefreshCw, ScrollText, Download } from 'lucide-react'
+import { FolderOpen, Folder, Layers, Clapperboard, Settings, HelpCircle, Sparkles, Film, Scissors, FileText, Clock, RefreshCw, ScrollText, Download, User } from 'lucide-react'
 import FileBrowser from './components/FileBrowser'
 import VideoProjectManager from './components/VideoProjectManager'
 import AIChat from './components/AIChat'
 import BatchProcessor from './components/BatchProcessor'
 import DigitalHumanStudio from './components/DigitalHumanStudio'
+import DigitalHumanManager from './components/DigitalHumanManager'
 import HelpGuide from './components/HelpGuide'
 
 // =====================================================
@@ -557,6 +558,14 @@ function App() {
               <Sparkles size={18} strokeWidth={2} />
               <span style={{ marginLeft: '6px' }}>数字人创作台</span>
             </button>
+            <button 
+              className={`btn btn-utility ${activeTab === 'digital-human-manager' ? 'text-primary' : ''}`}
+              onClick={() => setActiveTab('digital-human-manager')}
+              title="数字人管理"
+            >
+              <User size={18} strokeWidth={2} />
+              <span style={{ marginLeft: '6px' }}>数字人管理</span>
+            </button>
             {/* AI 助手功能已屏蔽
             <button 
               className={`btn btn-utility ${activeTab === 'ai' ? 'text-primary' : ''}`}
@@ -607,6 +616,7 @@ function App() {
           {activeTab === 'batch' && '批量视频处理'}
           {activeTab === 'tasks' && '任务管理'}
           {activeTab === 'digital-human-studio' && '数字人创作平台'}
+          {activeTab === 'digital-human-manager' && '数字人资产管理'}
           {/* {activeTab === 'ai' && 'AI 智能助手'} */}
           {activeTab === 'settings' && '设置'}
         </span>
@@ -741,6 +751,13 @@ function App() {
             overflow: 'hidden',
           }}>
             <DigitalHumanStudio apiKey={apiKey} apiBaseUrl={apiBaseUrl} />
+          </div>
+        )}
+        
+        {/* 数字人资产管理页面 */}
+        {activeTab === 'digital-human-manager' && (
+          <div className="tile tile-light">
+            <DigitalHumanManager apiKey={apiKey} />
           </div>
         )}
         
