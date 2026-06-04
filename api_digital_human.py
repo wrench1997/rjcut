@@ -219,6 +219,9 @@ def get_custom_person_detail(
         db.add(local_person)
         db.commit()
         
+    # 🎬 蝉镜 API 返回的是 pic_url / preview_url，不是 cover_url
+    cover_url = data.get('pic_url') or data.get('preview_url') or data.get('cover_url')
+    
     # 返回详细信息
     result = {
         "id": person_id,
@@ -226,7 +229,7 @@ def get_custom_person_detail(
         "status": data.get('status', 0),
         "status_text": _get_person_status_text(data.get('status', 0)),
         "progress": data.get('progress', 0),
-        "cover_url": data.get('cover_url'),
+        "cover_url": cover_url,
         "video_url": data.get('video_url'),  # 训练完成的示例视频
         "created_at": local_person.created_at.isoformat() if local_person and local_person.created_at else None
     }
@@ -273,6 +276,7 @@ def sync_custom_persons(
         
         # 🎬 从 figures 数组中提取封面图（蝉镜 API 的实际数据结构）
         cover_url = ""
+        figure_type = ""
         figures = person_data.get('figures', [])
         if figures and len(figures) > 0:
             for fig in figures:
@@ -284,7 +288,68 @@ def sync_custom_persons(
             if not cover_url and figures[0]:
                 cover_url = figures[0].get('cover', '')
                 figure_type = figures[0].get('type', '')
-        # 兼容旧数据：如果 figures 为空，尝试直接获取 cover_url
+        
+        # 🎬 如果 figures 为空或没有 cover，需要调用单个数字人详情接口获取封面
+        # 蝉镜的列表接口不返回封面图，只有详情接口才返回 pic_url / preview_url
+        preview_video_url = ""
+        if not cover_url:
+            logger.info(f"  ⚠️ 列表接口无封面，尝试从详情接口获取：{person_id}")
+            try:
+                detail_resp = api.get_customised_person_status(person_id)
+                if ChanjingStatusCode.is_success(detail_resp.get('code')):
+                    detail_data = detail_resp.get('data', {})
+                    # 蝉镜 API 返回的是 pic_url 和 preview_url，不是 cover_url
+                    cover_url = detail_data.get('pic_url', '') or detail_data.get('preview_url', '') or detail_data.get('cover_url', '')
+                    preview_video_url = detail_data.get('preview_url', '')  # 保存预览视频 URL
+                    figure_type = detail_data.get('type', '') or detail_data.get('figure_type', '')
+                    if cover_url:
+                        logger.info(f"  ✅ 从详情接口获取到封面：{cover_url[:80]}...")
+            except Exception as e:
+                logger.warning(f"  ❌ 获取详情失败：{e}")
+        
+        # 🎬 降级方案：如果只有预览视频没有封面图，下载视频并提取第一帧
+        if not cover_url and preview_video_url:
+            logger.info(f"  🎥 无封面图，但有预览视频，尝试提取第一帧：{preview_video_url[:80]}...")
+            try:
+                import tempfile
+                import subprocess
+                from oss import upload_file_to_oss
+                
+                # 下载预览视频
+                with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp_video:
+                    tmp_video_path = tmp_video.name
+                    import requests
+                    video_resp = requests.get(preview_video_url, timeout=30)
+                    if video_resp.status_code == 200:
+                        tmp_video.write(video_resp.content)
+                        tmp_video.flush()
+                        
+                        # 提取第一帧
+                        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp_img:
+                            tmp_img_path = tmp_img.name
+                        
+                        subprocess.run(
+                            ["ffmpeg", "-nostdin", "-y", "-ss", "00:00:00.000", "-i", tmp_video_path, "-vframes", "1", "-q:v", "2", tmp_img_path],
+                            check=True,
+                            capture_output=True,
+                            timeout=30
+                        )
+                        
+                        # 上传到 MinIO
+                        object_key = f"dh_custom_persons/{person_id}_cover.jpg"
+                        cover_url = upload_file_to_oss(tmp_img_path, object_key)
+                        logger.info(f"  ✅ 从预览视频提取封面成功：{cover_url[:80]}...")
+                        
+                        # 清理临时文件
+                        import os
+                        os.unlink(tmp_video_path)
+                        os.unlink(tmp_img_path)
+                    else:
+                        logger.warning(f"  ❌ 下载预览视频失败：{video_resp.status_code}")
+            except Exception as e:
+                logger.warning(f"  ❌ 从预览视频提取封面失败：{e}")
+        
+        # 兼容旧数据：如果仍然没有封面，尝试直接从 person_data 获取
         if not cover_url:
             cover_url = person_data.get('cover_url', '')
             figure_type = person_data.get('figure_type', '')
