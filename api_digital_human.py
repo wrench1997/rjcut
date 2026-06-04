@@ -146,6 +146,7 @@ def list_custom_persons(
         if not cover_url:
             logger.info(f"  *** 数据库无封面，尝试从蝉镜 API 获取详情...")
             try:
+                api = get_chanjing_api()
                 detail_resp = api.get_customised_person_status(p.chanjing_person_id)
                 logger.info(f"  *** 蝉镜 API 返回：code={detail_resp.get('code')}, data={detail_resp.get('data', {})}")
                 if ChanjingStatusCode.is_success(detail_resp.get('code')):
