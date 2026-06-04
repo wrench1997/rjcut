@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { getCommonPersons, getCustomPersons, getVoices, createDhGenerateTask, getDhTaskDetail, getDhVideoUrl } from '../api/api'
 import { getSharedFileSystem } from '../utils/virtualFileSystem'
+import { User, Mic, Check, X, Film, Download, AlertCircle, Loader2, Book, Inbox, Folder, AlertTriangle, Rocket } from 'lucide-react'
 
 // =====================================================
 // 左侧：资产选择 (数字人与声音)
@@ -33,8 +34,8 @@ function AvatarPicker({ persons, voices, selectedPerson, onSelectPerson, selecte
                 className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110" 
               />
             ) : (
-              <div className="w-full h-full bg-gradient-to-br from-slate-200 to-slate-300 flex items-center justify-center text-3xl">
-                👤
+              <div className="w-full h-full bg-gradient-to-br from-slate-200 to-slate-300 flex items-center justify-center text-slate-400">
+                <User size={40} strokeWidth={1.5} />
               </div>
             )}
             {/* 遮罩层 */}
@@ -45,8 +46,8 @@ function AvatarPicker({ persons, voices, selectedPerson, onSelectPerson, selecte
             </div>
             {/* 选中标识 */}
             {selectedPerson?.id === person.id && (
-              <div className="absolute top-2 right-2 bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs shadow-lg">
-                ✓
+              <div className="absolute top-2 right-2 bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center shadow-lg">
+                <Check size={14} strokeWidth={3} />
               </div>
             )}
           </div>
@@ -56,7 +57,8 @@ function AvatarPicker({ persons, voices, selectedPerson, onSelectPerson, selecte
       {/* 配音选择区 */}
       <div className="p-5 border-t border-slate-100 bg-slate-50 flex-shrink-0">
         <label className="block text-xs font-bold text-slate-600 mb-2 flex items-center gap-1">
-          <span>🎤</span> 配音角色 (可选)
+          <Mic size={14} strokeWidth={2} />
+          <span>配音角色 (可选)</span>
         </label>
         <select 
           className="w-full text-sm p-2.5 rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all cursor-pointer"
@@ -94,7 +96,9 @@ function BatchScriptInput({ scripts, setScripts }) {
             <div className="flex justify-between items-center mb-2">
               <span className="text-xs font-bold text-slate-400">视频 {idx + 1}</span>
               {scripts.length > 1 && (
-                <button onClick={() => handleRemove(script.id)} className="text-red-400 hover:text-red-600">✕</button>
+                <button onClick={() => handleRemove(script.id)} className="text-red-400 hover:text-red-600">
+                  <X size={16} strokeWidth={2} />
+                </button>
               )}
             </div>
             <textarea
@@ -111,45 +115,60 @@ function BatchScriptInput({ scripts, setScripts }) {
 }
 
 // =====================================================
-// 右侧：保存路径配置
+// 右侧：保存路径配置（选择项目）
 // =====================================================
-function SavePathConfig({ savePath, setSavePath, onGenerate, isGenerating }) {
+function SavePathConfig({ selectedProject, setSelectedProject, projects, onGenerate, isGenerating, loadingProjects }) {
   return (
     <div className="w-80 bg-white flex flex-col h-full z-10">
       <div className="p-4 border-b border-slate-100">
-        <h2 className="text-sm font-bold text-slate-800">3. 保存路径配置</h2>
-        <p className="text-[10px] text-slate-500 mt-1">选择数字人视频保存位置</p>
+        <h2 className="text-sm font-bold text-slate-800">3. 选择保存项目</h2>
+        <p className="text-[10px] text-slate-500 mt-1">选择要保存数字人视频的项目</p>
       </div>
       
       <div className="flex-1 p-4 space-y-6 overflow-y-auto custom-scrollbar">
-        {/* 保存路径设置 */}
+        {/* 项目选择 */}
         <div>
-          <label className="block text-xs font-bold text-slate-700 mb-2">
-            📁 VFS 保存路径
+          <label className="block text-xs font-bold text-slate-700 mb-2" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <Folder size={12} /> 选择 VFS 项目
           </label>
-          <input
-            type="text"
-            className="w-full text-xs p-2 rounded border border-slate-200 bg-white"
-            placeholder="/digital_humans"
-            value={savePath}
-            onChange={e => setSavePath(e.target.value)}
-          />
-          <p className="text-[10px] text-slate-400 mt-1">
-            生成的数字人视频将保存到此目录
-          </p>
-          <p className="text-[10px] text-slate-500 mt-2">
-            💡 提示：生成完成后，可在【批量处理】中选择这些视频进行后期合成
-          </p>
+          {loadingProjects ? (
+            <div className="text-xs text-slate-500 p-2">加载中...</div>
+          ) : projects.length === 0 ? (
+            <div className="text-xs text-amber-600 p-2 bg-amber-50 rounded border border-amber-200" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <AlertTriangle size={12} /> 暂无项目，请先在文件浏览器中创建视频项目
+            </div>
+          ) : (
+            <select
+              className="w-full text-xs p-2 rounded border border-slate-200 bg-white"
+              value={selectedProject?.path || ''}
+              onChange={e => {
+                const project = projects.find(p => p.path === e.target.value)
+                setSelectedProject(project)
+              }}
+            >
+              <option value="">-- 请选择项目 --</option>
+              {projects.map(project => (
+                <option key={project.path} value={project.path}>
+                  {project.name}
+                </option>
+              ))}
+            </select>
+          )}
+          {selectedProject && (
+            <p className="text-[10px] text-slate-500 mt-2">
+              📂 视频将保存到：<code className="bg-slate-100 px-1 rounded">{selectedProject.path}/videos</code>
+            </p>
+          )}
         </div>
 
         {/* 使用说明 */}
         <div className="bg-blue-50 p-3 rounded-lg border border-blue-100">
-          <h4 className="text-xs font-bold text-blue-800 mb-2">📖 使用流程</h4>
+          <h4 className="text-xs font-bold text-blue-800 mb-2" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Book size={12} /> 使用流程</h4>
           <ol className="text-[10px] text-blue-700 space-y-1 list-decimal list-inside">
             <li>选择数字人和声音</li>
             <li>输入批量文案</li>
-            <li>设置保存路径</li>
-            <li>点击生成，视频保存到 VFS</li>
+            <li>选择要保存到的项目</li>
+            <li>点击生成，视频保存到项目 videos 目录</li>
             <li>前往【批量处理】进行后期合成</li>
           </ol>
         </div>
@@ -158,7 +177,7 @@ function SavePathConfig({ savePath, setSavePath, onGenerate, isGenerating }) {
       <div className="p-4 border-t border-slate-100 bg-slate-50">
         <button
           onClick={onGenerate}
-          disabled={isGenerating}
+          disabled={isGenerating || !selectedProject}
           className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg disabled:opacity-50 flex justify-center items-center gap-2 transition-all"
         >
           {isGenerating ? (
@@ -167,11 +186,11 @@ function SavePathConfig({ savePath, setSavePath, onGenerate, isGenerating }) {
               生成中...
             </>
           ) : (
-            <>🚀 生成数字人视频</>
+            <><Rocket size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} /> 生成数字人视频</>
           )}
         </button>
         <p className="text-[10px] text-slate-400 text-center mt-2">
-          视频将保存到指定 VFS 目录
+          视频将保存到所选项目的 videos 目录
         </p>
       </div>
     </div>
@@ -188,7 +207,7 @@ function PipelineProgress({ tasks, onClose }) {
     <div className="absolute inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden">
         <div className="p-4 border-b border-slate-100 flex justify-between items-center">
-          <h3 className="text-base font-bold text-slate-800">📥 生成进度</h3>
+          <h3 className="text-base font-bold text-slate-800" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Inbox size={16} /> 生成进度</h3>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl">×</button>
         </div>
         <div className="p-4 space-y-3 max-h-96 overflow-y-auto custom-scrollbar">
@@ -203,10 +222,10 @@ function PipelineProgress({ tasks, onClose }) {
                   task.stage === 'failed' ? 'bg-red-100 text-red-700' :
                   'bg-blue-100 text-blue-700'
                 }`}>
-                  {task.stage === 'dh_generating' && '🎬 数字人生成中'}
-                  {task.stage === 'downloading' && '⬇️ 下载视频中'}
-                  {task.stage === 'done' && '✅ 完成'}
-                  {task.stage === 'failed' && '❌ 失败'}
+                  {task.stage === 'dh_generating' && <><Film size={10} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '2px' }} /> 数字人生成中</>}
+                  {task.stage === 'downloading' && <><Download size={10} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '2px' }} /> 下载视频中</>}
+                  {task.stage === 'done' && <><Check size={10} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '2px' }} /> 完成</>}
+                  {task.stage === 'failed' && <><X size={10} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '2px' }} /> 失败</>}
                 </span>
               </div>
               <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
@@ -238,8 +257,10 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl }) {
   const [selectedVoice, setSelectedVoice] = useState('')
   const [scripts, setScripts] = useState([{ id: Date.now(), text: '' }])
   
-  // 保存路径配置
-  const [savePath, setSavePath] = useState('/digital_humans')
+  // 项目选择
+  const [projects, setProjects] = useState([])
+  const [selectedProject, setSelectedProject] = useState(null)
+  const [loadingProjects, setLoadingProjects] = useState(true)
 
   const [isGenerating, setIsGenerating] = useState(false)
   const [statusMsg, setStatusMsg] = useState('')
@@ -247,18 +268,37 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl }) {
   const [showProgress, setShowProgress] = useState(false)
 
   useEffect(() => {
-    // 加载数据
-    Promise.all([getCommonPersons(), getCustomPersons(), getVoices()])
-      .then(([cRes, pRes, vRes]) => {
+    // 加载数字人、声音和项目列表
+    const loadData = async () => {
+      try {
+        const [cRes, pRes, vRes, vfs] = await Promise.all([
+          getCommonPersons(),
+          getCustomPersons(),
+          getVoices(),
+          getSharedFileSystem(),
+        ])
+        
         let all = []
         if (cRes?.data?.code === 0) all = [...all, ...(cRes.data.data || [])]
         if (pRes?.data?.code === 0) all = [...all, ...(pRes.data.data || [])]
         setPersons(all)
         if (vRes?.data?.code === 0) setVoices(vRes.data.data || [])
-      })
-      .catch(err => {
+        
+        // 加载项目列表
+        const projects = await vfs.getVideoProjects()
+        setProjects(projects)
+        // 默认选择第一个项目
+        if (projects.length > 0) {
+          setSelectedProject(projects[0])
+        }
+      } catch (err) {
         setStatusMsg('加载数据失败：' + err.message)
-      })
+      } finally {
+        setLoadingProjects(false)
+      }
+    }
+    
+    loadData()
   }, [])
 
   // 核心：生成数字人视频并保存到 VFS
@@ -266,6 +306,7 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl }) {
     const validScripts = scripts.filter(s => s.text.trim())
     if (!selectedPerson) return alert("请选择数字人")
     if (validScripts.length === 0) return alert("请输入至少一条文案")
+    if (!selectedProject) return alert("请选择要保存到的项目")
 
     setIsGenerating(true)
     setShowProgress(true)
@@ -285,8 +326,11 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl }) {
       const apiKey = localStorage.getItem('rjcut_api_key')
       const vfs = await getSharedFileSystem()
       
+      // 使用所选项目的 videos 目录作为保存路径
+      const savePath = `${selectedProject.path}/videos`
+      
       // 创建 VFS 保存目录
-      await vfs.createDirectory(savePath)
+      await vfs.createDirectory(savePath, true)
 
       // 并发处理所有任务
       await Promise.all(initialTasks.map(async (task, index) => {
@@ -394,10 +438,12 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl }) {
       />
       
       <SavePathConfig 
-        savePath={savePath} 
-        setSavePath={setSavePath} 
-        onGenerate={startPipeline} 
-        isGenerating={isGenerating} 
+        selectedProject={selectedProject}
+        setSelectedProject={setSelectedProject}
+        projects={projects}
+        onGenerate={startPipeline}
+        isGenerating={isGenerating}
+        loadingProjects={loadingProjects}
       />
       
       {/* 居中轻提示 */}

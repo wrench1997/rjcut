@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { User, Video, Trash2, Download, RefreshCw, Sparkles, History, AlertCircle } from 'lucide-react'
 import {
   getCommonPersons,
   getCustomPersons,
@@ -50,10 +51,15 @@ function DigitalPersonCard({ person, isCustom, onSelect, onCreateVideo, onDelete
         {person.cover_url ? (
           <img src={person.cover_url} alt={person.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
         ) : (
-          <div className="w-full h-full flex items-center justify-center text-4xl text-slate-300">👤</div>
+          <div className="w-full h-full flex items-center justify-center text-slate-300">
+            <User size={64} strokeWidth={1.5} />
+          </div>
         )}
         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-4">
-          <button className="w-full py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700">✨ 创作视频</button>
+          <button className="w-full py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2">
+            <Sparkles size={16} strokeWidth={2} />
+            创作视频
+          </button>
         </div>
       </div>
       <div className="p-4 flex-1 flex flex-col">
@@ -67,12 +73,13 @@ function DigitalPersonCard({ person, isCustom, onSelect, onCreateVideo, onDelete
         </div>
         
         <div className="flex gap-2 pt-3 border-t border-slate-100">
-          <button onClick={() => onSelect(person)} className="flex-1 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-medium rounded-md transition-colors border border-slate-200">
-            🎬 历史视频
+          <button onClick={() => onSelect(person)} className="flex-1 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-medium rounded-md transition-colors border border-slate-200 flex items-center justify-center gap-1">
+            <History size={14} strokeWidth={2} />
+            历史视频
           </button>
           {isCustom && (
             <button onClick={handleDelete} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors border border-transparent hover:border-red-100" title="删除">
-              🗑️
+              <Trash2 size={16} strokeWidth={2} />
             </button>
           )}
         </div>
@@ -215,14 +222,25 @@ function VideoTaskList({ onBack, selectedPersonId = null, personName = '', onCre
                             onClick={() => handleDownload(task)}
                             disabled={downloadingTaskId === task.task_id}
                           >
-                            {downloadingTaskId === task.task_id ? '⏳ 下载中' : '⬇️ 下载'}
+                            {downloadingTaskId === task.task_id ? (
+                            <span className="flex items-center gap-1">
+                              <RefreshCw size={14} strokeWidth={2} className="animate-spin" />
+                              下载中
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1">
+                              <Download size={14} strokeWidth={2} />
+                              下载
+                            </span>
+                          )}
                           </button>
                         )}
                         <button
-                          className="px-3 py-1 text-red-600 hover:bg-red-50 text-xs font-medium rounded-md transition-colors"
+                          className="px-3 py-1 text-red-600 hover:bg-red-50 text-xs font-medium rounded-md transition-colors flex items-center gap-1"
                           onClick={() => handleDelete(task)}
                         >
-                          🗑️ 删除
+                          <Trash2 size={14} strokeWidth={2} />
+                          删除
                         </button>
                       </div>
                     </td>
@@ -347,7 +365,17 @@ export default function DigitalHumanManager({ apiKey }) {
             onClick={handleSync}
             disabled={loading}
           >
-            {loading ? '🔄 同步中' : '🔄 同步'}
+            {loading ? (
+            <span className="flex items-center gap-2">
+              <RefreshCw size={16} strokeWidth={2} className="animate-spin" />
+              同步中
+            </span>
+          ) : (
+            <span className="flex items-center gap-2">
+              <RefreshCw size={16} strokeWidth={2} />
+              同步
+            </span>
+          )}
           </button>
         )}
       </div>

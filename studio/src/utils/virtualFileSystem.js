@@ -493,6 +493,11 @@ export class VirtualFileSystem {
     return normalizedPath
   }
 
+  // 创建目录（别名，兼容 createDirectory 调用）
+  async createDirectory(path, recursive = false) {
+    return this.mkdir(path, recursive)
+  }
+
   // 写入文件
   async writeFile(path, content, options = {}) {
     const normalizedPath = this.normalizePath(path)
@@ -1215,12 +1220,13 @@ export class VirtualFileSystem {
     
     // 创建项目目录结构（按照新结构：所有目录在同一层级）
     await this.mkdir(projectPath, true)
-    await this.mkdir(`${projectPath}/scenes`, true)      // 场景管理
+    await this.mkdir(`${projectPath}/scenes`, true)       // 场景管理
     await this.mkdir(`${projectPath}/audio`, true)        // 音频文件
     await this.mkdir(`${projectPath}/edited`, true)       // 编辑视频
     await this.mkdir(`${projectPath}/subtitles`, true)    // 字幕文件
     await this.mkdir(`${projectPath}/output`, true)       // 输出文件
     await this.mkdir(`${projectPath}/uploads`, true)      // 上传文件目录（可选）
+    await this.mkdir(`${projectPath}/videos`, true)       // 数字人视频等导入视频
     
     // 创建项目配置文件
     await this.writeJSON(`${projectPath}/project.json`, {

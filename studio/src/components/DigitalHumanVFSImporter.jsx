@@ -493,8 +493,8 @@ async function importVideoToVFS(vfs, projectPath, task, filename) {
   }
   const blob = await response.blob()
 
-  // 确定保存路径
-  const savePath = `${projectPath}/raw/${filename}`
+  // 确定保存路径 - 直接保存到项目根目录的 videos 子目录
+  const savePath = `${projectPath}/videos/${filename}`
 
   // 写入 VFS
   const fileInfo = await vfs.writeFile(savePath, blob, {

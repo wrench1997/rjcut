@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { VideoPreview } from './FileBrowser'
 import { DigitalHumanVFSImporter } from './DigitalHumanVFSImporter'
+import { Film, Trash2, Copy, Settings, Upload, FileText, Video, AlertTriangle, Check, X, FolderOpen, Scissors, Clapperboard, Send } from 'lucide-react'
 
 // =====================================================
 // 项目卡片组件
@@ -30,7 +31,9 @@ function ProjectCard({ project, onSelect, onDelete, onDuplicate }) {
         className="project-card-content"
         onClick={() => onSelect(project)}
       >
-        <div className="project-card-icon">🎬</div>
+        <div className="project-card-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Film size={32} strokeWidth={1.5} className="text-blue-500" />
+        </div>
         <div className="project-card-info">
           <h3 className="project-card-title">{project.name}</h3>
           <p className="project-card-meta">
@@ -51,7 +54,7 @@ function ProjectCard({ project, onSelect, onDelete, onDuplicate }) {
             onClick={() => onDuplicate(project)}
             title="复制项目"
           >
-            📋
+            <Copy size={16} strokeWidth={2} />
           </button>
           <button
             className="btn btn-ghost btn-sm"
@@ -59,7 +62,7 @@ function ProjectCard({ project, onSelect, onDelete, onDuplicate }) {
             title="删除项目"
             style={{ color: '#ff3b30' }}
           >
-            🗑️
+            <Trash2 size={16} strokeWidth={2} />
           </button>
         </div>
       )}
@@ -149,7 +152,7 @@ function NewProjectDialog({ vfs, onClose, onCreated }) {
             >
               <option value="default">空白项目</option>
               <option value="speaking_video">📢 口播视频 - 单人讲解、产品介绍</option>
-              <option value="documentary">🎬 纪录片风格 - 故事叙述、品牌宣传</option>
+              <option value="documentary"><Clapperboard size={12} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} /> 纪录片风格 - 故事叙述、品牌宣传</option>
               <option value="short_video">⚡ 快节奏短视频 - 抖音/快手风格</option>
             </select>
             <p className="caption text-muted mt-xs" style={{ fontSize: '12px' }}>
@@ -192,9 +195,9 @@ function JSONScriptViewer({ project, vfs }) {
   const [activeScript, setActiveScript] = useState('project.json')
   
   const scriptFiles = [
-    { name: 'project.json', label: '项目配置', icon: '⚙️' },
-    { name: 'scenes.json', label: '场景脚本', icon: '📝' },
-    { name: 'timeline.json', label: '时间线', icon: '🎬' },
+    { name: 'project.json', label: '项目配置', icon: <Settings size={14} /> },
+    { name: 'scenes.json', label: '场景脚本', icon: <FileText size={14} /> },
+    { name: 'timeline.json', label: '时间线', icon: <Clapperboard size={14} /> },
   ]
   
   useEffect(() => {
@@ -255,7 +258,9 @@ function JSONScriptViewer({ project, vfs }) {
           </div>
         ) : scriptContent?.error ? (
           <div className="empty-state">
-            <span className="empty-icon">⚠️</span>
+            <span className="empty-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <AlertTriangle size={48} strokeWidth={1.5} className="text-amber-400" />
+          </span>
             <p className="empty-text">{scriptContent.message}</p>
           </div>
         ) : (
@@ -318,9 +323,9 @@ function ProjectVideoViewer({ project, vfs, onNavigate }) {
   const [videoCategory, setVideoCategory] = useState('raw') // 'raw' | 'edited' | 'output'
   
   const categories = [
-    { id: 'raw', label: '原始视频', icon: '🎬', path: '/raw' },
-    { id: 'edited', label: '编辑视频', icon: '✂️', path: '/edited' },
-    { id: 'output', label: '输出视频', icon: '📤', path: '/output' },
+    { id: 'raw', label: '原始视频', icon: <Clapperboard size={14} />, path: '/raw' },
+    { id: 'edited', label: '编辑视频', icon: <Scissors size={14} />, path: '/edited' },
+    { id: 'output', label: '输出视频', icon: <Send size={14} />, path: '/output' },
   ]
   
   useEffect(() => {
@@ -379,7 +384,9 @@ function ProjectVideoViewer({ project, vfs, onNavigate }) {
           <div className="video-list">
             {videos.length === 0 ? (
               <div className="empty-state">
-                <span className="empty-icon">🎬</span>
+                <span className="empty-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Film size={48} strokeWidth={1.5} className="text-slate-300" />
+          </span>
                 <p className="empty-text">暂无视频</p>
               </div>
             ) : (
@@ -389,7 +396,9 @@ function ProjectVideoViewer({ project, vfs, onNavigate }) {
                   className={`video-list-item ${selectedVideo?.path === video.path ? 'selected' : ''}`}
                   onClick={() => setSelectedVideo(video)}
                 >
-                  <span className="video-icon">🎬</span>
+                  <span className="video-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Film size={18} strokeWidth={2} className="text-purple-500" />
+          </span>
                   <span className="video-name">{video.name}</span>
                   <span className="video-size">
                     {(video.size / 1024 / 1024).toFixed(1)} MB
@@ -405,7 +414,9 @@ function ProjectVideoViewer({ project, vfs, onNavigate }) {
             <VideoPreview file={selectedVideo} vfs={vfs} />
           ) : (
             <div className="empty-state">
-              <span className="empty-icon">🎬</span>
+              <span className="empty-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Film size={48} strokeWidth={1.5} className="text-slate-300" />
+          </span>
               <p className="empty-text">选择视频进行预览</p>
             </div>
           )}
@@ -545,25 +556,25 @@ function ProjectDetail({ project, vfs, onBack, onOpen, onNavigate }) {
           className={`project-tab ${activeTab === 'scripts' ? 'active' : ''}`}
           onClick={() => setActiveTab('scripts')}
         >
-          📝 JSON 脚本
+          <FileText size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} /> JSON 脚本
         </button>
         <button
           className={`project-tab ${activeTab === 'videos' ? 'active' : ''}`}
           onClick={() => setActiveTab('videos')}
         >
-          🎬 视频内容
+          <Clapperboard size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} /> 视频内容
         </button>
         <button
           className={`project-tab ${activeTab === 'files' ? 'active' : ''}`}
           onClick={() => setActiveTab('files')}
         >
-          📁 文件
+          <Folder size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} /> 文件
         </button>
         <button
           className={`project-tab ${activeTab === 'settings' ? 'active' : ''}`}
           onClick={() => setActiveTab('settings')}
         >
-          ⚙️ 设置
+          <Settings size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} /> 设置
         </button>
       </div>
       
@@ -572,7 +583,9 @@ function ProjectDetail({ project, vfs, onBack, onOpen, onNavigate }) {
           <div className="project-overview">
             {config?.error ? (
               <div className="empty-state">
-                <span className="empty-icon">⚠️</span>
+                <span className="empty-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <AlertTriangle size={48} strokeWidth={1.5} className="text-amber-400" />
+          </span>
                 <p className="empty-text">加载项目配置失败：{config.message}</p>
               </div>
             ) : config ? (
@@ -727,49 +740,61 @@ function ProjectDetail({ project, vfs, onBack, onOpen, onNavigate }) {
                 className="quick-folder" 
                 onClick={() => onNavigate({ path: `${project.path}/scenes` })}
               >
-                <span className="folder-icon">📝</span>
+                <span className="folder-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <FileText size={20} strokeWidth={2} className="text-amber-500" />
+                </span>
                 <span className="folder-name">场景脚本</span>
               </div>
               <div 
                 className="quick-folder" 
                 onClick={() => onNavigate({ path: `${project.path}/raw` })}
               >
-                <span className="folder-icon">🎬</span>
+                <span className="folder-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Film size={20} strokeWidth={2} className="text-purple-500" />
+                </span>
                 <span className="folder-name">原始视频</span>
               </div>
               <div 
                 className="quick-folder" 
                 onClick={() => onNavigate({ path: `${project.path}/edited` })}
               >
-                <span className="folder-icon">✂️</span>
+                <span className="folder-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Scissors size={20} strokeWidth={2} className="text-pink-500" />
+                </span>
                 <span className="folder-name">编辑视频</span>
               </div>
               <div 
                 className="quick-folder" 
                 onClick={() => onNavigate({ path: `${project.path}/audio` })}
               >
-                <span className="folder-icon">🎵</span>
+                <span className="folder-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Music size={20} strokeWidth={2} className="text-green-500" />
+                </span>
                 <span className="folder-name">音频</span>
               </div>
               <div 
                 className="quick-folder" 
                 onClick={() => onNavigate({ path: `${project.path}/subtitles` })}
               >
-                <span className="folder-icon">📝</span>
+                <span className="folder-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <FileText size={20} strokeWidth={2} className="text-blue-400" />
+                </span>
                 <span className="folder-name">字幕</span>
               </div>
               <div 
                 className="quick-folder" 
                 onClick={() => onNavigate({ path: `${project.path}/output` })}
               >
-                <span className="folder-icon">📤</span>
+                <span className="folder-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Download size={20} strokeWidth={2} className="text-emerald-500" />
+                </span>
                 <span className="folder-name">输出</span>
               </div>
               <div 
                 className="quick-folder" 
                 onClick={() => onNavigate({ path: `${project.path}/project.json` })}
               >
-                <span className="folder-icon">⚙️</span>
+                <span className="folder-icon"><Settings size={14} /></span>
                 <span className="folder-name">项目配置</span>
               </div>
             </div>
@@ -1023,7 +1048,9 @@ function VideoProjectManager({ vfs, onOpenProject, onNavigate: onNavigateToPath,
               </div>
             ) : filteredProjects.length === 0 ? (
               <div className="empty-state">
-                <span className="empty-icon">🎬</span>
+                <span className="empty-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Film size={48} strokeWidth={1.5} className="text-slate-300" />
+          </span>
                 <p className="empty-text">
                   {searchQuery ? '没有找到匹配的项目' : '暂无项目'}
                 </p>

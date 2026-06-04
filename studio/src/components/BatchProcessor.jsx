@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import useBatchStore from '../api/useBatchProcessStore'
 import { setApiKey } from '../api/api'
+import { Hourglass, Upload, FileText, Clapperboard, Download, CheckCircle, XCircle, Ban, Rocket } from 'lucide-react'
 
 // --- 现代化进度条 ---
 function TailwindProgressBar({ progress, status }) {
@@ -38,14 +39,14 @@ function TaskCard({ task }) {
   }
 
   const stageIcons = {
-    idle: '⏳',
-    uploading: '⬆️',
-    drafting: '📝',
-    composing: '🎬',
-    downloading: '⬇️',
-    succeeded: '✅',
-    failed: '❌',
-    cancelled: '🚫',
+    idle: Hourglass,
+    uploading: Upload,
+    drafting: FileText,
+    composing: Clapperboard,
+    downloading: Download,
+    succeeded: CheckCircle,
+    failed: XCircle,
+    cancelled: Ban,
   }
 
   const handleDownload = async () => {
@@ -80,7 +81,10 @@ function TaskCard({ task }) {
     }`}>
       <div className="flex justify-between items-start mb-3">
         <div className="flex items-center gap-2">
-          <span className="text-xl">{stageIcons[task.stage]}</span>
+          {(() => {
+            const StageIcon = stageIcons[task.stage] || Hourglass
+            return <StageIcon size={20} className="text-slate-500" strokeWidth={2} />
+          })()}
           <div>
             <h3 className="font-bold text-slate-800 text-sm truncate max-w-[200px]" title={task.id}>{task.id}</h3>
             <p className="text-xs text-slate-500">{stageLabels[task.stage] || task.stage}</p>
@@ -466,7 +470,7 @@ export default function BatchProcessor({ vfs, apiKey }) {
                   onClick={handleStartBatch}
                   className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg shadow-sm shadow-blue-500/30 transition-all"
                 >
-                  🚀 开始批量处理
+                  <Rocket size={16} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '6px' }} /> 开始批量处理
                 </button>
               </div>
             </div>

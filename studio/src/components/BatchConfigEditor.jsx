@@ -1,6 +1,7 @@
 // ================ FILE: D:\workspace\rjcut\studio/src/components\BatchConfigEditor.jsx ================
 
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { X, AlertTriangle, Info, CheckCircle, Trash2, FolderOpen, ArrowUp, Lightbulb, Search, Eye, Settings, Wrench, Check, XCircle, Folder, Film, FileText, Music, Book, Clapperboard, Send, Download, RefreshCw } from 'lucide-react'
 
 // =====================================================
 // 验证级别标签组件
@@ -25,9 +26,9 @@ function ValidationBadge({ level }) {
   }
   
   const icons = {
-    error: '❌',
-    warning: '⚠️',
-    info: 'ℹ️',
+    error: X,
+    warning: AlertTriangle,
+    info: Info,
   }
   
   const labels = {
@@ -36,6 +37,7 @@ function ValidationBadge({ level }) {
     info: '提示',
   }
   
+  const IconComponent = icons[level]
   return (
     <span 
       className="validation-badge"
@@ -50,7 +52,7 @@ function ValidationBadge({ level }) {
         fontWeight: '500',
       }}
     >
-      <span>{icons[level]}</span>
+      <IconComponent size={14} strokeWidth={2} />
       <span>{labels[level]}</span>
     </span>
   )
@@ -73,9 +75,9 @@ function TaskValidationCard({ result, onFix }) {
   }
   
   const getStatusIcon = () => {
-    if (errorCount > 0) return '❌'
-    if (warningCount > 0) return '⚠️'
-    return '✅'
+    if (errorCount > 0) return X
+    if (warningCount > 0) return AlertTriangle
+    return CheckCircle
   }
   
   return (
@@ -99,7 +101,10 @@ function TaskValidationCard({ result, onFix }) {
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span style={{ fontSize: '20px' }}>{getStatusIcon()}</span>
+          {(() => {
+            const StatusIcon = getStatusIcon()
+            return <StatusIcon size={20} strokeWidth={2} style={{ color: getStatusColor() }} />
+          })()}
           <div>
             <h4 className="caption-strong" style={{ margin: 0 }}>
               {result.task_name}
@@ -188,7 +193,7 @@ function TaskValidationCard({ result, onFix }) {
                   fontSize: '13px',
                   color: '#666',
                 }}>
-                  💡 {issue.suggestion}
+                  <Lightbulb size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} /> {issue.suggestion}
                 </div>
               )}
               
@@ -271,7 +276,7 @@ function JSONEditor({ value, onChange, error, readOnly = false }) {
           color: '#dc3545',
           fontSize: '13px',
         }}>
-          ❌ {parseError || error}
+          <XCircle size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} /> {parseError || error}
         </div>
       )}
     </div>
@@ -347,7 +352,7 @@ function FileSelector({ value, onChange, vfs, fileType = 'any', label, placehold
           onClick={() => setShowPicker(true)}
           title="选择文件"
         >
-          📁 选择
+          <Folder size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} /> 选择
         </button>
       </div>
       
@@ -389,7 +394,7 @@ function FileSelector({ value, onChange, vfs, fileType = 'any', label, placehold
                 className="btn btn-ghost btn-sm"
                 onClick={() => setShowPicker(false)}
               >
-                ✕
+                <X size={16} strokeWidth={2} />
               </button>
             </div>
             
@@ -407,7 +412,8 @@ function FileSelector({ value, onChange, vfs, fileType = 'any', label, placehold
                 onClick={handleNavigateUp}
                 disabled={currentPath === '/'}
               >
-                ⬆️ 上一级
+                <ArrowUp size={16} strokeWidth={2} style={{ marginRight: '4px' }} />
+                上一级
               </button>
               <span className="caption" style={{ 
                 flex: 1, 
@@ -542,7 +548,7 @@ function TaskConfigEditor({ task, index, onChange, onDelete, vfs }) {
             onClick={() => onDelete?.(index)}
             style={{ color: '#dc3545' }}
           >
-            🗑️
+            <Trash2 size={16} strokeWidth={2} />
           </button>
         </div>
       </div>
@@ -766,7 +772,7 @@ function ProjectFileQuickFill({ vfs, onFill, currentPath = '/' }) {
         backgroundColor: '#f8f9fa',
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-          <h4 className="caption-strong">📁 选择文件填充任务</h4>
+          <h4 className="caption-strong" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Folder size={16} /> 选择文件填充任务</h4>
           <button
             className="btn btn-primary btn-sm"
             onClick={handleFill}
@@ -829,11 +835,11 @@ function ProjectFileQuickFill({ vfs, onFill, currentPath = '/' }) {
         {/* 文件选择区域 */}
         <div style={{ display: 'grid', gap: '12px' }}>
           {[
-            { field: 'video_file', icon: '🎬', placeholder: '选择视频文件' },
-            { field: 'script_file', icon: '📝', placeholder: '选择脚本文件' },
-            { field: 'bgm_file', icon: '🎵', placeholder: '选择背景音乐' },
-            { field: 'corrections_file', icon: '📋', placeholder: '选择纠错字典' },
-            { field: 'scenes_dir', icon: '🎭', placeholder: '选择场景目录' },
+            { field: 'video_file', icon: <Film size={14} />, placeholder: '选择视频文件' },
+            { field: 'script_file', icon: <FileText size={14} />, placeholder: '选择脚本文件' },
+            { field: 'bgm_file', icon: <Music size={14} />, placeholder: '选择背景音乐' },
+            { field: 'corrections_file', icon: <Book size={14} />, placeholder: '选择纠错字典' },
+            { field: 'scenes_dir', icon: <Film size={14} />, placeholder: '选择场景目录' },
           ].map(item => (
             <div key={item.field}>
               <label className="caption-strong" style={{ display: 'block', marginBottom: '4px' }}>
@@ -935,7 +941,8 @@ function ProjectFileQuickFill({ vfs, onFill, currentPath = '/' }) {
                 onClick={handleNavigateUp}
                 disabled={browserPath === '/'}
               >
-                ⬆️ 上一级
+                <ArrowUp size={16} strokeWidth={2} style={{ marginRight: '4px' }} />
+                上一级
               </button>
               <span className="caption" style={{ 
                 display: 'flex', 
@@ -955,7 +962,17 @@ function ProjectFileQuickFill({ vfs, onFill, currentPath = '/' }) {
                       onClick={() => setBrowserPath(`${selectedProject.path}/${subdir}`)}
                       title={`${subdir} 目录`}
                     >
-                      {subdir === 'raw' ? '🎬' : subdir === 'audio' ? '🎵' : subdir === 'subtitles' ? '📝' : subdir === 'output' ? '📤' : subdir === 'scenes' ? '🎭' : '📁'} {subdir}
+                      {(() => {
+                        const subdirIcons = {
+                          raw: <Film size={14} strokeWidth={2} style={{ marginRight: '4px' }} />,
+                          audio: <Music size={14} strokeWidth={2} style={{ marginRight: '4px' }} />,
+                          subtitles: <FileText size={14} strokeWidth={2} style={{ marginRight: '4px' }} />,
+                          output: <Download size={14} strokeWidth={2} style={{ marginRight: '4px' }} />,
+                          scenes: <Settings size={14} strokeWidth={2} style={{ marginRight: '4px' }} />,
+                        }
+                        return subdirIcons[subdir] || <FolderOpen size={14} strokeWidth={2} style={{ marginRight: '4px' }} />
+                      })()}
+                      {subdir}
                     </button>
                   ))}
                 </>
@@ -968,21 +985,24 @@ function ProjectFileQuickFill({ vfs, onFill, currentPath = '/' }) {
                     onClick={() => setBrowserPath('/videos')}
                     title="视频目录"
                   >
-                    🎬 videos
+                    <Film size={14} strokeWidth={2} style={{ marginRight: '4px' }} />
+                    videos
                   </button>
                   <button
                     className="btn btn-ghost btn-sm"
                     onClick={() => setBrowserPath('/audio')}
                     title="音频目录"
                   >
-                    🎵 audio
+                    <Music size={14} strokeWidth={2} style={{ marginRight: '4px' }} />
+                    audio
                   </button>
                   <button
                     className="btn btn-ghost btn-sm"
                     onClick={() => setBrowserPath('/drafts')}
                     title="草稿目录"
                   >
-                    📝 drafts
+                    <FileText size={14} strokeWidth={2} style={{ marginRight: '4px' }} />
+                    drafts
                   </button>
                 </>
               )}
@@ -1587,7 +1607,7 @@ function BatchConfigValidator({ config, onChange, vfs, className, apiBaseUrl, ap
             onClick={validate}
             disabled={validating}
           >
-            {validating ? '验证中...' : '🔍 验证配置'}
+            {validating ? <><RefreshCw size={14} className="spin" style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} /> 验证中...</> : <><Search size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} /> 验证配置</>}
           </button>
           <button
             className="btn btn-primary"
@@ -1595,7 +1615,7 @@ function BatchConfigValidator({ config, onChange, vfs, className, apiBaseUrl, ap
             disabled={submitting || !validationResult?.is_valid}
             title={!validationResult?.is_valid ? '请先验证配置' : '提交所有任务到服务器'}
           >
-            {submitting ? '🚀 提交中...' : '🚀 提交任务'}
+            {submitting ? <><Rocket size={14} className="spin" style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} /> 提交中...</> : <><Rocket size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} /> 提交任务</>}
           </button>
           <button
             className="btn btn-primary"
@@ -1608,7 +1628,7 @@ function BatchConfigValidator({ config, onChange, vfs, className, apiBaseUrl, ap
             onClick={() => addTask({ name: `task_${(config.tasks?.length || 0) + 1}` })}
             title="从项目填充"
           >
-            📁 从项目添加
+            <Folder size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} /> 从项目添加
           </button>
         </div>
       </div>
@@ -1653,7 +1673,8 @@ function BatchConfigValidator({ config, onChange, vfs, className, apiBaseUrl, ap
                 </button>
                 {vfs && (
                   <button className="btn btn-ghost" onClick={() => addTask({ name: `task_1` })}>
-                    📁 从项目添加
+                    <FolderOpen size={16} strokeWidth={2} style={{ marginRight: '4px' }} />
+                    从项目添加
                   </button>
                 )}
               </div>
@@ -1667,7 +1688,9 @@ function BatchConfigValidator({ config, onChange, vfs, className, apiBaseUrl, ap
         <div className="validation-mode">
           {!validationResult ? (
             <div className="empty-state" style={{ padding: '40px', textAlign: 'center' }}>
-              <span className="empty-icon" style={{ fontSize: '48px' }}>🔍</span>
+              <span className="empty-icon" style={{ fontSize: '48px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Search size={48} strokeWidth={1.5} className="text-slate-300" />
+              </span>
               <p className="empty-text">点击"验证配置"开始检查</p>
               <button className="btn btn-primary" onClick={validate}>
                 开始验证

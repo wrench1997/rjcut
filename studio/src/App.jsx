@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createDefaultFileSystem, getSharedFileSystem } from './utils/virtualFileSystem'
 import { setApiKey } from './api/api'
+import { FolderOpen, Folder, Layers, Clapperboard, Settings, HelpCircle, Sparkles, Film, Scissors, FileText, Clock, RefreshCw, ScrollText, Download } from 'lucide-react'
 import FileBrowser from './components/FileBrowser'
 import VideoProjectManager from './components/VideoProjectManager'
 import AIChat from './components/AIChat'
@@ -190,7 +191,7 @@ function ProjectSelectorItem({ project, selected, onToggle }) {
       />
       <div className="project-selector-info">
         <div className="flex items-center gap-sm">
-          <span className="project-selector-icon">🎬</span>
+          <span className="project-selector-icon"><Clapperboard size={16} /></span>
           <h3 className="body-strong">{project.name}</h3>
         </div>
         <p className="caption text-muted">
@@ -265,15 +266,16 @@ function TaskListItem({ task, onRefresh, onCancel, apiBaseUrl }) {
   
   // 美化产物名称
   const getFileLabel = (key) => {
+    const iconStyle = { display: 'inline', verticalAlign: 'middle', marginRight: '4px' };
     const labels = {
-      final_video: '🎬 下载最终成片',
-      cleaned_video: '✂️ 下载去转场草稿视频',
-      ass_file: '📝 下载 ASS 字幕',
-      timeline_json: '⏱️ 下载时间线数据',
-      resync_json: '🔄 下载对齐数据',
-      transcription_json: '📜 下载识别文本'
+      final_video: <><Film size={14} style={iconStyle} /> 下载最终成片</>,
+      cleaned_video: <><Scissors size={14} style={iconStyle} /> 下载去转场草稿视频</>,
+      ass_file: <><FileText size={14} style={iconStyle} /> 下载 ASS 字幕</>,
+      timeline_json: <><Clock size={14} style={iconStyle} /> 下载时间线数据</>,
+      resync_json: <><RefreshCw size={14} style={iconStyle} /> 下载对齐数据</>,
+      transcription_json: <><ScrollText size={14} style={iconStyle} /> 下载识别文本</>
     };
-    return labels[key] || `📁 下载 ${key}`;
+    return labels[key] || <><Download size={14} style={iconStyle} /> 下载 {key}</>;
   };
 
   return (
@@ -284,8 +286,8 @@ function TaskListItem({ task, onRefresh, onCancel, apiBaseUrl }) {
             {task.client_ref_id || task.task_id}
           </h3>
           <p className="caption text-muted">
-            类型：{task.task_type === 'compose_from_draft' ? '🎬 视频合成' : 
-                   task.task_type === 'agent_draft' ? '📝 草稿生成' : task.task_type} 
+            类型：{task.task_type === 'compose_from_draft' ? <><Clapperboard size={12} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} /> 视频合成</> : 
+                   task.task_type === 'agent_draft' ? <><FileText size={12} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} /> 草稿生成</> : task.task_type} 
             &nbsp;|&nbsp; 
             创建时间：{formatTime(task.created_at)}
           </p>
@@ -321,7 +323,7 @@ function TaskListItem({ task, onRefresh, onCancel, apiBaseUrl }) {
           onClick={handleRefresh}
           disabled={loading}
         >
-          {loading ? '🔄 刷新中...' : '🔄 刷新状态'}
+          {loading ? <><RefreshCw size={14} className="spin" style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} /> 刷新中...</> : <><RefreshCw size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} /> 刷新状态</>}
         </button>
         
         {(task.status === 'queued' || task.status === 'processing') && (
@@ -489,31 +491,59 @@ function App() {
         zIndex: 1000,
       }}>
         <div className="flex items-center gap-lg" style={{ flex: 1 }}>
-          <h1 className="tagline">RJCut Studio</h1>
+          {/* RJCut Studio Logo */}
+          <div className="flex items-center gap-sm" style={{ marginRight: 'auto' }}>
+            <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+              {/* 背景圆 */}
+              <circle cx="16" cy="16" r="15" fill="url(#logoGradient)" />
+              {/* 播放按钮形状 */}
+              <path d="M12 10L22 16L12 22V10Z" fill="white" />
+              {/* 装饰线条 - 表示剪辑 */}
+              <path d="M20 6L20 10" stroke="white" strokeWidth="2" strokeLinecap="round" opacity="0.8" />
+              <path d="M24 8L24 12" stroke="white" strokeWidth="2" strokeLinecap="round" opacity="0.6" />
+              <defs>
+                <linearGradient id="logoGradient" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+                  <stop stopColor="#3B82F6" />
+                  <stop offset="1" stopColor="#2563EB" />
+                </linearGradient>
+              </defs>
+            </svg>
+            <h1 className="tagline" style={{ fontSize: '18px', fontWeight: '700', letterSpacing: '-0.5px' }}>
+              RJCut <span style={{ color: 'var(--primary)', fontWeight: '600' }}>Studio</span>
+            </h1>
+          </div>
           <div className="flex gap-sm" style={{ marginLeft: 'auto' }}>
             <button 
               className={`btn btn-utility ${activeTab === 'projects' ? 'text-primary' : ''}`}
               onClick={() => setActiveTab('projects')}
+              title="项目管理"
             >
-              项目管理
+              <FolderOpen size={18} strokeWidth={2} />
+              <span style={{ marginLeft: '6px' }}>项目管理</span>
             </button>
             <button 
               className={`btn btn-utility ${activeTab === 'files' ? 'text-primary' : ''}`}
               onClick={() => setActiveTab('files')}
+              title="文件浏览"
             >
-              文件浏览
+              <Folder size={18} strokeWidth={2} />
+              <span style={{ marginLeft: '6px' }}>文件浏览</span>
             </button>
             <button 
               className={`btn btn-utility ${activeTab === 'batch' ? 'text-primary' : ''}`}
               onClick={() => setActiveTab('batch')}
+              title="批量处理"
             >
-              批量处理
+              <Layers size={18} strokeWidth={2} />
+              <span style={{ marginLeft: '6px' }}>批量处理</span>
             </button>
             <button 
               className={`btn btn-utility ${activeTab === 'tasks' ? 'text-primary' : ''}`}
               onClick={() => setActiveTab('tasks')}
+              title="任务列表"
             >
-              任务列表
+              <Clapperboard size={18} strokeWidth={2} />
+              <span style={{ marginLeft: '6px' }}>任务列表</span>
             </button>
             
             <button 
@@ -522,8 +552,10 @@ function App() {
                 console.log('[App] 点击数字人创作台按钮，切换 activeTab 到 digital-human-studio')
                 setActiveTab('digital-human-studio')
               }}
+              title="数字人创作平台"
             >
-              🎨 数字人创作台
+              <Sparkles size={18} strokeWidth={2} />
+              <span style={{ marginLeft: '6px' }}>数字人创作台</span>
             </button>
             {/* AI 助手功能已屏蔽
             <button 
@@ -536,15 +568,18 @@ function App() {
             <button 
               className={`btn btn-utility ${activeTab === 'settings' ? 'text-primary' : ''}`}
               onClick={() => setActiveTab('settings')}
+              title="系统设置"
             >
-              设置
+              <Settings size={18} strokeWidth={2} />
+              <span style={{ marginLeft: '6px' }}>设置</span>
             </button>
             <button 
               className="btn btn-utility"
               onClick={() => setShowHelp(true)}
               title="使用帮助"
             >
-              ❓ 帮助
+              <HelpCircle size={18} strokeWidth={2} />
+              <span style={{ marginLeft: '6px' }}>帮助</span>
             </button>
           </div>
         </div>

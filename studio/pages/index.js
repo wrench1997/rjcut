@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { getSharedFileSystem } from '../src/utils/virtualFileSystem'
 import { setApiKey } from '../src/api/api'
+import { FolderOpen, Folder, Layers, Sparkles, Settings, HelpCircle } from 'lucide-react'
 
 // 导入你的各个组件
 import FileBrowser from '../src/components/FileBrowser'
@@ -30,11 +31,11 @@ const apiRequest = async (endpoint, options = {}, apiKey = DEFAULT_API_KEY, base
 
 // 导航菜单配置
 const NAV_ITEMS = [
-  { id: 'batch', label: '批量处理', icon: '🚀' },
-  { id: 'projects', label: '项目管理', icon: '📁' },
-  { id: 'files', label: '文件浏览', icon: '📂' },
-  { id: 'digital-human-studio', label: '数字人创作平台', icon: '🎨' },
-  { id: 'settings', label: '系统设置', icon: '⚙️' },
+  { id: 'batch', label: '批量处理', icon: Layers },
+  { id: 'projects', label: '项目管理', icon: FolderOpen },
+  { id: 'files', label: '文件浏览', icon: Folder },
+  { id: 'digital-human-studio', label: '数字人创作平台', icon: Sparkles },
+  { id: 'settings', label: '系统设置', icon: Settings },
 ]
 
 export default function Home() {
@@ -99,27 +100,31 @@ export default function Home() {
         </h1>
       </div>
       <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-1 custom-scrollbar">
-        {NAV_ITEMS.map(item => (
-          <button
-            key={item.id}
-            onClick={() => setActiveTab(item.id)}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition-all ${
-              activeTab === item.id 
-                ? 'bg-blue-50 text-blue-700' 
-                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-            }`}
-          >
-            <span className="text-lg">{item.icon}</span>
-            <span className="text-sm">{item.label}</span>
-          </button>
-        ))}
+        {NAV_ITEMS.map(item => {
+          const IconComponent = item.icon
+          return (
+            <button
+              key={item.id}
+              onClick={() => setActiveTab(item.id)}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition-all ${
+                activeTab === item.id 
+                  ? 'bg-blue-50 text-blue-700' 
+                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+              }`}
+            >
+              <IconComponent size={18} strokeWidth={2} />
+              <span className="text-sm">{item.label}</span>
+            </button>
+          )
+        })}
       </nav>
       <div className="p-4 border-t border-slate-100">
         <button 
           onClick={() => setShowHelp(true)}
           className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-medium transition-colors"
         >
-          <span>❓</span> 帮助指南
+          <HelpCircle size={18} strokeWidth={2} />
+          <span>帮助指南</span>
         </button>
       </div>
     </aside>

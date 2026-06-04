@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Rocket, FileText, Book, Settings, HelpCircle, Clapperboard, Clipboard, Search, Lightbulb, Video, Image, RefreshCw, Folder } from 'lucide-react';
 
 /**
  * HelpGuide - 前端使用说明和脚本格式帮助指南
@@ -8,11 +9,11 @@ function HelpGuide({ onClose }) {
   const [activeTab, setActiveTab] = useState('quickstart');
 
   const tabs = [
-    { id: 'quickstart', label: '快速开始', icon: '🚀' },
-    { id: 'script', label: '脚本格式', icon: '📝' },
-    { id: 'corrections', label: '纠错字典', icon: '📖' },
-    { id: 'config', label: '自定义配置', icon: '⚙️' },
-    { id: 'faq', label: '常见问题', icon: '❓' },
+    { id: 'quickstart', label: '快速开始', icon: <Rocket size={16} /> },
+    { id: 'script', label: '脚本格式', icon: <FileText size={16} /> },
+    { id: 'corrections', label: '纠错字典', icon: <Book size={16} /> },
+    { id: 'config', label: '自定义配置', icon: <Settings size={16} /> },
+    { id: 'faq', label: '常见问题', icon: <HelpCircle size={16} /> },
   ];
 
   return (
@@ -57,8 +58,8 @@ function HelpGuide({ onClose }) {
             backgroundColor: '#f9f9f9',
           }}
         >
-          <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 600, color: '#1d1d1f' }}>
-            📖 RJCut Studio 使用指南
+          <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 600, color: '#1d1d1f', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Book size={20} /> RJCut Studio 使用指南
           </h2>
           <button
             onClick={onClose}
@@ -144,8 +145,8 @@ function HelpGuide({ onClose }) {
 function QuickStartContent() {
   return (
     <div style={{ lineHeight: 1.6, color: '#1d1d1f' }}>
-      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', color: '#1d1d1f' }}>
-        🎬 产品概述
+      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', color: '#1d1d1f', display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <Clapperboard size={18} /> 产品概述
       </h3>
       <p style={{ marginBottom: '16px', color: '#3a3a3c' }}>
         RJCut Studio 是一款基于 Web 的批量视频处理工作台，采用 React + Vite 技术构建，遵循 Apple 设计风格的极简美学。
@@ -169,8 +170,8 @@ function QuickStartContent() {
         </ul>
       </div>
 
-      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', color: '#1d1d1f' }}>
-        📋 快速开始步骤
+      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', color: '#1d1d1f', display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <Clipboard size={18} /> 快速开始步骤
       </h3>
 
       <div style={{ marginBottom: '20px' }}>
@@ -258,9 +259,9 @@ function QuickStartContent() {
           4. 验证与提交
         </h4>
         <ol style={{ margin: 0, paddingLeft: '20px', color: '#3a3a3c' }}>
-          <li>点击 <strong>🔍 验证配置</strong> 检查任务</li>
+          <li>点击 <strong><Search size={12} style={{ display: 'inline', verticalAlign: 'middle' }} /> 验证配置</strong> 检查任务</li>
           <li>查看验证结果（错误/警告/提示），使用"一键修复"功能</li>
-          <li>验证通过后点击 <strong>🚀 提交任务</strong> 开始处理</li>
+          <li>验证通过后点击 <strong><Rocket size={12} style={{ display: 'inline', verticalAlign: 'middle' }} /> 提交任务</strong> 开始处理</li>
         </ol>
       </div>
 
@@ -273,7 +274,7 @@ function QuickStartContent() {
           marginTop: '20px',
         }}
       >
-        <strong style={{ color: '#856404' }}>💡 提示：</strong>
+        <strong style={{ color: '#856404', display: 'flex', alignItems: 'center', gap: '4px' }}><Lightbulb size={14} style={{ display: 'inline' }} /> 提示：</strong>
         <span style={{ color: '#856404' }}> 建议将并发数设置为 3-5，避免服务器资源紧张。</span>
       </div>
     </div>
@@ -298,8 +299,8 @@ function ScriptFormatContent() {
 
   return (
     <div style={{ lineHeight: 1.6, color: '#1d1d1f' }}>
-      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', color: '#1d1d1f' }}>
-        📝 脚本格式说明
+      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', color: '#1d1d1f', display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <FileText size={18} /> 脚本格式说明
       </h3>
       <p style={{ marginBottom: '16px', color: '#3a3a3c' }}>
         脚本文件采用 JSON 格式，用于定义视频中每个片段的内容和类型。
@@ -394,8 +395,8 @@ function ScriptFormatContent() {
       </h4>
 
       <div style={{ marginBottom: '20px' }}>
-        <h5 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#1d1d1f' }}>
-          🎥 human（人物出镜）
+        <h5 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#1d1d1f', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <Video size={14} /> human（人物出镜）
         </h5>
         <p style={{ margin: '0 0 8px 0', color: '#3a3a3c', fontSize: '13px' }}>
           人物出现在画面中，通常配合口播内容。
@@ -411,8 +412,8 @@ function ScriptFormatContent() {
       </div>
 
       <div style={{ marginBottom: '20px' }}>
-        <h5 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#1d1d1f' }}>
-          🖼️ scene（场景素材）
+        <h5 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#1d1d1f', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <Image size={14} /> scene（场景素材）
         </h5>
         <p style={{ margin: '0 0 8px 0', color: '#3a3a3c', fontSize: '13px' }}>
           展示产品、演示画面等场景素材。
@@ -442,8 +443,8 @@ function ScriptFormatContent() {
       </div>
 
       <div style={{ marginBottom: '20px' }}>
-        <h5 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#1d1d1f' }}>
-          🔄 transition（转场）
+        <h5 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#1d1d1f', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <RefreshCw size={14} /> transition（转场）
         </h5>
         <p style={{ margin: '0 0 8px 0', color: '#3a3a3c', fontSize: '13px' }}>
           用于片段之间的过渡效果。
@@ -545,8 +546,8 @@ function CorrectionsContent() {
 
   return (
     <div style={{ lineHeight: 1.6, color: '#1d1d1f' }}>
-      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', color: '#1d1d1f' }}>
-        📖 纠错字典格式说明
+      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', color: '#1d1d1f', display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <Book size={18} /> 纠错字典格式说明
       </h3>
       <p style={{ marginBottom: '16px', color: '#3a3a3c' }}>
         纠错字典用于 ASR 识别后的文本校正，帮助修正专有名词、人名、产品名等易错词。
@@ -643,8 +644,8 @@ function CorrectionsContent() {
           marginTop: '24px',
         }}
       >
-        <h4 style={{ margin: '0 0 8px 0', fontSize: '14px', fontWeight: 600, color: '#0071e3' }}>
-          💡 使用建议
+        <h4 style={{ margin: '0 0 8px 0', fontSize: '14px', fontWeight: 600, color: '#0071e3', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <Lightbulb size={14} /> 使用建议
         </h4>
         <ul style={{ margin: 0, paddingLeft: '20px', color: '#0071e3', fontSize: '13px' }}>
           <li>针对视频中的专有名词、人名、产品名等添加纠错规则</li>
@@ -675,8 +676,8 @@ function CustomConfigContent() {
 
   return (
     <div style={{ lineHeight: 1.6, color: '#1d1d1f' }}>
-      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', color: '#1d1d1f' }}>
-        ⚙️ 自定义配置
+      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', color: '#1d1d1f', display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <Settings size={18} /> 自定义配置
       </h3>
       <p style={{ marginBottom: '16px', color: '#3a3a3c' }}>
         通过自定义配置 JSON，可以精细控制视频处理的各个环节。
@@ -978,8 +979,8 @@ function FAQContent() {
 
   return (
     <div style={{ lineHeight: 1.6, color: '#1d1d1f' }}>
-      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '20px', color: '#1d1d1f' }}>
-        ❓ 常见问题
+      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '20px', color: '#1d1d1f', display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <HelpCircle size={18} /> 常见问题
       </h3>
 
       <div style={{ marginBottom: '24px' }}>
@@ -1097,8 +1098,8 @@ function FAQContent() {
           marginTop: '24px',
         }}
       >
-        <h4 style={{ margin: '0 0 8px 0', fontSize: '14px', fontWeight: 600, color: '#0071e3' }}>
-          💡 需要更多帮助？
+        <h4 style={{ margin: '0 0 8px 0', fontSize: '14px', fontWeight: 600, color: '#0071e3', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <Lightbulb size={14} /> 需要更多帮助？
         </h4>
         <p style={{ margin: 0, color: '#0071e3', fontSize: '13px' }}>
           如有问题，请联系技术支持团队或查阅 API 文档。
