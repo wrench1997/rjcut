@@ -455,7 +455,7 @@ function FileSelector({ value, onChange, vfs, fileType = 'any', label, placehold
                     onMouseLeave={(e) => e.currentTarget.style.backgroundColor = value === file.path ? '#e3f2fd' : 'transparent'}
                   >
                     <span style={{ fontSize: '20px' }}>
-                      {file.isDirectory ? '📁' : fileType === 'video' ? '🎬' : fileType === 'audio' ? '🎵' : '📄'}
+                      {file.isDirectory ? <Folder size={20} /> : fileType === 'video' ? <Film size={20} /> : fileType === 'audio' ? <Music size={20} /> : <FileText size={20} />}
                     </span>
                     <div style={{ flex: 1 }}>
                       <div className="body-strong">{file.name}</div>
@@ -583,9 +583,9 @@ function TaskConfigEditor({ task, index, onChange, onDelete, vfs }) {
         </div>
       ) : (
         <div className="task-summary" style={{ fontSize: '13px', color: '#666' }}>
-          <div>📹 视频：{task.video_file || '未设置'}</div>
-          <div>📝 脚本：{task.script_file || '未设置'}</div>
-          {task.bgm_file && <div>🎵 背景音乐：{task.bgm_file}</div>}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Film size={12} /> 视频：{task.video_file || '未设置'}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><FileText size={12} /> 脚本：{task.script_file || '未设置'}</div>
+          {task.bgm_file && <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Music size={12} /> 背景音乐：{task.bgm_file}</div>}
         </div>
       )}
     </div>
@@ -791,14 +791,14 @@ function ProjectFileQuickFill({ vfs, onFill, currentPath = '/' }) {
               className={`btn btn-sm ${!useProjectMode ? 'btn-primary' : 'btn-ghost'}`}
               onClick={() => setUseProjectMode(false)}
             >
-              🗂️ 自由浏览模式
+              <FolderOpen size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} /> 自由浏览模式
             </button>
             <button
               className={`btn btn-sm ${useProjectMode ? 'btn-primary' : 'btn-ghost'}`}
               onClick={() => setUseProjectMode(true)}
               disabled={projects.length === 0}
             >
-              🎬 项目模式 ({projects.length} 个项目)
+              <Clapperboard size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} /> 项目模式 ({projects.length} 个项目)
             </button>
           </div>
         </div>
@@ -1019,12 +1019,12 @@ function ProjectFileQuickFill({ vfs, onFill, currentPath = '/' }) {
                 fontSize: '13px',
               }}>
                 {currentIsScenesDir ? (
-                  <span style={{ color: '#28a745' }}>
-                    ✅ 当前目录看起来是一个有效的场景目录（包含场景素材文件）
+                  <span style={{ color: '#28a745', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <CheckCircle size={14} /> 当前目录看起来是一个有效的场景目录（包含场景素材文件）
                   </span>
                 ) : (
-                  <span style={{ color: '#856404' }}>
-                    ⚠️ 当前目录可能不是场景目录。场景目录应该包含 JSON 脚本文件或场景素材（图片/视频）。
+                  <span style={{ color: '#856404', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <AlertTriangle size={14} /> 当前目录可能不是场景目录。场景目录应该包含 JSON 脚本文件或场景素材（图片/视频）。
                     {isInProject && ` 建议尝试 "${selectedProject.path}/scenes" 目录。`}
                   </span>
                 )}
@@ -1063,7 +1063,7 @@ function ProjectFileQuickFill({ vfs, onFill, currentPath = '/' }) {
                     onMouseLeave={(e) => e.currentTarget.style.backgroundColor = taskConfig[browserForField.field] === file.path ? '#e3f2fd' : 'transparent'}
                   >
                     <span style={{ fontSize: '20px' }}>
-                      {file.isDirectory ? '📁' : browserForField.fileType === 'video' ? '🎬' : browserForField.fileType === 'audio' ? '🎵' : '📄'}
+                      {file.isDirectory ? <Folder size={20} /> : browserForField.fileType === 'video' ? <Film size={20} /> : browserForField.fileType === 'audio' ? <Music size={20} /> : <FileText size={20} />}
                     </span>
                     <div style={{ flex: 1 }}>
                       <div className="body-strong">{file.name}</div>
@@ -1708,7 +1708,7 @@ function BatchConfigValidator({ config, onChange, vfs, className, apiBaseUrl, ap
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
                     <h3 className="tagline mb-xs" style={{ margin: 0 }}>
-                      {validationResult.is_valid ? '✅ 验证通过' : '❌ 验证失败'}
+                      {validationResult.is_valid ? <><CheckCircle size={16} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} /> 验证通过</> : <><XCircle size={16} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} /> 验证失败</>}
                     </h3>
                     <p className="body" style={{ margin: '8px 0 0' }}>
                       共 {validationResult.total_tasks} 个任务 · 
@@ -1725,7 +1725,7 @@ function BatchConfigValidator({ config, onChange, vfs, className, apiBaseUrl, ap
                       onClick={submitBatchTasks}
                       disabled={submitting || !validationResult.is_valid}
                     >
-                      {submitting ? '🚀 提交中...' : '🚀 提交所有任务'}
+                      {submitting ? <><Rocket size={14} className="spin" style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} /> 提交中...</> : <><Rocket size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} /> 提交所有任务</>}
                     </button>
                   </div>
                 </div>
@@ -1753,7 +1753,7 @@ function BatchConfigValidator({ config, onChange, vfs, className, apiBaseUrl, ap
                   marginBottom: '16px',
                 }}>
                   <h4 className="tagline mb-sm" style={{ margin: 0 }}>
-                    {submitResults.failCount === 0 ? '✅ 提交成功' : '⚠️ 部分提交成功'}
+                    {submitResults.failCount === 0 ? <><CheckCircle size={16} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} /> 提交成功</> : <><AlertTriangle size={16} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} /> 部分提交成功</>}
                   </h4>
                   <p className="body" style={{ margin: '8px 0 0' }}>
                     共 {submitResults.total} 个任务 · 
@@ -1777,7 +1777,7 @@ function BatchConfigValidator({ config, onChange, vfs, className, apiBaseUrl, ap
                       >
                         <div>
                           <span className="body-strong">
-                            {result.success ? '✅' : '❌'} {result.taskName}
+                            {result.success ? <CheckCircle size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} /> : <XCircle size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} />} {result.taskName}
                           </span>
                           {result.success && result.draftTaskId && (
                             <div className="caption" style={{ color: '#666', marginTop: '4px' }}>

@@ -440,8 +440,13 @@ export class VirtualFileSystem {
   // 创建目录
   async mkdir(path, recursive = false) {
     const normalizedPath = this.normalizePath(path)
-    if (this.directories.has(normalizedPath) || this.files.has(normalizedPath)) {
-      throw new Error(`路径已存在：${path}`)
+    // 如果目录已存在，直接返回（不报错，智能处理）
+    if (this.directories.has(normalizedPath)) {
+      return normalizedPath
+    }
+    // 如果路径被文件占用，才报错
+    if (this.files.has(normalizedPath)) {
+      throw new Error(`路径已存在（文件）：${path}`)
     }
     
     const parts = normalizedPath.split('/').filter(Boolean)

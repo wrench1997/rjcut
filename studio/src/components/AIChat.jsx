@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { Folder, FileText, CheckCircle, FolderOpen, Upload, Lightbulb, Search, XCircle, Send as SendIcon } from 'lucide-react'
 
 // =====================================================
 // API 配置
@@ -626,27 +627,27 @@ function AIChat({ vfs, currentProject, onProjectSwitch, onFileCreated }) {
       {/* 快捷命令 */}
       <div className="chat-quick-commands">
         <QuickCommand 
-          label="📁 切换项目" 
+          label={<><Folder size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} /> 切换项目</>} 
           command="/switch " 
           onClick={handleQuickCommand} 
         />
         <QuickCommand 
-          label="📝 生成脚本" 
+          label={<><FileText size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} /> 生成脚本</>} 
           command="/generate 产品介绍视频" 
           onClick={handleQuickCommand} 
         />
         <QuickCommand 
-          label="✅ 检查脚本" 
+          label={<><CheckCircle size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} /> 检查脚本</>} 
           command="/check" 
           onClick={handleQuickCommand} 
         />
         <QuickCommand 
-          label="📂 列出文件" 
+          label={<><FolderOpen size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} /> 列出文件</>} 
           command="/list" 
           onClick={handleQuickCommand} 
         />
         <QuickCommand 
-          label="⬆️ 上传文件" 
+          label={<><Upload size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} /> 上传文件</>} 
           command="/upload" 
           onClick={handleQuickCommand} 
         />

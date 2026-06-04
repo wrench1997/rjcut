@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { VideoPreview } from './FileBrowser'
 import { DigitalHumanVFSImporter } from './DigitalHumanVFSImporter'
-import { Film, Trash2, Copy, Settings, Upload, FileText, Video, AlertTriangle, Check, X, FolderOpen, Scissors, Clapperboard, Send } from 'lucide-react'
+import { Film, Trash2, Copy, Settings, Upload, FileText, Video, AlertTriangle, Check, X, FolderOpen, Scissors, Clapperboard, Send, Folder, Music, Download } from 'lucide-react'
 
 // =====================================================
 // 项目卡片组件
@@ -26,39 +26,39 @@ function ProjectCard({ project, onSelect, onDelete, onDuplicate }) {
       className="project-card"
       onMouseEnter={() => setShowActions(true)}
       onMouseLeave={() => setShowActions(false)}
+      onClick={() => onSelect(project)}
     >
-      <div 
-        className="project-card-content"
-        onClick={() => onSelect(project)}
-      >
-        <div className="project-card-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <Film size={32} strokeWidth={1.5} className="text-blue-500" />
-        </div>
-        <div className="project-card-info">
-          <h3 className="project-card-title">{project.name}</h3>
-          <p className="project-card-meta">
-            更新于 {formatDate(project.updatedAt)}
-          </p>
-          {project.config?.scenes?.length > 0 && (
-            <p className="project-card-meta">
-              {project.config.scenes.length} 个场景
-            </p>
-          )}
-        </div>
+      <div className="project-card-icon">
+        <Film size={32} strokeWidth={1.5} className="text-blue-500" />
       </div>
+      <h3 className="project-card-title">{project.name}</h3>
+      <p className="project-card-meta">
+        更新于 {formatDate(project.updatedAt)}
+      </p>
+      {project.config?.scenes?.length > 0 && (
+        <p className="project-card-meta">
+          {project.config.scenes.length} 个场景
+        </p>
+      )}
       
       {showActions && (
         <div className="project-card-actions">
           <button
             className="btn btn-ghost btn-sm"
-            onClick={() => onDuplicate(project)}
+            onClick={(e) => {
+              e.stopPropagation()
+              onDuplicate(project)
+            }}
             title="复制项目"
           >
             <Copy size={16} strokeWidth={2} />
           </button>
           <button
             className="btn btn-ghost btn-sm"
-            onClick={() => onDelete(project)}
+            onClick={(e) => {
+              e.stopPropagation()
+              onDelete(project)
+            }}
             title="删除项目"
             style={{ color: '#ff3b30' }}
           >

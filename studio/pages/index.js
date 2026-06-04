@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { getSharedFileSystem } from '../src/utils/virtualFileSystem'
 import { setApiKey } from '../src/api/api'
-import { FolderOpen, Folder, Layers, Sparkles, Settings, HelpCircle } from 'lucide-react'
+import { FolderOpen, Folder, Layers, Sparkles, Settings, HelpCircle, Gem } from 'lucide-react'
 
 // 导入你的各个组件
 import FileBrowser from '../src/components/FileBrowser'
@@ -139,7 +139,7 @@ export default function Home() {
       <div className="flex items-center gap-4">
         {merchantInfo && (
           <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 rounded-full border border-blue-100">
-            <span className="text-blue-500 text-sm">💎</span>
+            <Gem size={14} className="text-blue-500" />
             <span className="text-xs font-semibold text-blue-700">配额：{merchantInfo.quota_available} / {merchantInfo.quota_total}</span>
           </div>
         )}
@@ -164,7 +164,7 @@ export default function Home() {
       {showHelp && <HelpGuide onClose={() => setShowHelp(false)} />}
 
       {/* 主内容区，数字人创作台全屏显示，其他留白 */}
-      <main className={`flex-1 transition-all pt-16 ml-64 ${activeTab === 'digital-human-studio' ? 'p-0 h-[calc(100vh-64px)]' : 'p-8 min-h-screen'}`}>
+      <main className={`flex-1 transition-all pt-16 ml-64 ${activeTab === 'digital-human-studio' || activeTab === 'files' ? 'p-0 h-[calc(100vh-64px)]' : 'p-8 min-h-screen'}`}>
         
         {vfsLoading && activeTab !== 'settings' && activeTab !== 'digital-human-studio' ? (
           <div className="flex flex-col items-center justify-center h-64 text-slate-400">
@@ -175,7 +175,7 @@ export default function Home() {
           <>
             {activeTab === 'batch' && <BatchProcessor vfs={vfs} apiKey={apiKey} />}
             {activeTab === 'projects' && <VideoProjectManager vfs={vfs} onOpenProject={() => setActiveTab('files')} onNavigate={() => setActiveTab('files')} />}
-            {activeTab === 'files' && <div className="bg-white rounded-xl shadow-sm border border-slate-200 h-[calc(100vh-120px)] overflow-hidden"><FileBrowser vfs={vfs} /></div>}
+            {activeTab === 'files' && <FileBrowser vfs={vfs} />}
             {activeTab === 'digital-human-studio' && <DigitalHumanStudio apiKey={apiKey} apiBaseUrl={apiBaseUrl} />}
             
             {activeTab === 'settings' && (

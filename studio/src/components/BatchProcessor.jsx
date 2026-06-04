@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import useBatchStore from '../api/useBatchProcessStore'
 import { setApiKey } from '../api/api'
-import { Hourglass, Upload, FileText, Clapperboard, Download, CheckCircle, XCircle, Ban, Rocket } from 'lucide-react'
+import { Hourglass, Upload, FileText, Clapperboard, Download, CheckCircle, XCircle, Ban, Rocket, Folder, Music } from 'lucide-react'
 
 // --- 现代化进度条 ---
 function TailwindProgressBar({ progress, status }) {
@@ -113,7 +113,7 @@ function TaskCard({ task }) {
               className="w-full py-2 bg-green-50 hover:bg-green-100 text-green-700 text-sm font-medium rounded-lg transition-colors border border-green-200"
               onClick={handleDownload}
             >
-              ⬇️ 下载成片
+              <Download size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} /> 下载成片
             </button>
           )}
         </div>
@@ -203,7 +203,7 @@ function FileSelector({ label, vfs, selectedFile, onSelect, accept, disabled, mu
           onClick={() => setShowBrowser(true)}
           disabled={disabled || !vfs}
         >
-          📁 从 VFS 选择文件
+          <Folder size={16} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} /> 从 VFS 选择文件
         </button>
       )}
 
@@ -216,9 +216,9 @@ function FileSelector({ label, vfs, selectedFile, onSelect, accept, disabled, mu
             </div>
             
             <div className="p-4 border-b border-slate-100 flex gap-2">
-              <button className="px-3 py-1.5 text-sm bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors" onClick={() => loadDirectory('/raw')}>📁 项目</button>
-              <button className="px-3 py-1.5 text-sm bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors" onClick={() => loadDirectory('/drafts')}>📝 草稿</button>
-              <button className="px-3 py-1.5 text-sm bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors" onClick={() => loadDirectory('/audio')}>🎵 音频</button>
+              <button className="px-3 py-1.5 text-sm bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1" onClick={() => loadDirectory('/raw')}><Folder size={14} /> 项目</button>
+              <button className="px-3 py-1.5 text-sm bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1" onClick={() => loadDirectory('/drafts')}><FileText size={14} /> 草稿</button>
+              <button className="px-3 py-1.5 text-sm bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1" onClick={() => loadDirectory('/audio')}><Music size={14} /> 音频</button>
             </div>
             
             <div className="flex-1 overflow-y-auto p-4">
@@ -232,7 +232,7 @@ function FileSelector({ label, vfs, selectedFile, onSelect, accept, disabled, mu
                       className="flex items-center gap-3 p-3 hover:bg-slate-50 rounded-lg cursor-pointer transition-colors"
                       onClick={() => handleFileSelect(item)}
                     >
-                      <span className="text-lg">{item.isDirectory ? '📁' : '📄'}</span>
+                      <span className="text-lg">{item.isDirectory ? <Folder size={18} /> : <FileText size={18} />}</span>
                       <span className="flex-1 text-sm text-slate-700">{item.name}</span>
                       {item.size && <span className="text-xs text-slate-400">{(item.size / 1024 / 1024).toFixed(1)} MB</span>}
                     </div>

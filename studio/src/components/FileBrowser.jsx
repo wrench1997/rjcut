@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Folder, FileVideo, FileAudio, FileImage, FileJson, FileCode, FileBox, FileText, File, Film, Music, Image, ArrowUp, RefreshCw, FolderPlus, FilePlus, Trash2, Eye, Download, Clapperboard } from 'lucide-react'
+import { Folder, FileVideo, FileAudio, FileImage, FileJson, FileCode, FileBox, FileText, File, Film, Music, Image, ArrowUp, RefreshCw, FolderPlus, FilePlus, Trash2, Eye, Download, Clapperboard, Home, List, Grid3x3, FolderOpen } from 'lucide-react'
 
 // =====================================================
 // 文件图标
@@ -233,7 +233,7 @@ function TextPreview({ file, vfs }) {
       try {
         setLoading(true)
         const data = await vfs.readFile(file.path)
-        const text = typeof data === 'ArrayBuffer' 
+        const text = data instanceof ArrayBuffer
           ? new TextDecoder('utf-8').decode(data)
           : String(data)
         setContent(text)
@@ -276,11 +276,21 @@ function FileListItem({ item, onSelect, onOpen, selected, onDelete }) {
     }
   }
   
+  const handleClick = (e) => {
+    e.stopPropagation()
+    onSelect(item)
+  }
+  
+  const handleDoubleClick = (e) => {
+    e.stopPropagation()
+    onOpen(e, item)
+  }
+  
   return (
     <div
       className={`file-list-item ${selected ? 'selected' : ''}`}
-      onClick={() => onSelect(item)}
-      onDoubleClick={() => onOpen(item)}
+      onClick={handleClick}
+      onDoubleClick={handleDoubleClick}
     >
       <span className="file-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <FileIcon isDirectory={item.isDirectory} fileName={item.name} type={item.type} />
@@ -331,11 +341,21 @@ function FileGridItem({ item, onSelect, onOpen, selected, onDelete }) {
     }
   }
   
+  const handleClick = (e) => {
+    e.stopPropagation()
+    onSelect(item)
+  }
+  
+  const handleDoubleClick = (e) => {
+    e.stopPropagation()
+    onOpen(e, item)
+  }
+  
   return (
     <div
       className={`file-grid-item ${selected ? 'selected' : ''}`}
-      onClick={() => onSelect(item)}
-      onDoubleClick={() => onOpen(item)}
+      onClick={handleClick}
+      onDoubleClick={handleDoubleClick}
     >
       <div className="file-grid-icon">
         <FileIcon isDirectory={item.isDirectory} fileName={item.name} type={item.type} />
@@ -376,7 +396,7 @@ function Breadcrumb({ path, onNavigate }) {
         onClick={() => onNavigate('/')}
         title="根目录"
       >
-        🏠
+        <Home size={16} />
       </button>
       {parts.map((part, index) => {
         const fullPath = '/' + parts.slice(0, index + 1).join('/')
@@ -462,7 +482,7 @@ function ProjectSidebar({ vfs, currentPath, onNavigate }) {
           className="quick-nav-item"
           onClick={() => onNavigate('/raw')}
         >
-          📂 全部文件
+          <FolderOpen size={14} /> 全部文件
         </button>
       </div>
     </div>
@@ -495,7 +515,7 @@ function FileDetailPanel({ file, vfs, onClose, onEdit, onDelete }) {
         try {
           setLoading(true)
           const fileContent = await vfs.readFile(file.path)
-          const textContent = typeof fileContent === 'ArrayBuffer'
+          const textContent = fileContent instanceof ArrayBuffer
             ? new TextDecoder('utf-8').decode(fileContent)
             : String(fileContent)
           setContent(textContent)
@@ -533,6 +553,18 @@ function FileDetailPanel({ file, vfs, onClose, onEdit, onDelete }) {
     }
   }
   
+  const ext = file?.name?.split('.').pop()?.toLowerCase()
+  const isTextFile = file?.type?.startsWith('text/') || 
+                     ['txt', 'md', 'srt', 'vtt', 'ass', 'js', 'jsx', 'ts', 'tsx', 'css', 'html', 'json'].includes(ext)
+  const editableExtensions = ['txt', 'json', 'md', 'js', 'jsx', 'ts', 'tsx', 'css', 'html']
+  const isEditableFile = file && editableExtensions.includes(ext)
+  
+  useEffect(() => {
+    if (isEditableFile && !isEditing && !loading) {
+      setIsEditing(true)
+    }
+  }, [isEditableFile, isEditing, loading])
+  
   if (!file) {
     return (
       <div className="detail-panel">
@@ -543,18 +575,6 @@ function FileDetailPanel({ file, vfs, onClose, onEdit, onDelete }) {
       </div>
     )
   }
-  
-  const ext = file.name?.split('.').pop()?.toLowerCase()
-  const isTextFile = file.type?.startsWith('text/') || 
-                     ['txt', 'md', 'srt', 'vtt', 'ass', 'js', 'jsx', 'ts', 'tsx', 'css', 'html', 'json'].includes(ext)
-  const editableExtensions = ['txt', 'json', 'md', 'js', 'jsx', 'ts', 'tsx', 'css', 'html']
-  const isEditableFile = editableExtensions.includes(ext)
-  
-  useEffect(() => {
-    if (isEditableFile && !isEditing && !loading) {
-      setIsEditing(true)
-    }
-  }, [isEditableFile, isEditing, loading])
   
   return (
     <div className="detail-panel">
@@ -1007,6 +1027,7 @@ function FileBrowser({ vfs, onFileSelect, onFileOpen, className, initialPath = '
   const [currentPath, setCurrentPath] = useState(initialPath)
   const [items, setItems] = useState([])
   const [selectedFile, setSelectedFile] = useState(null)
+  const [showDetail, setShowDetail] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [viewMode, setViewMode] = useState('list')
   const [sortBy, setSortBy] = useState('name')
@@ -1098,6 +1119,10 @@ function FileBrowser({ vfs, onFileSelect, onFileOpen, className, initialPath = '
   
   const navigateTo = async (path) => {
     try {
+      // 移除焦点，防止进入新目录时选中所有项目
+      if (document.activeElement && document.activeElement.blur) {
+        document.activeElement.blur()
+      }
       vfs.cd(path)
       setCurrentPath(vfs.pwd())
       setSelectedFile(null)
@@ -1106,11 +1131,16 @@ function FileBrowser({ vfs, onFileSelect, onFileOpen, className, initialPath = '
     }
   }
   
-  const handleOpen = async (item) => {
+  const handleOpen = async (e, item) => {
+    if (e) {
+      e.preventDefault()
+      e.stopPropagation()
+    }
     if (item.isDirectory) {
       await navigateTo(item.path)
     } else {
       setSelectedFile(item)
+      setShowDetail(true)
       onFileOpen?.(item)
     }
   }
@@ -1122,6 +1152,13 @@ function FileBrowser({ vfs, onFileSelect, onFileOpen, className, initialPath = '
       setSelectedFile(item)
     }
     onFileSelect?.(item)
+  }
+  
+  const handleFileClick = (item) => {
+    if (!item.isDirectory) {
+      setSelectedFile(item)
+      onFileSelect?.(item)
+    }
   }
   
   const goUp = () => {
@@ -1162,7 +1199,7 @@ function FileBrowser({ vfs, onFileSelect, onFileOpen, className, initialPath = '
   }
   
   return (
-    <div className={`file-browser ${className || ''}`}>
+    <div className={`file-browser ${showDetail ? 'show-detail' : ''} ${className || ''}`}>
       {/* 左侧项目导航 */}
       <aside className="file-browser-sidebar">
         <ProjectSidebar 
@@ -1265,14 +1302,14 @@ function FileBrowser({ vfs, onFileSelect, onFileOpen, className, initialPath = '
                 onClick={() => setViewMode('list')}
                 title="列表视图"
               >
-                📋
+                <List size={16} />
               </button>
               <button
                 className={`btn-toggle ${viewMode === 'grid' ? 'active' : ''}`}
                 onClick={() => setViewMode('grid')}
                 title="网格视图"
               >
-                ▦
+                <Grid3x3 size={16} />
               </button>
             </div>
           </div>
@@ -1340,18 +1377,24 @@ function FileBrowser({ vfs, onFileSelect, onFileOpen, className, initialPath = '
       </main>
       
       {/* 右侧详情面板 */}
-      <aside className="file-browser-detail">
-        <FileDetailPanel
-          file={selectedFile}
-          vfs={vfs}
-          onClose={() => setSelectedFile(null)}
-          onEdit={onFileOpen}
-          onDelete={() => {
-            setSelectedFile(null)
-            refresh()
-          }}
-        />
-      </aside>
+      {showDetail && (
+        <aside className="file-browser-detail">
+          <FileDetailPanel
+            file={selectedFile}
+            vfs={vfs}
+            onClose={() => {
+              setSelectedFile(null)
+              setShowDetail(false)
+            }}
+            onEdit={onFileOpen}
+            onDelete={() => {
+              setSelectedFile(null)
+              setShowDetail(false)
+              refresh()
+            }}
+          />
+        </aside>
+      )}
       
       {/* 对话框 */}
       {showCreateDialog && (
