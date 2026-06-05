@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createDefaultFileSystem, getSharedFileSystem } from './utils/virtualFileSystem'
-import { setApiKey } from './api/api'
-import { FolderOpen, Folder, Layers, Clapperboard, Settings, HelpCircle, Sparkles, Film, Scissors, FileText, Clock, RefreshCw, ScrollText, Download, User } from 'lucide-react'
+import { setApiKey, getMerchantInfo as apiGetMerchantInfo } from './api/api'
+import { FolderOpen, Folder, Layers, Clapperboard, Settings, HelpCircle, Sparkles, Film, Scissors, FileText, Clock, RefreshCw, ScrollText, Download, User, Bot } from 'lucide-react'
 import FileBrowser from './components/FileBrowser'
 import VideoProjectManager from './components/VideoProjectManager'
 import AIChat from './components/AIChat'
@@ -10,6 +10,44 @@ import DigitalHumanStudio from './components/DigitalHumanStudio'
 import DigitalHumanManager from './components/DigitalHumanManager'
 import HelpGuide from './components/HelpGuide'
 import AdvancedVideoEditor from './components/AdvancedVideoEditor'
+
+// =====================================================
+// API 客户端实例（用于 MCP 工具调用）
+// =====================================================
+const apiClient = {
+  get: async (endpoint) => {
+    const apiKey = localStorage.getItem('rjcut_api_key') || DEFAULT_API_KEY
+    const baseUrl = localStorage.getItem('rjcut_api_base_url') || DEFAULT_API_BASE_URL
+    const response = await fetch(`${baseUrl}${endpoint}`, {
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+    })
+    const data = await response.json()
+    if (!response.ok) {
+      throw new Error(data.message || '请求失败')
+    }
+    return { data }
+  },
+  post: async (endpoint, payload) => {
+    const apiKey = localStorage.getItem('rjcut_api_key') || DEFAULT_API_KEY
+    const baseUrl = localStorage.getItem('rjcut_api_base_url') || DEFAULT_API_BASE_URL
+    const response = await fetch(`${baseUrl}${endpoint}`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    })
+    const data = await response.json()
+    if (!response.ok) {
+      throw new Error(data.message || '请求失败')
+    }
+    return { data }
+  },
+}
 
 // =====================================================
 // API 配置
@@ -377,7 +415,7 @@ function App() {
   const [tasks, setTasks] = useState([])
   
   // UI 状态
-  const [activeTab, setActiveTab] = useState('batch') // 'batch' | 'projects' | 'files' | 'tasks' | 'digital-human-studio' | 'digital-human-manager' | 'advanced-editor' | 'settings'
+  const [activeTab, setActiveTab] = useState('batch') // 'batch' | 'projects' | 'files' | 'tasks' | 'ai' | 'digital-human-studio' | 'digital-human-manager' | 'advanced-editor' | 'settings'
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [successMsg, setSuccessMsg] = useState('')
@@ -550,6 +588,15 @@ function App() {
               <Clapperboard size={18} strokeWidth={2} />
               <span style={{ marginLeft: '6px' }}>任务列表</span>
             </button>
+
+            <button 
+              className={`btn btn-utility ${activeTab === 'ai' ? 'text-primary' : ''}`}
+              onClick={() => setActiveTab('ai')}
+              title="AI 助手（MCP 支持）"
+            >
+              <Bot size={18} strokeWidth={2} />
+              <span style={{ marginLeft: '6px' }}>AI 助手</span>
+            </button>
             
             <button 
               className={`btn btn-utility ${activeTab === 'digital-human-studio' ? 'text-primary' : ''}`}
@@ -581,14 +628,6 @@ function App() {
               <span style={{ marginLeft: '6px' }}>高级剪辑</span>
             </button>
             
-            {/* AI 助手功能已屏蔽
-            <button 
-              className={`btn btn-utility ${activeTab === 'ai' ? 'text-primary' : ''}`}
-              onClick={() => setActiveTab('ai')}
-            >
-              🤖 AI 助手
-            </button>
-            */}
             <button 
               className={`btn btn-utility ${activeTab === 'settings' ? 'text-primary' : ''}`}
               onClick={() => setActiveTab('settings')}
@@ -630,10 +669,10 @@ function App() {
           {activeTab === 'files' && '文件浏览器'}
           {activeTab === 'batch' && '批量视频处理'}
           {activeTab === 'tasks' && '任务管理'}
+          {activeTab === 'ai' && 'AI 智能助手（MCP 支持）'}
           {activeTab === 'digital-human-studio' && '数字人创作平台'}
           {activeTab === 'digital-human-manager' && '数字人资产管理'}
           {activeTab === 'advanced-editor' && '高级视频剪辑台'}
-          {/* {activeTab === 'ai' && 'AI 智能助手'} */}
           {activeTab === 'settings' && '设置'}
         </span>
         
@@ -718,6 +757,23 @@ function App() {
             <BatchProcessor
               vfs={vfs}
               apiKey={apiKey}
+            />
+          </div>
+        )}
+        
+        {/* AI 助手页面 */}
+        {!vfsLoading && activeTab === 'ai' && vfs && (
+          <div className="tile tile-light" style={{ height: 'calc(100vh - 200px)' }}>
+            <AIChat 
+              vfs={vfs} 
+              currentProject={currentProject}
+              onProjectSwitch={(project) => {
+                setCurrentProject(project)
+              }}
+              onFileCreated={(filePath) => {
+                console.log('[App] 文件已创建:', filePath)
+              }}
+              apiClient={apiClient}
             />
           </div>
         )}

@@ -660,7 +660,7 @@ export class VirtualFileSystem {
       
       // 从父目录移除
       const parentPath = dir.parent !== undefined ? (dir.parent || ROOT_PATH) : ROOT_PATH
-      if (dir.parent !== undefined || normalizedPath.startsWith('/raw/') || normalizedPath === '/raw') {
+      if (dir.parent !== undefined || normalizedPath.startsWith('/projects/') || normalizedPath === '/projects') {
         const parent = this.directories.get(parentPath)
         if (parent) {
           parent.children.delete(normalizedPath)

@@ -135,7 +135,7 @@ function StatCard({ label, value, colorClass }) {
 // --- 文件选择器组件（简化版）---
 function FileSelector({ label, vfs, selectedFile, onSelect, accept, disabled, multiple = false }) {
   const [showBrowser, setShowBrowser] = useState(false)
-  const [browserPath, setBrowserPath] = useState('/raw')
+  const [browserPath, setBrowserPath] = useState('/projects')
   const [browserItems, setBrowserItems] = useState([])
 
   const loadDirectory = useCallback((path) => {
@@ -216,7 +216,7 @@ function FileSelector({ label, vfs, selectedFile, onSelect, accept, disabled, mu
             </div>
             
             <div className="p-4 border-b border-slate-100 flex gap-2">
-              <button className="px-3 py-1.5 text-sm bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1" onClick={() => loadDirectory('/raw')}><Folder size={14} /> 项目</button>
+              <button className="px-3 py-1.5 text-sm bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1" onClick={() => loadDirectory('/projects')}><Folder size={14} /> 项目</button>
               <button className="px-3 py-1.5 text-sm bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1" onClick={() => loadDirectory('/drafts')}><FileText size={14} /> 草稿</button>
               <button className="px-3 py-1.5 text-sm bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1" onClick={() => loadDirectory('/audio')}><Music size={14} /> 音频</button>
             </div>

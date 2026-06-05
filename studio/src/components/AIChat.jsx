@@ -1,11 +1,40 @@
 import { useState, useRef, useEffect } from 'react'
-import { Folder, FileText, CheckCircle, FolderOpen, Upload, Lightbulb, Search, XCircle, Send as SendIcon } from 'lucide-react'
+import { Folder, FileText, CheckCircle, FolderOpen, Upload, Lightbulb, Search, XCircle, Send as SendIcon, Plug, PlugZap } from 'lucide-react'
+import { getMCPClient } from '../api/mcpClient'
 
 // =====================================================
 // API 配置
 // =====================================================
 const OPENCLAW_API_URL = 'http://127.0.0.1:18789/v1/chat/completions'
 const DEFAULT_MODEL = 'claude-4-opus'
+
+// =====================================================
+// MCP 工具调用系统提示词增强
+// =====================================================
+const MCP_TOOL_PROMPT = `
+你是一个支持 MCP (Model Context Protocol) 的智能助手。你可以通过调用工具来执行实际操作。
+
+可用工具列表：
+- switch_project: 切换到指定的视频项目目录
+- list_projects: 列出所有可用的视频项目
+- list_directory: 列出当前目录或指定目录的文件
+- read_file: 读取文件内容
+- write_file: 写入文件内容
+- search_scripts: 搜索项目中的 JSON 脚本文件
+- get_api_status: 获取后端 API 服务状态
+- create_draft_task: 创建视频草稿生成任务
+- get_task_status: 获取任务执行状态
+- list_digital_humans: 获取可用的数字人列表
+
+当你需要执行操作时，请在回复中使用以下格式：
+[TOOL_CALL: tool_name] {"param1": "value1", "param2": "value2"}
+
+例如：
+[TOOL_CALL: switch_project] {"projectPath": "/videos/my-project"}
+[TOOL_CALL: list_directory] {}
+[TOOL_CALL: read_file] {"filePath": "/videos/my-project/script.json"}
+
+执行工具调用后，我会告诉你执行结果。`
 
 // =====================================================
 // 系统提示词
@@ -24,6 +53,8 @@ const SYSTEM_PROMPT = `你是一个专业的视频编辑助手，帮助用户管
 - /generate [主题] - 生成视频脚本
 - /check - 检查脚本格式
 - /help - 显示帮助
+
+${MCP_TOOL_PROMPT}
 
 请以简洁、专业的方式回答，使用中文。`
 
@@ -136,7 +167,7 @@ function FileUploadSuggestion({ fileType, targetPath, onUpload }) {
 // =====================================================
 // 主 AI 聊天组件
 // =====================================================
-function AIChat({ vfs, currentProject, onProjectSwitch, onFileCreated }) {
+function AIChat({ vfs, currentProject, onProjectSwitch, onFileCreated, apiClient }) {
   const [messages, setMessages] = useState([
     {
       role: 'assistant',
@@ -146,25 +177,86 @@ function AIChat({ vfs, currentProject, onProjectSwitch, onFileCreated }) {
 • 生成和检查视频脚本
 • 上传文件到项目
 • 提供编辑建议
+• 通过 MCP 协议调用工具执行操作
 
-你可以直接输入命令，或者使用下方的快捷按钮。`,
+你可以直接输入命令，或者使用下方的快捷按钮。
+
+💡 **MCP 工具调用已启用**：我可以调用工具来执行实际操作，例如切换项目、读取文件、创建任务等。`,
     },
   ])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [pendingAction, setPendingAction] = useState(null) // 'upload' | 'script_confirm'
   const [pendingData, setPendingData] = useState(null)
+  const [mcpConnected, setMcpConnected] = useState(false)
+  const [mcpTools, setMcpTools] = useState([])
   const messagesEndRef = useRef(null)
   const inputRef = useRef(null)
+  const mcpClientRef = useRef(null)
 
   // 滚动到底部
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
 
+  // 初始化 MCP 客户端
+  useEffect(() => {
+    const initMCP = async () => {
+      try {
+        const mcpClient = getMCPClient({ serverUrl: 'ws://localhost:8001/mcp' })
+        mcpClientRef.current = mcpClient
+
+        // 注册内置工具和资源
+        mcpClient.registerBuiltInTools({
+          vfs,
+          onProjectSwitch: handleProjectSwitch,
+          onFileCreated,
+          apiClient
+        })
+        mcpClient.registerBuiltInResources({ vfs, currentProject })
+        mcpClient.registerBuiltInPrompts()
+
+        // 获取工具列表
+        const toolsResult = await mcpClient.listTools()
+        setMcpTools(toolsResult.tools)
+        setMcpConnected(true)
+
+        console.log('[AIChat] MCP 初始化完成，已注册工具:', toolsResult.tools.map(t => t.name))
+      } catch (error) {
+        console.warn('[AIChat] MCP 初始化失败（可能是后端未启动 MCP 服务）:', error)
+        setMcpConnected(false)
+      }
+    }
+
+    initMCP()
+
+    return () => {
+      if (mcpClientRef.current) {
+        mcpClientRef.current.disconnect()
+      }
+    }
+  }, [])
+
   useEffect(() => {
     scrollToBottom()
   }, [messages])
+
+  // 处理 MCP 工具调用
+  const handleMCPToolCall = async (toolName, toolArgs) => {
+    if (!mcpClientRef.current) {
+      return `❌ MCP 客户端未初始化`
+    }
+
+    try {
+      const result = await mcpClientRef.current.callTool(toolName, toolArgs)
+      if (result.isError) {
+        return `❌ 工具执行失败：${result.content[0]?.text}`
+      }
+      return result.content[0]?.text || '✅ 工具执行成功'
+    } catch (error) {
+      return `❌ 工具调用异常：${error.message}`
+    }
+  }
 
   // 发送消息到 AI
   const sendMessage = async (content) => {
@@ -195,6 +287,12 @@ function AIChat({ vfs, currentProject, onProjectSwitch, onFileCreated }) {
       
       contextMessages[0].content += projectInfo
 
+      // 添加 MCP 工具信息
+      if (mcpConnected && mcpTools.length > 0) {
+        const toolsInfo = `\n\n可用 MCP 工具：${mcpTools.map(t => t.name).join(', ')}`
+        contextMessages[0].content += toolsInfo
+      }
+
       // 调用 OpenClaw API
       const response = await fetch(OPENCLAW_API_URL, {
         method: 'POST',
@@ -206,7 +304,7 @@ function AIChat({ vfs, currentProject, onProjectSwitch, onFileCreated }) {
           messages: contextMessages,
           stream: false,
           temperature: 0.7,
-          max_tokens: 1000,
+          max_tokens: 1500, // 增加 token 数以支持工具调用
         }),
       })
 
@@ -220,8 +318,33 @@ function AIChat({ vfs, currentProject, onProjectSwitch, onFileCreated }) {
       // 添加 AI 响应
       setMessages(prev => [...prev, { role: 'assistant', content: aiResponse }])
 
-      // 处理 AI 响应中的特殊指令
-      await handleAIResponse(aiResponse, content)
+      // 处理 MCP 工具调用
+      const toolCallMatch = aiResponse.match(/\[TOOL_CALL:\s*(\w+)\]\s*(\{[\s\S]*?\})/)
+      if (toolCallMatch) {
+        const [, toolName, toolArgsStr] = toolCallMatch
+        try {
+          const toolArgs = JSON.parse(toolArgsStr)
+          // 显示工具调用中...
+          setMessages(prev => [...prev, { 
+            role: 'assistant', 
+            content: `🔧 正在调用工具 \`${toolName}\`...` 
+          }])
+          // 执行工具调用
+          const result = await handleMCPToolCall(toolName, toolArgs)
+          setMessages(prev => [...prev, { 
+            role: 'assistant', 
+            content: `✅ 工具 \`${toolName}\` 执行结果:\n\n${result}` 
+          }])
+        } catch (e) {
+          setMessages(prev => [...prev, { 
+            role: 'assistant', 
+            content: `❌ 工具调用解析失败：${e.message}` 
+          }])
+        }
+      } else {
+        // 处理 AI 响应中的特殊指令
+        await handleAIResponse(aiResponse, content)
+      }
 
     } catch (error) {
       console.error('AI 请求失败:', error)
@@ -580,6 +703,35 @@ function AIChat({ vfs, currentProject, onProjectSwitch, onFileCreated }) {
 
   return (
     <div className="ai-chat">
+      {/* MCP 状态栏 */}
+      <div className="mcp-status-bar">
+        <div className="flex items-center gap-xs">
+          {mcpConnected ? (
+            <>
+              <PlugZap size={16} className="text-success" />
+              <span className="caption text-success">MCP 已连接</span>
+              <span className="caption text-muted">|</span>
+              <span className="caption text-muted">{mcpTools.length} 个工具可用</span>
+            </>
+          ) : (
+            <>
+              <Plug size={16} className="text-muted" />
+              <span className="caption text-muted">MCP 未连接（后端服务未启动）</span>
+            </>
+          )}
+        </div>
+        {mcpConnected && mcpTools.length > 0 && (
+          <div className="mcp-tools-list">
+            <span className="caption text-muted">工具:</span>
+            {mcpTools.map((tool, i) => (
+              <span key={i} className="badge badge-outline badge-sm ml-xs" title={tool.description}>
+                {tool.name}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* 聊天消息区域 */}
       <div className="chat-messages">
         {messages.map((message, index) => (
