@@ -323,9 +323,9 @@ function ProjectVideoViewer({ project, vfs, onNavigate }) {
   const [videoCategory, setVideoCategory] = useState('raw') // 'raw' | 'edited' | 'output'
   
   const categories = [
-    { id: 'raw', label: '原始视频', icon: <Clapperboard size={14} />, path: '/raw' },
-    { id: 'edited', label: '编辑视频', icon: <Scissors size={14} />, path: '/edited' },
-    { id: 'output', label: '输出视频', icon: <Send size={14} />, path: '/output' },
+    { id: '原始视频', label: '原始视频', icon: <Clapperboard size={14} />, path: '/原始视频' },
+    { id: '剪辑视频', label: '剪辑视频', icon: <Scissors size={14} />, path: '/剪辑视频' },
+    { id: '输出', label: '输出视频', icon: <Send size={14} />, path: '/输出' },
   ]
   
   useEffect(() => {
@@ -738,16 +738,7 @@ function ProjectDetail({ project, vfs, onBack, onOpen, onNavigate }) {
             <div className="file-quick-access">
               <div 
                 className="quick-folder" 
-                onClick={() => onNavigate({ path: `${project.path}/scenes` })}
-              >
-                <span className="folder-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <FileText size={20} strokeWidth={2} className="text-amber-500" />
-                </span>
-                <span className="folder-name">场景脚本</span>
-              </div>
-              <div 
-                className="quick-folder" 
-                onClick={() => onNavigate({ path: `${project.path}/raw` })}
+                onClick={() => onNavigate({ path: `${project.path}/原始视频` })}
               >
                 <span className="folder-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <Film size={20} strokeWidth={2} className="text-purple-500" />
@@ -756,46 +747,21 @@ function ProjectDetail({ project, vfs, onBack, onOpen, onNavigate }) {
               </div>
               <div 
                 className="quick-folder" 
-                onClick={() => onNavigate({ path: `${project.path}/edited` })}
+                onClick={() => onNavigate({ path: `${project.path}/剪辑视频` })}
               >
                 <span className="folder-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <Scissors size={20} strokeWidth={2} className="text-pink-500" />
                 </span>
-                <span className="folder-name">编辑视频</span>
+                <span className="folder-name">剪辑视频</span>
               </div>
               <div 
                 className="quick-folder" 
-                onClick={() => onNavigate({ path: `${project.path}/audio` })}
-              >
-                <span className="folder-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Music size={20} strokeWidth={2} className="text-green-500" />
-                </span>
-                <span className="folder-name">音频</span>
-              </div>
-              <div 
-                className="quick-folder" 
-                onClick={() => onNavigate({ path: `${project.path}/subtitles` })}
-              >
-                <span className="folder-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <FileText size={20} strokeWidth={2} className="text-blue-400" />
-                </span>
-                <span className="folder-name">字幕</span>
-              </div>
-              <div 
-                className="quick-folder" 
-                onClick={() => onNavigate({ path: `${project.path}/output` })}
+                onClick={() => onNavigate({ path: `${project.path}/输出` })}
               >
                 <span className="folder-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <Download size={20} strokeWidth={2} className="text-emerald-500" />
                 </span>
                 <span className="folder-name">输出</span>
-              </div>
-              <div 
-                className="quick-folder" 
-                onClick={() => onNavigate({ path: `${project.path}/project.json` })}
-              >
-                <span className="folder-icon"><Settings size={14} /></span>
-                <span className="folder-name">项目配置</span>
               </div>
             </div>
           </div>

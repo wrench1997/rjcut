@@ -480,9 +480,9 @@ function ProjectSidebar({ vfs, currentPath, onNavigate }) {
         <span className="sidebar-section-title">快速访问</span>
         <button 
           className="quick-nav-item"
-          onClick={() => onNavigate('/raw')}
+          onClick={() => onNavigate('/projects')}
         >
-          <FolderOpen size={14} /> 全部文件
+          <FolderOpen size={14} /> 全部项目
         </button>
       </div>
     </div>
@@ -1023,7 +1023,7 @@ function StorageInfo({ vfs }) {
 // =====================================================
 // 主文件浏览器组件
 // =====================================================
-function FileBrowser({ vfs, onFileSelect, onFileOpen, className, initialPath = '/raw' }) {
+function FileBrowser({ vfs, onFileSelect, onFileOpen, className, initialPath = '/projects' }) {
   const [currentPath, setCurrentPath] = useState(initialPath)
   const [items, setItems] = useState([])
   const [selectedFile, setSelectedFile] = useState(null)
@@ -1040,22 +1040,32 @@ function FileBrowser({ vfs, onFileSelect, onFileOpen, className, initialPath = '
   
   useEffect(() => {
     const initPath = async () => {
-      if (!vfs.exists('/raw')) {
+      // 尝试使用传入的 initialPath，如果没有则使用 VFS 保存的当前路径
+      let targetPath = initialPath
+      
+      // 如果没有指定 initialPath，尝试从 VFS 获取保存的路径
+      if (!targetPath) {
+        targetPath = vfs.currentPath || '/projects'
+      }
+      
+      // 确保目标路径存在
+      if (targetPath && !vfs.exists(targetPath)) {
         try {
-          await vfs.mkdir('/raw', true)
+          // 尝试创建路径，如果失败则回退到 /projects
+          await vfs.mkdir(targetPath, true)
         } catch (e) {
-          console.error('创建 /raw 目录失败:', e)
+          console.error('创建初始路径失败:', e)
+          targetPath = '/projects'
         }
       }
       
-      const targetPath = initialPath || '/raw'
       if (targetPath && targetPath !== currentPath) {
         try {
           vfs.cd(targetPath)
           setCurrentPath(vfs.pwd())
         } catch (e) {
           console.error('初始化路径失败:', e)
-          setCurrentPath('/raw')
+          setCurrentPath('/projects')
         }
       }
     }

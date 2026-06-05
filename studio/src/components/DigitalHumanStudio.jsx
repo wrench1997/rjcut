@@ -1,61 +1,63 @@
 import { useState, useEffect, useCallback } from 'react'
 import { getCommonPersons, getCustomPersons, getVoices, createDhGenerateTask, getDhTaskDetail, getDhVideoUrl } from '../api/api'
 import { getSharedFileSystem } from '../utils/virtualFileSystem'
-import { User, Mic, Check, X, Film, Download, AlertCircle, Loader2, Book, Inbox, Folder, AlertTriangle, Rocket } from 'lucide-react'
+import { User, Mic, Check, X, Film, Download, AlertCircle, Loader2, Book, Inbox, Folder, AlertTriangle, Rocket, Settings, Sliders, Volume2, Type, Image } from 'lucide-react'
 
 // =====================================================
-// 左侧：资产选择 (数字人与声音)
+// 左侧：资产选择 (数字人与声音) - 9 宫格布局
 // =====================================================
 function AvatarPicker({ persons, voices, selectedPerson, onSelectPerson, selectedVoice, onSelectVoice }) {
   return (
-    <div className="w-96 bg-white border-r border-slate-200 flex flex-col h-full z-10 flex-shrink-0">
+    <div className="w-[420px] bg-white border-r border-slate-200 flex flex-col h-full z-10 flex-shrink-0">
       {/* 标题区 */}
-      <div className="p-5 border-b border-slate-100 flex-shrink-0 bg-gradient-to-r from-blue-50 to-white">
+      <div className="p-4 border-b border-slate-100 flex-shrink-0 bg-gradient-to-r from-blue-50 to-white">
         <h2 className="text-base font-bold text-slate-800">1. 选择出镜数字人</h2>
         <p className="text-xs text-slate-500 mt-1">点击选择一位数字人进行视频创作</p>
       </div>
       
-      {/* 数字人列表 */}
-      <div className="flex-1 overflow-y-auto p-5 space-y-3 custom-scrollbar">
-        {persons.map(person => (
-          <div
-            key={person.id}
-            onClick={() => onSelectPerson(person)}
-            className={`group relative w-full h-24 rounded-xl overflow-hidden cursor-pointer transition-all duration-200 ${
-              selectedPerson?.id === person.id 
-                ? 'ring-2 ring-blue-500 shadow-lg scale-[1.02]' 
-                : 'shadow-md hover:shadow-lg hover:scale-[1.01]'
-            }`}
-          >
-            {person.cover_url ? (
-              <img 
-                src={person.cover_url} 
-                alt={person.name} 
-                className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110" 
-              />
-            ) : (
-              <div className="w-full h-full bg-gradient-to-br from-slate-200 to-slate-300 flex items-center justify-center text-slate-400">
-                <User size={40} strokeWidth={1.5} />
+      {/* 数字人 9 宫格 */}
+      <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+        <div className="grid grid-cols-3 gap-3">
+          {persons.map(person => (
+            <div
+              key={person.id}
+              onClick={() => onSelectPerson(person)}
+              className={`group relative aspect-[3/4] rounded-xl overflow-hidden cursor-pointer transition-all duration-200 ${
+                selectedPerson?.id === person.id 
+                  ? 'ring-2 ring-blue-500 shadow-lg scale-105' 
+                  : 'shadow-md hover:shadow-lg hover:scale-105'
+              }`}
+            >
+              {person.cover_url ? (
+                <img 
+                  src={person.cover_url} 
+                  alt={person.name} 
+                  className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110" 
+                />
+              ) : (
+                <div className="w-full h-full bg-gradient-to-br from-slate-200 to-slate-300 flex items-center justify-center text-slate-400">
+                  <User size={32} strokeWidth={1.5} />
+                </div>
+              )}
+              {/* 遮罩层 */}
+              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+              {/* 名字标签 */}
+              <div className="absolute bottom-0 left-0 right-0 p-2">
+                <p className="text-white text-xs font-bold truncate drop-shadow-lg">{person.name}</p>
               </div>
-            )}
-            {/* 遮罩层 */}
-            <div className="absolute inset-0 bg-gradient-to-r from-black/60 via-black/20 to-transparent" />
-            {/* 名字标签 */}
-            <div className="absolute inset-y-0 left-0 flex items-center pl-3">
-              <p className="text-white text-sm font-bold truncate drop-shadow-lg pr-2">{person.name}</p>
+              {/* 选中标识 */}
+              {selectedPerson?.id === person.id && (
+                <div className="absolute top-1.5 right-1.5 bg-blue-500 text-white rounded-full w-5 h-5 flex items-center justify-center shadow-lg">
+                  <Check size={12} strokeWidth={3} />
+                </div>
+              )}
             </div>
-            {/* 选中标识 */}
-            {selectedPerson?.id === person.id && (
-              <div className="absolute top-2 right-2 bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center shadow-lg">
-                <Check size={14} strokeWidth={3} />
-              </div>
-            )}
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
       
       {/* 配音选择区 */}
-      <div className="p-5 border-t border-slate-100 bg-slate-50 flex-shrink-0">
+      <div className="p-4 border-t border-slate-100 bg-slate-50 flex-shrink-0">
         <label className="block text-xs font-bold text-slate-600 mb-2 flex items-center gap-1">
           <Mic size={14} strokeWidth={2} />
           <span>配音角色 (可选)</span>
@@ -165,7 +167,7 @@ function SavePathConfig({ selectedProject, setSelectedProject, projects, onGener
           )}
           {selectedProject && (
             <p className="text-[10px] text-slate-500 mt-2">
-              📂 视频将保存到：<code className="bg-slate-100 px-1 rounded">{selectedProject.path}/videos</code>
+              📂 视频将保存到：<code className="bg-slate-100 px-1 rounded">{selectedProject.path}/输出</code>
             </p>
           )}
         </div>
@@ -177,7 +179,7 @@ function SavePathConfig({ selectedProject, setSelectedProject, projects, onGener
             <li>选择数字人和声音</li>
             <li>输入批量文案</li>
             <li>选择要保存到的项目</li>
-            <li>点击生成，视频保存到项目 videos 目录</li>
+            <li>点击生成，视频保存到项目 输出 目录</li>
             <li>前往【批量处理】进行后期合成</li>
           </ol>
         </div>
@@ -199,7 +201,7 @@ function SavePathConfig({ selectedProject, setSelectedProject, projects, onGener
           )}
         </button>
         <p className="text-[10px] text-slate-400 text-center mt-2">
-          视频将保存到所选项目的 videos 目录
+          视频将保存到所选项目的 输出 目录
         </p>
       </div>
     </div>
@@ -394,8 +396,8 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl }) {
       const apiKey = localStorage.getItem('rjcut_api_key')
       const vfs = await getSharedFileSystem()
       
-      // 使用所选项目的 videos 目录作为保存路径
-      const savePath = `${selectedProject.path}/videos`
+      // 使用所选项目的 输出 目录作为保存路径
+      const savePath = `${selectedProject.path}/输出`
       
       // 创建 VFS 保存目录
       await vfs.createDirectory(savePath, true)

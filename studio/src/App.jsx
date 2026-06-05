@@ -9,6 +9,7 @@ import BatchProcessor from './components/BatchProcessor'
 import DigitalHumanStudio from './components/DigitalHumanStudio'
 import DigitalHumanManager from './components/DigitalHumanManager'
 import HelpGuide from './components/HelpGuide'
+import AdvancedVideoEditor from './components/AdvancedVideoEditor'
 
 // =====================================================
 // API 配置
@@ -376,7 +377,7 @@ function App() {
   const [tasks, setTasks] = useState([])
   
   // UI 状态
-  const [activeTab, setActiveTab] = useState('batch') // 'batch' | 'projects' | 'files' | 'tasks' | 'settings' | 'ai'
+  const [activeTab, setActiveTab] = useState('batch') // 'batch' | 'projects' | 'files' | 'tasks' | 'digital-human-studio' | 'digital-human-manager' | 'advanced-editor' | 'settings'
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [successMsg, setSuccessMsg] = useState('')
@@ -566,6 +567,17 @@ function App() {
               <User size={18} strokeWidth={2} />
               <span style={{ marginLeft: '6px' }}>数字人管理</span>
             </button>
+            
+            {/* 高级视频剪辑台入口 */}
+            <button 
+              className={`btn btn-utility ${activeTab === 'advanced-editor' ? 'text-primary' : ''}`}
+              onClick={() => setActiveTab('advanced-editor')}
+              title="高级视频剪辑"
+            >
+              <Scissors size={18} strokeWidth={2} />
+              <span style={{ marginLeft: '6px' }}>高级剪辑</span>
+            </button>
+            
             {/* AI 助手功能已屏蔽
             <button 
               className={`btn btn-utility ${activeTab === 'ai' ? 'text-primary' : ''}`}
@@ -617,6 +629,7 @@ function App() {
           {activeTab === 'tasks' && '任务管理'}
           {activeTab === 'digital-human-studio' && '数字人创作平台'}
           {activeTab === 'digital-human-manager' && '数字人资产管理'}
+          {activeTab === 'advanced-editor' && '高级视频剪辑台'}
           {/* {activeTab === 'ai' && 'AI 智能助手'} */}
           {activeTab === 'settings' && '设置'}
         </span>
@@ -629,7 +642,12 @@ function App() {
       </div>
       
       {/* 主内容区 */}
-      <main style={{ padding: 'var(--spacing-section) var(--spacing-lg)', maxWidth: '1440px', margin: '0 auto', minHeight: 'calc(100vh - 200px)' }}>
+      <main style={{ 
+        padding: activeTab === 'advanced-editor' ? '0' : 'var(--spacing-section) var(--spacing-lg)', 
+        maxWidth: activeTab === 'advanced-editor' ? 'none' : '1440px', 
+        margin: '0 auto', 
+        minHeight: 'calc(100vh - 200px)' 
+      }}>
         {/* 成功提示 */}
         {successMsg && (
           <div className="card mb-lg" style={{
@@ -739,44 +757,12 @@ function App() {
         
         
         
-        {/* 数字人视频创作工作台 - 全新 UI 设计 */}
-        {activeTab === 'digital-human-studio' && (
-          <div style={{
-            position: 'fixed',
-            top: '96px',
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: '#f5f5f7',
-            overflow: 'hidden',
-          }}>
-            <DigitalHumanStudio apiKey={apiKey} apiBaseUrl={apiBaseUrl} />
-          </div>
-        )}
-        
         {/* 数字人资产管理页面 */}
         {activeTab === 'digital-human-manager' && (
           <div className="tile tile-light">
             <DigitalHumanManager apiKey={apiKey} />
           </div>
         )}
-        
-        {/* AI 聊天页面 (已屏蔽)
-        {!vfsLoading && activeTab === 'ai' && vfs && (
-          <div style={{ height: 'calc(100vh - 200px)' }}>
-            <AIChat
-              vfs={vfs}
-              currentProject={currentProject}
-              onProjectSwitch={(project) => {
-                setCurrentProject(project)
-              }}
-              onFileCreated={(filePath) => {
-                console.log('AI 创建的文件:', filePath)
-              }}
-            />
-          </div>
-        )}
-        */}
         
         {/* 设置页面 */}
         {!vfsLoading && activeTab === 'settings' && (
@@ -858,6 +844,40 @@ function App() {
           </div>
         )}
       </main>
+
+      {/* ============================================
+           全屏页面（放在 main 外面，避免样式干扰）
+           ============================================ */}
+      
+      {/* 数字人视频创作工作台 */}
+      {activeTab === 'digital-human-studio' && (
+        <div style={{
+          position: 'fixed',
+          top: '96px',
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: '#f5f5f7',
+          overflow: 'hidden',
+        }}>
+            <DigitalHumanStudio apiKey={apiKey} apiBaseUrl={apiBaseUrl} />
+        </div>
+      )}
+      
+      {/* 高级视频剪辑台 */}
+      {activeTab === 'advanced-editor' && (
+        <div style={{
+          position: 'fixed',
+          top: '96px',
+          left: 0,
+          right: 0,
+          bottom: 0,
+          overflow: 'hidden',
+          backgroundColor: '#0a0a0f',
+        }}>
+          {!vfsLoading && vfs && <AdvancedVideoEditor vfs={vfs} />}
+        </div>
+      )}
       
       {/* 页脚 */}
       <footer style={{

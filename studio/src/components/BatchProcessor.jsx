@@ -250,13 +250,9 @@ function FileSelector({ label, vfs, selectedFile, onSelect, accept, disabled, mu
 // 主组件
 export default function BatchProcessor({ vfs, apiKey }) {
   const [showConfigEditor, setShowConfigEditor] = useState(false)
-  const [projectCustomFiles, setProjectCustomFiles] = useState({
-    videos: [],
-    script: null,
-    corrections: null,
-    bgm: null,
-    scenes: null,
-  })
+  const [digitalHumanVideo, setDigitalHumanVideo] = useState(null)
+  const [sceneConfigs, setSceneConfigs] = useState([]) // [{ scenePath, scriptPath, bgmPath }]
+  const [correctionsFile, setCorrectionsFile] = useState(null)
   const [maxConcurrent, setMaxConcurrent] = useState(3)
   const [localError, setLocalError] = useState('')
 
@@ -278,26 +274,39 @@ export default function BatchProcessor({ vfs, apiKey }) {
   const stats = getTaskStats()
 
   const prepareTasks = useCallback(() => {
-    const { videos, script, corrections, bgm, scenes } = projectCustomFiles
-    if (!videos || videos.length === 0) return []
+    if (!digitalHumanVideo) return []
+    if (!sceneConfigs || sceneConfigs.length === 0) return []
     
-    return videos.map((videoPath, index) => ({
-      id: `video_${index + 1}_${videoPath.split('/').pop()}`,
-      vfsVideoPath: videoPath,
-      vfsScriptPath: script,
-      vfsCorrectionsPath: corrections,
-      vfsBgmPath: bgm,
-      vfsScenesPath: scenes,
+    // 一个数字人视频 + 多个场景（每个场景有自己的脚本和 BGM）= 多个任务
+    return sceneConfigs.map((config, index) => ({
+      id: `scene_${index + 1}_${config.scenePath?.split('/').pop() || 'unknown'}`,
+      vfsVideoPath: digitalHumanVideo,
+      vfsScriptPath: config.scriptPath,
+      vfsCorrectionsPath: correctionsFile,
+      vfsBgmPath: config.bgmPath,
+      vfsScenesPath: config.scenePath,
       stage: 'idle',
       progress: 0,
     }))
-  }, [projectCustomFiles])
+  }, [digitalHumanVideo, sceneConfigs, correctionsFile])
 
   const handleStartBatch = async () => {
     setLocalError('')
     
-    if (!projectCustomFiles.videos || projectCustomFiles.videos.length === 0) {
-      setLocalError('请至少选择一个视频文件')
+    if (!digitalHumanVideo) {
+      setLocalError('请选择一个数字人视频文件')
+      return
+    }
+
+    if (!sceneConfigs || sceneConfigs.length === 0) {
+      setLocalError('请至少添加一个场景配置')
+      return
+    }
+
+    // 检查每个场景配置是否都有场景路径
+    const incompleteConfigs = sceneConfigs.filter(c => !c.scenePath)
+    if (incompleteConfigs.length > 0) {
+      setLocalError('请为所有场景配置选择场景文件夹')
       return
     }
 
@@ -362,7 +371,9 @@ export default function BatchProcessor({ vfs, apiKey }) {
                 className="px-6 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-lg transition-colors"
                 onClick={() => {
                   reset()
-                  setProjectCustomFiles({ videos: [], script: null, corrections: null, bgm: null, scenes: null })
+                  setDigitalHumanVideo(null)
+                  setSceneConfigs([])
+                  setCorrectionsFile(null)
                 }}
               >
                 重置
@@ -370,7 +381,7 @@ export default function BatchProcessor({ vfs, apiKey }) {
             )}
           </div>
         </div>
-      ) : (
+) : (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* 左侧上传区 */}
           <div className="col-span-2 space-y-6">
@@ -378,46 +389,100 @@ export default function BatchProcessor({ vfs, apiKey }) {
               <h3 className="text-base font-bold text-slate-800 mb-4">上传处理源文件</h3>
               
               <FileSelector
-                label="视频文件（支持多选）*"
+                label="数字人视频（单选）*"
                 vfs={vfs}
-                selectedFile={projectCustomFiles.videos}
-                onSelect={(paths) => setProjectCustomFiles({ ...projectCustomFiles, videos: paths })}
-                multiple={true}
+                selectedFile={digitalHumanVideo}
+                onSelect={(path) => setDigitalHumanVideo(path)}
+                multiple={false}
               />
 
-              <div className="grid grid-cols-2 gap-4 mt-4">
-                <FileSelector
-                  label="脚本文件 (可选)"
-                  vfs={vfs}
-                  selectedFile={projectCustomFiles.script}
-                  onSelect={(path) => setProjectCustomFiles({ ...projectCustomFiles, script: path })}
-                  accept=".json"
-                />
-
-                <FileSelector
-                  label="修正文件 (可选)"
-                  vfs={vfs}
-                  selectedFile={projectCustomFiles.corrections}
-                  onSelect={(path) => setProjectCustomFiles({ ...projectCustomFiles, corrections: path })}
-                  accept=".json"
-                />
+              <div className="mt-6">
+                <div className="flex justify-between items-center mb-3">
+                  <h4 className="text-sm font-bold text-slate-700">场景配置列表</h4>
+                  <button
+                    className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors"
+                    onClick={() => setSceneConfigs([...sceneConfigs, { scenePath: null, scriptPath: null, bgmPath: null }])}
+                  >
+                    + 添加场景
+                  </button>
+                </div>
+                
+                {sceneConfigs.length === 0 ? (
+                  <div className="text-center py-8 text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">
+                    暂无场景配置，请点击"添加场景"按钮
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {sceneConfigs.map((config, index) => (
+                      <div key={index} className="p-4 bg-slate-50 rounded-xl border border-slate-200">
+                        <div className="flex justify-between items-center mb-3">
+                          <span className="text-sm font-bold text-slate-700">场景 {index + 1}</span>
+                          <button
+                            className="p-1 text-slate-400 hover:text-red-500 transition-colors"
+                            onClick={() => {
+                              const newConfigs = sceneConfigs.filter((_, i) => i !== index)
+                              setSceneConfigs(newConfigs)
+                            }}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                        
+                        <div className="space-y-3">
+                          <FileSelector
+                            label="场景文件夹 *"
+                            vfs={vfs}
+                            selectedFile={config.scenePath}
+                            onSelect={(path) => {
+                              const newConfigs = [...sceneConfigs]
+                              newConfigs[index] = { ...config, scenePath: path }
+                              setSceneConfigs(newConfigs)
+                            }}
+                            multiple={false}
+                          />
+                          
+                          <div className="grid grid-cols-2 gap-3">
+                            <FileSelector
+                              label="脚本文件 (可选)"
+                              vfs={vfs}
+                              selectedFile={config.scriptPath}
+                              onSelect={(path) => {
+                                const newConfigs = [...sceneConfigs]
+                                newConfigs[index] = { ...config, scriptPath: path }
+                                setSceneConfigs(newConfigs)
+                              }}
+                              accept=".json"
+                              multiple={false}
+                            />
+                            
+                            <FileSelector
+                              label="背景音乐 (可选)"
+                              vfs={vfs}
+                              selectedFile={config.bgmPath}
+                              onSelect={(path) => {
+                                const newConfigs = [...sceneConfigs]
+                                newConfigs[index] = { ...config, bgmPath: path }
+                                setSceneConfigs(newConfigs)
+                              }}
+                              accept="audio/*"
+                              multiple={false}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
-              <div className="grid grid-cols-2 gap-4 mt-4">
+              <div className="mt-6">
                 <FileSelector
-                  label="背景音乐 (可选)"
+                  label="全局修正文件 (可选)"
                   vfs={vfs}
-                  selectedFile={projectCustomFiles.bgm}
-                  onSelect={(path) => setProjectCustomFiles({ ...projectCustomFiles, bgm: path })}
-                  accept="audio/*"
-                />
-
-                <FileSelector
-                  label="场景目录 (可选)"
-                  vfs={vfs}
-                  selectedFile={projectCustomFiles.scenes}
-                  onSelect={(path) => setProjectCustomFiles({ ...projectCustomFiles, scenes: path })}
-                  accept="directory"
+                  selectedFile={correctionsFile}
+                  onSelect={(path) => setCorrectionsFile(path)}
+                  accept=".json"
+                  multiple={false}
                 />
               </div>
             </div>

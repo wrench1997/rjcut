@@ -93,40 +93,65 @@ def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merch
                     api.logger.info(f"获取到数字人原生声音 ID: {audio_man_id}")
                 else:
                     # 如果定制数字人没有 audio_man_id，返回错误，提示用户选择公共数字人
-                    raise Exception(f"数字人 {digital_person_id} 未关联声音 ID，无法生成视频。请使用公共数字人或为该数字人配置声音后再试。")
-            else:
-                raise Exception(f"获取数字人 {digital_person_id} 详情失败：{person_detail_resp.get('msg', 'unknown error')}")
+                    api.logger.warning(f"数字人 {digital_person_id} 未关联声音 ID，将使用默认 TTS 配置")
+                    # 不抛出异常，允许继续执行（蝉镜 API 会处理）
         
-        if not audio_man_id:
-            raise Exception("缺少 audio_man_id：请提供 audio_man_id 或确保数字人已关联声音 ID")
-
         # 🎭 获取 figure_type：优先使用 payload 中传递的值（前端已根据数字人类型正确设置）
-        # 如果 payload 中未提供，则尝试获取默认值
         figure_type = payload.get("figure_type")
-        
         if not figure_type:
-            # 前端未传递 figure_type 时，记录警告并使用一个保守的默认值
-            # 注意：公共数字人的 figure_type 应该由前端根据用户选择的 figure 来确定
-            figure_type = "sit_body"  # 修改默认值为 sit_body，这是公共数字人常见的形象类型
-            api.logger.warning(f"payload 中未提供 figure_type，使用默认值：{figure_type}。建议前端传递正确的 figure_type。")
+            figure_type = "whole_body"
+            api.logger.warning(f"payload 中未提供 figure_type，使用默认值：{figure_type}")
 
+        # 🎬 构建完整的视频参数（支持蝉镜 API 所有参数）
         video_params = {
             "digital_person_id": digital_person_id,
             "text": payload.get("text"),
-            "audio_man_id": audio_man_id,
+            "audio_man_id": audio_man_id,  # 可为 None，表示使用数字人原生声音
+            
+            # 数字人形象设置
             "figure_type": figure_type,
-            "drive_mode": payload.get("drive_mode"),
-            "person_x": 0,
-            "person_y": 0,
-            "person_width": 1080,
-            "person_height": 1920,
-            "hide_subtitle": payload.get("hide_subtitle", True)  # 默认不添加字幕
+            "drive_mode": payload.get("drive_mode", "random"),
+            "person_x": payload.get("person_x", 0),
+            "person_y": payload.get("person_y", 0),
+            "person_width": payload.get("person_width", 1080),
+            "person_height": payload.get("person_height", 1920),
+            "backway": payload.get("backway", 1),
+            "is_rgba_mode": payload.get("is_rgba_mode", False),
+            
+            # 音频设置
+            "speed": payload.get("speed", 1.0),
+            "pitch": payload.get("pitch", 1.0),
+            "volume": payload.get("volume", 100),
+            "language": payload.get("language", "cn"),
+            "language_boost": payload.get("language_boost"),
+            
+            # 背景设置
+            "bg_color": payload.get("bg_color", "#EDEDED"),
+            
+            # 画质设置
+            "resolution_rate": payload.get("resolution_rate", 0),
+            "model": payload.get("model", 1),
+            "screen_width": payload.get("screen_width", 1080),
+            "screen_height": payload.get("screen_height", 1920),
+            
+            # 字幕设置
+            "hide_subtitle": payload.get("hide_subtitle", True),
+            "subtitle_config": payload.get("subtitle_config"),
+            
+            # 水印设置
+            "add_compliance_watermark": payload.get("add_compliance_watermark", True),
+            "compliance_watermark_position": payload.get("compliance_watermark_position", 0),
+            
+            # 回调
+            "callback": payload.get("callback_url"),
         }
+        
+        # 背景：如果有上传的背景文件，使用 bg 参数覆盖 bg_color
         if bg_params:
             video_params["bg"] = bg_params
-        else:
-            video_params["bg_color"] = payload.get("bg_color")
-
+        
+        api.logger.info(f"调用蝉镜 create_video，参数：{json.dumps(video_params, ensure_ascii=False, default=str)}")
+        
         video_response = api.create_video(**video_params)
         if not ChanjingStatusCode.is_success(video_response.get('code')):
             error_msg = ChanjingStatusCode.get_msg(video_response.get('code'))

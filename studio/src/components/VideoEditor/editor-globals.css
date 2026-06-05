@@ -1,0 +1,383 @@
+/**
+ * 视频编辑器专用样式
+ * 使用 .video-editor-theme 作用域隔离，避免影响 rjcut 其他部分
+ */
+
+.video-editor-theme {
+  /* 暗色工业风主题变量 */
+  --ve-bg-primary: #0a0a0f;
+  --ve-bg-secondary: #13131f;
+  --ve-bg-tertiary: #1a1a2e;
+  --ve-surface: #1e1e2e;
+  --ve-border: #2a2a3e;
+  
+  --ve-text-primary: #f1f5f9;
+  --ve-text-secondary: #94a3b8;
+  --ve-text-muted: #64748b;
+  
+  --ve-accent-blue: #3b82f6;
+  --ve-accent-green: #22c55e;
+  --ve-accent-red: #ef4444;
+  --ve-accent-purple: #a855f7;
+  
+  /* 重置继承的 rjcut 样式 */
+  color: var(--ve-text-primary);
+  background-color: var(--ve-bg-primary);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  
+  /* 禁止文本选择（拖拽时更流畅） */
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  user-select: none;
+}
+
+/* 允许在输入框中选择文本 */
+.video-editor-theme input,
+.video-editor-theme textarea,
+.video-editor-theme select {
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  user-select: text;
+}
+
+/* 滚动条样式 */
+.video-editor-theme ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.video-editor-theme ::-webkit-scrollbar-track {
+  background: var(--ve-bg-secondary);
+}
+
+.video-editor-theme ::-webkit-scrollbar-thumb {
+  background: var(--ve-border);
+  border-radius: 4px;
+}
+
+.video-editor-theme ::-webkit-scrollbar-thumb:hover {
+  background: var(--ve-text-muted);
+}
+
+/* 动画 */
+.video-editor-theme .spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* 按钮基础样式 */
+.video-editor-theme button {
+  cursor: pointer;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: inherit;
+}
+
+.video-editor-theme button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 输入框样式 */
+.video-editor-theme input[type="text"],
+.video-editor-theme input[type="number"],
+.video-editor-theme select,
+.video-editor-theme textarea {
+  background-color: var(--ve-surface);
+  border: 1px solid var(--ve-border);
+  color: var(--ve-text-primary);
+  padding: 0.375rem 0.5rem;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  transition: border-color 0.15s ease;
+}
+
+.video-editor-theme input:focus,
+.video-editor-theme select:focus,
+.video-editor-theme textarea:focus {
+  outline: none;
+  border-color: var(--ve-accent-blue);
+}
+
+/* 工具提示 */
+.video-editor-theme [title] {
+  position: relative;
+}
+
+/* 响应式调整 */
+@media (max-width: 1024px) {
+  .video-editor-theme aside {
+    width: 240px !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .video-editor-theme aside {
+    width: 200px !important;
+  }
+  
+  .video-editor-theme .hide-on-mobile {
+    display: none !important;
+  }
+}
+
+/* 拖拽时的样式 */
+.video-editor-theme .dragging {
+  opacity: 0.8;
+  cursor: grabbing;
+}
+
+/* 时间轴片段颜色 */
+.video-editor-theme .clip-video {
+  background-color: rgba(59, 130, 246, 0.7);
+}
+
+.video-editor-theme .clip-audio {
+  background-color: rgba(34, 197, 94, 0.7);
+}
+
+.video-editor-theme .clip-image {
+  background-color: rgba(168, 85, 247, 0.7);
+}
+
+.video-editor-theme .clip-text {
+  background-color: rgba(236, 72, 153, 0.7);
+}
+
+/* 加载动画 */
+.video-editor-theme .loading-spinner {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--ve-border);
+  border-top-color: var(--ve-accent-blue);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+/* 徽章样式 */
+.video-editor-theme .badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.125rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border-radius: 9999px;
+}
+
+.video-editor-theme .badge-ready {
+  background-color: rgba(34, 197, 94, 0.2);
+  color: var(--ve-accent-green);
+}
+
+.video-editor-theme .badge-loading {
+  background-color: rgba(245, 158, 11, 0.2);
+  color: #f59e0b;
+}
+
+.video-editor-theme .badge-error {
+  background-color: rgba(239, 68, 68, 0.2);
+  color: var(--ve-accent-red);
+}
+
+/* 卡片样式 */
+.video-editor-theme .card {
+  background-color: var(--ve-bg-secondary);
+  border: 1px solid var(--ve-border);
+  border-radius: 0.5rem;
+  padding: 1rem;
+}
+
+/* 分隔线 */
+.video-editor-theme .divider {
+  height: 1px;
+  background-color: var(--ve-border);
+  margin: 0.5rem 0;
+}
+
+/* 网格布局辅助 */
+.video-editor-theme .grid {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.video-editor-theme .grid-cols-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.video-editor-theme .grid-cols-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+/* Flex 辅助 */
+.video-editor-theme .flex {
+  display: flex;
+}
+
+.video-editor-theme .flex-col {
+  flex-direction: column;
+}
+
+.video-editor-theme .flex-1 {
+  flex: 1;
+}
+
+.video-editor-theme .items-center {
+  align-items: center;
+}
+
+.video-editor-theme .justify-center {
+  justify-content: center;
+}
+
+.video-editor-theme .justify-between {
+  justify-content: space-between;
+}
+
+.video-editor-theme .gap-1 {
+  gap: 0.25rem;
+}
+
+.video-editor-theme .gap-2 {
+  gap: 0.5rem;
+}
+
+.video-editor-theme .gap-3 {
+  gap: 0.75rem;
+}
+
+.video-editor-theme .gap-4 {
+  gap: 1rem;
+}
+
+/* 文本截断 */
+.video-editor-theme .truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*  aspect ratio */
+.video-editor-theme .aspect-video {
+  aspect-ratio: 16 / 9;
+}
+
+/* 相对定位 */
+.video-editor-theme .relative {
+  position: relative;
+}
+
+.video-editor-theme .absolute {
+  position: absolute;
+}
+
+.video-editor-theme .sticky {
+  position: sticky;
+}
+
+/* 溢出处理 */
+.video-editor-theme .overflow-hidden {
+  overflow: hidden;
+}
+
+.video-editor-theme .overflow-auto {
+  overflow: auto;
+}
+
+.video-editor-theme .overflow-y-auto {
+  overflow-y: auto;
+}
+
+.video-editor-theme .overflow-x-auto {
+  overflow-x: auto;
+}
+
+/* 边距辅助 */
+.video-editor-theme .p-1 { padding: 0.25rem; }
+.video-editor-theme .p-2 { padding: 0.5rem; }
+.video-editor-theme .p-3 { padding: 0.75rem; }
+.video-editor-theme .p-4 { padding: 1rem; }
+.video-editor-theme .px-2 { padding-left: 0.5rem; padding-right: 0.5rem; }
+.video-editor-theme .px-3 { padding-left: 0.75rem; padding-right: 0.75rem; }
+.video-editor-theme .px-4 { padding-left: 1rem; padding-right: 1rem; }
+.video-editor-theme .py-1 { padding-top: 0.25rem; padding-bottom: 0.25rem; }
+.video-editor-theme .py-2 { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+.video-editor-theme .py-3 { padding-top: 0.75rem; padding-bottom: 0.75rem; }
+
+/* 圆角 */
+.video-editor-theme .rounded { border-radius: 0.25rem; }
+.video-editor-theme .rounded-lg { border-radius: 0.5rem; }
+.video-editor-theme .rounded-full { border-radius: 9999px; }
+
+/* 字体大小 */
+.video-editor-theme .text-xs { font-size: 0.75rem; }
+.video-editor-theme .text-sm { font-size: 0.875rem; }
+.video-editor-theme .text-base { font-size: 1rem; }
+.video-editor-theme .text-lg { font-size: 1.125rem; }
+
+/* 字体粗细 */
+.video-editor-theme .font-normal { font-weight: 400; }
+.video-editor-theme .font-medium { font-weight: 500; }
+.video-editor-theme .font-semibold { font-weight: 600; }
+.video-editor-theme .font-bold { font-weight: 700; }
+
+/* 透明度 */
+.video-editor-theme .opacity-0 { opacity: 0; }
+.video-editor-theme .opacity-50 { opacity: 0.5; }
+.video-editor-theme .opacity-100 { opacity: 1; }
+
+/* 过渡 */
+.video-editor-theme .transition {
+  transition: all 0.15s ease;
+}
+
+.video-editor-theme .transition-opacity {
+  transition: opacity 0.15s ease;
+}
+
+/* 光标 */
+.video-editor-theme .cursor-pointer { cursor: pointer; }
+.video-editor-theme .cursor-not-allowed { cursor: not-allowed; }
+.video-editor-theme .cursor-move { cursor: move; }
+.video-editor-theme .cursor-grab { cursor: grab; }
+.video-editor-theme .cursor-grabbing { cursor: grabbing; }
+
+/* z-index */
+.video-editor-theme .z-10 { z-index: 10; }
+.video-editor-theme .z-20 { z-index: 20; }
+.video-editor-theme .z-50 { z-index: 50; }
+
+/* 显示 */
+.video-editor-theme .hidden { display: none; }
+.video-editor-theme .block { display: block; }
+.video-editor-theme .inline-block { display: inline-block; }
+.video-editor-theme .inline-flex { display: inline-flex; }
+
+/* 高度 */
+.video-editor-theme .h-full { height: 100%; }
+.video-editor-theme .h-10 { height: 2.5rem; }
+.video-editor-theme .h-12 { height: 3rem; }
+
+/* 宽度 */
+.video-editor-theme .w-full { width: 100%; }
+.video-editor-theme .w-24 { width: 24rem; }
+
+/* 最大高度 */
+.video-editor-theme .max-h-full { max-height: 100%; }
+
+/* 边框 */
+.video-editor-theme .border { border-width: 1px; }
+.video-editor-theme .border-t { border-top-width: 1px; }
+.video-editor-theme .border-b { border-bottom-width: 1px; }
+.video-editor-theme .border-l { border-left-width: 1px; }
+.video-editor-theme .border-r { border-right-width: 1px; }
+
+/* 对齐 */
+.video-editor-theme .text-center { text-align: center; }
+.video-editor-theme .text-left { text-align: left; }
+.video-editor-theme .text-right { text-align: right; }

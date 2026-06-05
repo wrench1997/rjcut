@@ -331,7 +331,7 @@ class ChanjingAPI:
         self,
         digital_person_id: str,
         text: Union[str, List[str]],
-        audio_man_id: str,
+        audio_man_id: Optional[str] = None,
         speed: float = 1.0,
         pitch: float = 1.0,
         volume: int = 100,
@@ -348,57 +348,129 @@ class ChanjingAPI:
         model: int = 1,
         resolution_rate: int = 0,
         hide_subtitle: bool = True,  # 默认不添加字幕
+        # 🆕 新增参数支持
+        backway: int = 1,  # 正反播：1 正放，2 倒放
+        is_rgba_mode: bool = False,  # 是否四通道视频
+        language: str = "cn",
+        language_boost: Optional[str] = None,
+        subtitle_config: Optional[Dict[str, Any]] = None,
+        add_compliance_watermark: bool = True,
+        compliance_watermark_position: int = 0,
+        callback: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """创建数字人视频
+        """创建数字人视频 - 支持蝉镜 API 完整参数
 
         默认按竖屏 9:16 输出：
         - screen_width: 1080
         - screen_height: 1920
 
-        person_* 用于控制数字人在画布中的位置和尺寸。
+        Args:
+            digital_person_id: 数字人 ID
+            text: 播报文本（字符串或字符串列表）
+            audio_man_id: 声音 ID（可选，为空则使用数字人原生声音）
+            speed: 语速 (0.5-2.0)
+            pitch: 语调 (0.5-2.0)
+            volume: 音量 (0-100)
+            screen_width: 画布宽度
+            screen_height: 画布高度
+            bg_color: 背景颜色
+            figure_type: 形象类型（whole_body, head_shot, waist_shot 等）
+            drive_mode: 驱动模式（normal, random）
+            bg: 背景设置（支持 file_id, src_url, width, height, x, y）
+            person_x: 数字人 X 位置
+            person_y: 数字人 Y 位置
+            person_width: 数字人宽度
+            person_height: 数字人高度
+            model: 模型版本（0 基础版，1 高质版）
+            resolution_rate: 分辨率（0=1080p, 1=4k）
+            hide_subtitle: 是否隐藏字幕
+            backway: 正反播（1 正放，2 倒放）
+            is_rgba_mode: 是否四通道视频（需要定制数字人支持）
+            language: 语言（cn, en, ja, ko 等）
+            language_boost: 语言增强
+            subtitle_config: 高级字幕配置
+            add_compliance_watermark: 是否添加合规水印
+            compliance_watermark_position: 水印位置
+            callback: 回调 URL
         """
         endpoint = "/create_video"
 
         if isinstance(text, str):
             text = [text]
 
+        # 构建 person 对象
+        person_data = {
+            "id": digital_person_id,
+            "x": person_x,
+            "y": person_y,
+            "width": person_width,
+            "height": person_height,
+            "figure_type": figure_type,
+            "drive_mode": drive_mode,
+            "backway": backway,
+            "is_rgba_mode": is_rgba_mode,
+        }
+
+        # 构建 audio 对象
+        audio_data = {
+            "type": "tts",
+            "volume": volume,
+            "language": language,
+        }
+        
+        # 如果有 audio_man_id，添加 tts 配置
+        if audio_man_id:
+            audio_data["tts"] = {
+                "audio_man": audio_man_id,
+                "text": text,
+                "speed": speed,
+                "pitch": pitch
+            }
+        else:
+            # 没有 audio_man_id 时，使用数字人原生声音
+            # 此时 text 需要通过其他方式传递，或者使用默认的 audio
+            audio_data["tts"] = {
+                "text": text,
+                "speed": speed,
+                "pitch": pitch
+            }
+        
+        if language_boost:
+            audio_data["language_boost"] = language_boost
+
+        # 构建请求体
         data = {
-            "person": {
-                "id": digital_person_id,
-                "x": person_x,
-                "y": person_y,
-                "width": person_width,
-                "height": person_height,
-                "figure_type": figure_type,
-                "drive_mode": drive_mode
-            },
-            "audio": {
-                "type": "tts",
-                "tts": {
-                    "audio_man": audio_man_id,
-                    "text": text,
-                    "speed": speed,
-                    "pitch": pitch
-                },
-                "volume": volume,
-                "language": "cn"
-            },
+            "person": person_data,
+            "audio": audio_data,
             "screen_width": screen_width,
             "screen_height": screen_height,
             "model": model,
             "resolution_rate": resolution_rate,
-            "hide_subtitle": hide_subtitle  # 控制是否添加字幕
+            "hide_subtitle": hide_subtitle,
+            "add_compliance_watermark": add_compliance_watermark,
         }
 
-        # 背景：优先图片，否则用纯色
+        # 背景设置：优先使用 bg 对象，否则使用 bg_color
         if bg and (bg.get("src_url") or bg.get("file_id")):
             data["bg"] = bg
         else:
             data["bg_color"] = bg_color
 
+        # 字幕配置（高级选项）
+        if subtitle_config:
+            data["subtitle_config"] = subtitle_config
+
+        # 合规水印位置
+        if compliance_watermark_position:
+            data["compliance_watermark_position"] = compliance_watermark_position
+
+        # 回调 URL
+        if callback:
+            data["callback"] = callback
+
         self.logger.info("正在创建数字人视频...")
         if self.debug:
-            self.logger.debug(f"create_video request body: {json.dumps(data, ensure_ascii=False)}")
+            self.logger.debug(f"create_video request body: {json.dumps(data, ensure_ascii=False, indent=2)}")
 
         return self._request("POST", endpoint, data=data)
 

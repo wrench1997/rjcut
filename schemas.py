@@ -200,17 +200,62 @@ class CreateApiKeyRequest(BaseModel):
 
 # schemas.py - DhGenerateVideoRequest 类
 class DhGenerateVideoRequest(BaseModel):
+    """数字人视频生成请求 - 支持蝉镜 API 完整参数"""
     text: str
     person_id: Optional[str] = None
-    audio_man_id: Optional[str] = None  # 🆕 改为可选，为空时自动使用数字人原生声音
-    figure_type: str = "whole_body"
-    drive_mode: str = "random"
-    bg_type: str = "color"
-    bg_color: str = "#EDEDED"
-    bg_file_oss_key: Optional[str] = None
-    client_ref_id: Optional[str] = None
-    timeout_seconds: Optional[int] = 3600
-    hide_subtitle: bool = True
+    audio_man_id: Optional[str] = None  # 为空时自动使用数字人原生声音
+    
+    # 🎭 数字人形象设置
+    figure_type: str = "whole_body"  # 形象类型：whole_body, head_shot, waist_shot 等
+    drive_mode: str = "random"  # 驱动模式：normal, random
+    person_x: Optional[int] = 0  # 数字人 X 位置
+    person_y: Optional[int] = 0  # 数字人 Y 位置
+    person_width: Optional[int] = 1080  # 数字人宽度
+    person_height: Optional[int] = 1920  # 数字人高度
+    backway: Optional[int] = 1  # 正反播：1 正放，2 倒放
+    is_rgba_mode: Optional[bool] = False  # 是否四通道视频（需要定制数字人支持）
+    
+    # 🎵 音频设置
+    speed: Optional[float] = 1.0  # 语速 (0.5-2.0)
+    pitch: Optional[float] = 1.0  # 语调 (0.5-2.0)
+    volume: Optional[int] = 100  # 音量 (0-100)
+    language: Optional[str] = "cn"  # 语言：cn, en, ja, ko 等
+    language_boost: Optional[str] = None  # 语言增强
+    
+    # 🎨 背景设置
+    bg_type: str = "color"  # background: color, image, video
+    bg_color: str = "#EDEDED"  # 背景颜色
+    bg_file_oss_key: Optional[str] = None  # 背景文件（图片或视频）
+    bg_file_id: Optional[str] = None  # 蝉镜文件 ID
+    
+    # 📺 画质设置
+    resolution_rate: int = 0  # 分辨率：0=1080p, 1=4k
+    model: int = 1  # 模型：0 基础版，1 高质版
+    screen_width: Optional[int] = 1080  # 画布宽度
+    screen_height: Optional[int] = 1920  # 画布高度
+    
+    # 📝 字幕设置
+    hide_subtitle: bool = True  # 是否隐藏字幕
+    subtitle_config: Optional[Dict[str, Any]] = None  # 高级字幕配置
+    # subtitle_config 支持：
+    # - show: bool 是否显示字幕
+    # - color: str 字幕颜色
+    # - font_size: int 字体大小
+    # - font_id: str 字体 ID
+    # - x, y: int 字幕位置
+    # - stroke_color: str 描边颜色
+    # - stroke_width: float 描边宽度
+    # - asr_type: int 0 自动生成，1 用户上传
+    # - subtitles: list 用户上传的 ASR 结果
+    
+    # 💧 水印设置
+    add_compliance_watermark: Optional[bool] = True  # 是否添加合规水印
+    compliance_watermark_position: Optional[int] = 0  # 水印位置
+    
+    # 🔗 回调与引用
+    callback_url: Optional[str] = None  # 回调 URL
+    client_ref_id: Optional[str] = None  # 客户端引用 ID
+    timeout_seconds: Optional[int] = 3600  # 超时时间（秒）
 
 class DhCreateCustomPersonRequest(BaseModel):
     name: str

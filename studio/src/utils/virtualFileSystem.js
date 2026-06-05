@@ -229,15 +229,16 @@ export class VirtualFileSystem {
   // 创建默认目录结构
   async createDefaultStructure() {
     const defaultDirs = [
-      '/raw',
-      '/drafts',
-      '/configs',
-      '/scripts',
-      '/templates',
-      '/outputs',
-      '/audio',
-      '/subtitles',
-      '/transcriptions',
+      '/projects',      // 视频项目目录
+      '/素材',          // 原始素材
+      '/草稿',          // 草稿文件
+      '/配置',          // 配置文件
+      '/脚本',          // 脚本文件
+      '/模板',          // 模板文件
+      '/输出',          // 输出文件
+      '/音频',          // 音频文件
+      '/字幕',          // 字幕文件
+      '/转录',          // 转录文件
     ]
     
     for (const dir of defaultDirs) {
@@ -245,7 +246,7 @@ export class VirtualFileSystem {
     }
     
     // 创建默认配置文件
-    await this.writeJSON('/configs/default.json', {
+    await this.writeJSON('/配置/default.json', {
       pipeline: {
         remove_keyword: '转场',
         margin: 0.15,
@@ -271,7 +272,7 @@ export class VirtualFileSystem {
     })
     
     // 创建示例脚本模板 - 口播视频
-    await this.writeJSON('/templates/speaking_video.json', {
+    await this.writeJSON('/模板/speaking_video.json', {
       description: '口播视频模板 - 适用于单人讲解、产品介绍等场景',
       config: {
         pipeline: {
@@ -296,7 +297,7 @@ export class VirtualFileSystem {
     })
     
     // 创建示例脚本模板 - 纪录片风格
-    await this.writeJSON('/templates/documentary.json', {
+    await this.writeJSON('/模板/documentary.json', {
       description: '纪录片风格模板 - 适用于故事叙述、品牌宣传等场景',
       config: {
         pipeline: {
@@ -325,7 +326,7 @@ export class VirtualFileSystem {
     })
     
     // 创建示例脚本模板 - 快节奏短视频
-    await this.writeJSON('/templates/short_video.json', {
+    await this.writeJSON('/模板/short_video.json', {
       description: '快节奏短视频模板 - 适用于抖音、快手等短视频平台',
       config: {
         pipeline: {
@@ -1220,18 +1221,14 @@ export class VirtualFileSystem {
 
   // 创建视频项目
   async createVideoProject(projectName, config = {}) {
-    // 项目根目录在 /raw/项目名
-    const projectPath = `/raw/${projectName}`
+    // 项目根目录在 /projects/项目名
+    const projectPath = `/projects/${projectName}`
     
-    // 创建项目目录结构（按照新结构：所有目录在同一层级）
+    // 创建简化的项目目录结构（使用中文命名）
     await this.mkdir(projectPath, true)
-    await this.mkdir(`${projectPath}/scenes`, true)       // 场景管理
-    await this.mkdir(`${projectPath}/audio`, true)        // 音频文件
-    await this.mkdir(`${projectPath}/edited`, true)       // 编辑视频
-    await this.mkdir(`${projectPath}/subtitles`, true)    // 字幕文件
-    await this.mkdir(`${projectPath}/output`, true)       // 输出文件
-    await this.mkdir(`${projectPath}/uploads`, true)      // 上传文件目录（可选）
-    await this.mkdir(`${projectPath}/videos`, true)       // 数字人视频等导入视频
+    await this.mkdir(`${projectPath}/原始视频`, true)     // 原始视频素材
+    await this.mkdir(`${projectPath}/剪辑视频`, true)     // 剪辑后的视频
+    await this.mkdir(`${projectPath}/输出`, true)         // 最终输出文件
     
     // 创建项目配置文件
     await this.writeJSON(`${projectPath}/project.json`, {
@@ -1244,15 +1241,6 @@ export class VirtualFileSystem {
           margin: 0.15,
           min_segment_duration: 0.1,
         },
-        asr: {
-          model: 'large-v3',
-          device: 'cuda',
-          language: 'zh',
-        },
-        subtitle: {
-          effect: 'ad',
-          font_size: 88,
-        },
         audio: {
           bgm_volume: 0.3,
           original_volume: 1.0,
@@ -1260,7 +1248,6 @@ export class VirtualFileSystem {
         ...config,
       },
       scenes: [],
-      timeline: [],
     })
     
     return projectPath
@@ -1269,10 +1256,10 @@ export class VirtualFileSystem {
   // 获取视频项目列表
   async getVideoProjects() {
     const projects = []
-    const rawDir = this.getDirectory('/raw')
+    const projectsDir = this.getDirectory('/projects')
     
-    if (rawDir) {
-      for (const childPath of rawDir.children) {
+    if (projectsDir) {
+      for (const childPath of projectsDir.children) {
         if (this.directories.has(childPath)) {
           const projectConfig = await this.getFile(`${childPath}/project.json`)
           if (projectConfig) {
