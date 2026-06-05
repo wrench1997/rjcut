@@ -272,6 +272,8 @@ def sync_custom_persons(
     db: Session = Depends(get_db)
 ):
     """从蝉镜平台同步所有自定义数字人信息到本地数据库"""
+    import logging
+    logger = logging.getLogger("uvicorn.error")
     api = get_chanjing_api()
     
     # 从蝉镜 API 获取所有自定义数字人

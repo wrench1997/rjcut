@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { getCommonPersons, getCustomPersons, getVoices, createDhGenerateTask, getDhTaskDetail, getDhVideoUrl } from '../api/api'
 import { getSharedFileSystem } from '../utils/virtualFileSystem'
-import { User, Mic, Check, X, Film, Download, AlertCircle, Loader2, Book, Inbox, Folder, AlertTriangle, Rocket, Settings, Sliders, Volume2, Type, Image } from 'lucide-react'
+import { User, Mic, Check, X, Film, Download, AlertCircle, Loader2, Book, Inbox, Folder, AlertTriangle, Rocket, Settings, Sliders, Volume2, Type, Image, ChevronDown, ChevronUp, Palette, Maximize } from 'lucide-react'
 
 // =====================================================
 // 左侧：资产选择 (数字人与声音) - 9 宫格布局
@@ -74,6 +74,256 @@ function AvatarPicker({ persons, voices, selectedPerson, onSelectPerson, selecte
     </div>
   )
 }
+// =====================================================
+// 高级设置面板（折叠式）
+// =====================================================
+function AdvancedSettings({ settings, setSettings, isOpen, onToggle }) {
+  const handleChange = (key, value) => {
+    setSettings(prev => ({ ...prev, [key]: value }))
+  }
+
+  return (
+    <div className="border-b border-slate-200 bg-slate-50">
+      {/* 折叠标题 */}
+      <button
+        onClick={onToggle}
+        className="w-full px-4 py-3 flex items-center justify-between hover:bg-slate-100 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <Settings size={16} className="text-slate-500" />
+          <span className="text-sm font-bold text-slate-700">高级设置</span>
+          <span className="text-xs text-slate-400">（语速/语调/背景/字幕）</span>
+        </div>
+        {isOpen ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
+      </button>
+
+      {/* 展开内容 */}
+      {isOpen && (
+        <div className="p-4 pt-0 space-y-4">
+          {/* 第一行：语速和语调 */}
+          <div className="grid grid-cols-2 gap-4">
+            {/* 语速 */}
+            <div className="bg-white p-3 rounded-lg border border-slate-200">
+              <label className="block text-xs font-bold text-slate-600 mb-2 flex items-center gap-1">
+                <Sliders size={12} /> 语速：{settings.speed.toFixed(1)}x
+              </label>
+              <input
+                type="range"
+                min="0.5"
+                max="2.0"
+                step="0.1"
+                value={settings.speed}
+                onChange={(e) => handleChange('speed', parseFloat(e.target.value))}
+                className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-500"
+              />
+              <div className="flex justify-between text-[10px] text-slate-400 mt-1">
+                <span>慢 (0.5x)</span>
+                <span>正常 (1.0x)</span>
+                <span>快 (2.0x)</span>
+              </div>
+            </div>
+
+            {/* 语调 */}
+            <div className="bg-white p-3 rounded-lg border border-slate-200">
+              <label className="block text-xs font-bold text-slate-600 mb-2 flex items-center gap-1">
+                <Volume2 size={12} /> 语调：{settings.pitch.toFixed(1)}x
+              </label>
+              <input
+                type="range"
+                min="0.5"
+                max="2.0"
+                step="0.1"
+                value={settings.pitch}
+                onChange={(e) => handleChange('pitch', parseFloat(e.target.value))}
+                className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-500"
+              />
+              <div className="flex justify-between text-[10px] text-slate-400 mt-1">
+                <span>低沉 (0.5x)</span>
+                <span>正常 (1.0x)</span>
+                <span>高亢 (2.0x)</span>
+              </div>
+            </div>
+          </div>
+
+          {/* 第二行：音量和语言 */}
+          <div className="grid grid-cols-2 gap-4">
+            {/* 音量 */}
+            <div className="bg-white p-3 rounded-lg border border-slate-200">
+              <label className="block text-xs font-bold text-slate-600 mb-2 flex items-center gap-1">
+                <Volume2 size={12} /> 音量：{settings.volume}%
+              </label>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                step="5"
+                value={settings.volume}
+                onChange={(e) => handleChange('volume', parseInt(e.target.value))}
+                className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-500"
+              />
+            </div>
+
+            {/* 语言 */}
+            <div className="bg-white p-3 rounded-lg border border-slate-200">
+              <label className="block text-xs font-bold text-slate-600 mb-2 flex items-center gap-1">
+                <Type size={12} /> 语言
+              </label>
+              <select
+                value={settings.language}
+                onChange={(e) => handleChange('language', e.target.value)}
+                className="w-full text-xs p-2 rounded border border-slate-200 bg-white"
+              >
+                <option value="cn">中文</option>
+                <option value="en">英语</option>
+                <option value="ja">日语</option>
+                <option value="ko">韩语</option>
+              </select>
+            </div>
+          </div>
+
+          {/* 第三行：背景设置 */}
+          <div className="bg-white p-3 rounded-lg border border-slate-200">
+            <label className="block text-xs font-bold text-slate-600 mb-2 flex items-center gap-1">
+              <Palette size={12} /> 背景类型
+            </label>
+            <div className="flex gap-2 mb-2">
+              <button
+                onClick={() => handleChange('bg_type', 'color')}
+                className={`flex-1 text-xs py-2 px-3 rounded border transition-all ${
+                  settings.bg_type === 'color'
+                    ? 'bg-blue-500 text-white border-blue-500'
+                    : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'
+                }`}
+              >
+                纯色
+              </button>
+              <button
+                onClick={() => handleChange('bg_type', 'image')}
+                className={`flex-1 text-xs py-2 px-3 rounded border transition-all ${
+                  settings.bg_type === 'image'
+                    ? 'bg-blue-500 text-white border-blue-500'
+                    : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'
+                }`}
+              >
+                图片
+              </button>
+              <button
+                onClick={() => handleChange('bg_type', 'video')}
+                className={`flex-1 text-xs py-2 px-3 rounded border transition-all ${
+                  settings.bg_type === 'video'
+                    ? 'bg-blue-500 text-white border-blue-500'
+                    : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'
+                }`}
+              >
+                视频
+              </button>
+            </div>
+
+            {settings.bg_type === 'color' && (
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={settings.bg_color}
+                  onChange={(e) => handleChange('bg_color', e.target.value)}
+                  className="w-8 h-8 rounded border border-slate-200 cursor-pointer"
+                />
+                <span className="text-xs text-slate-500">{settings.bg_color}</span>
+              </div>
+            )}
+
+            {settings.bg_type === 'image' && (
+              <div className="text-xs text-slate-500 p-2 bg-slate-50 rounded">
+                📷 图片背景功能开发中...（需上传背景图片）
+              </div>
+            )}
+
+            {settings.bg_type === 'video' && (
+              <div className="text-xs text-slate-500 p-2 bg-slate-50 rounded">
+                🎬 视频背景功能开发中...（需上传背景视频）
+              </div>
+            )}
+          </div>
+
+          {/* 第四行：形象类型和字幕开关 */}
+          <div className="grid grid-cols-2 gap-4">
+            {/* 形象类型 */}
+            <div className="bg-white p-3 rounded-lg border border-slate-200">
+              <label className="block text-xs font-bold text-slate-600 mb-2 flex items-center gap-1">
+                <Maximize size={12} /> 形象类型
+              </label>
+              <select
+                value={settings.figure_type}
+                onChange={(e) => handleChange('figure_type', e.target.value)}
+                className="w-full text-xs p-2 rounded border border-slate-200 bg-white"
+              >
+                <option value="whole_body">全身 (1080x1920)</option>
+                <option value="waist_shot">半身像</option>
+                <option value="head_shot">头像</option>
+              </select>
+            </div>
+
+            {/* 字幕开关 */}
+            <div className="bg-white p-3 rounded-lg border border-slate-200 flex flex-col justify-center">
+              <label className="flex items-center justify-between cursor-pointer">
+                <span className="text-xs font-bold text-slate-600 flex items-center gap-1">
+                  <Type size={12} /> 隐藏字幕
+                </span>
+                <div className="relative">
+                  <input
+                    type="checkbox"
+                    checked={settings.hide_subtitle}
+                    onChange={(e) => handleChange('hide_subtitle', e.target.checked)}
+                    className="sr-only"
+                  />
+                  <div className={`w-10 h-5 rounded-full transition-colors ${
+                    settings.hide_subtitle ? 'bg-blue-500' : 'bg-slate-300'
+                  }`}>
+                    <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
+                      settings.hide_subtitle ? 'translate-x-5' : 'translate-x-0'
+                    }`} />
+                  </div>
+                </div>
+              </label>
+              <p className="text-[10px] text-slate-400 mt-1">
+                {settings.hide_subtitle ? '不显示字幕' : '显示蝉镜原生字幕'}
+              </p>
+            </div>
+          </div>
+
+          {/* 驱动模式 */}
+          <div className="bg-white p-3 rounded-lg border border-slate-200">
+            <label className="block text-xs font-bold text-slate-600 mb-2">驱动模式</label>
+            <div className="flex gap-2">
+              <button
+                onClick={() => handleChange('drive_mode', 'normal')}
+                className={`flex-1 text-xs py-2 px-3 rounded border transition-all ${
+                  settings.drive_mode === 'normal'
+                    ? 'bg-blue-500 text-white border-blue-500'
+                    : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'
+                }`}
+              >
+                正常驱动
+              </button>
+              <button
+                onClick={() => handleChange('drive_mode', 'random')}
+                className={`flex-1 text-xs py-2 px-3 rounded border transition-all ${
+                  settings.drive_mode === 'random'
+                    ? 'bg-blue-500 text-white border-blue-500'
+                    : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'
+                }`}
+              >
+                随机驱动（自然）
+              </button>
+            </div>
+            <p className="text-[10px] text-slate-400 mt-1">
+              {settings.drive_mode === 'random' ? '✨ 添加自然微动作，使数字人更生动' : '标准动作驱动'}
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 // =====================================================
 // 中间：批量文案输入
@@ -84,7 +334,7 @@ function BatchScriptInput({ scripts, setScripts }) {
   const handleChange = (id, text) => setScripts(scripts.map(s => s.id === id ? { ...s, text } : s))
 
   return (
-    <div className="flex-1 bg-slate-50 border-r border-slate-200 flex flex-col h-full relative">
+    <>
       <div className="p-4 border-b border-slate-200 bg-white flex justify-between items-center">
         <h2 className="text-sm font-bold text-slate-800">2. 输入批量文案 ({scripts.length} 条)</h2>
         <p className="text-xs text-slate-500 mt-1">每条文案将生成一个独立的数字人视频</p>
@@ -121,7 +371,7 @@ function BatchScriptInput({ scripts, setScripts }) {
           </div>
         ))}
       </div>
-    </div>
+    </>
   )
 }
 
@@ -217,17 +467,28 @@ function PipelineProgress({ tasks, onClose, onMinimize }) {
   const runningCount = tasks.filter(t => t.stage !== 'done' && t.stage !== 'failed').length
   const successCount = tasks.filter(t => t.stage === 'done').length
   const failedCount = tasks.filter(t => t.stage === 'failed').length
+  const allDone = runningCount === 0 && failedCount === 0
 
   return (
     <div className="absolute inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden">
         <div className="p-4 border-b border-slate-100 flex justify-between items-center">
-          <h3 className="text-base font-bold text-slate-800" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Inbox size={16} /> 生成进度</h3>
+          <h3 className="text-base font-bold text-slate-800" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Inbox size={16} /> 生成进度
+            {allDone && <span className="ml-2 text-xs text-green-600 font-bold">✓ 全部完成</span>}
+          </h3>
           <div className="flex items-center gap-2">
-            <button onClick={onMinimize} className="text-slate-400 hover:text-slate-600 text-sm px-2 py-1 rounded hover:bg-slate-100" title="最小化到右下角">
-              − 最小化
+            {!allDone && (
+              <button onClick={onMinimize} className="text-slate-400 hover:text-slate-600 text-sm px-2 py-1 rounded hover:bg-slate-100" title="最小化到右下角">
+                − 最小化
+              </button>
+            )}
+            <button 
+              onClick={onClose} 
+              className={`${allDone ? 'bg-green-500 hover:bg-green-600 text-white' : 'text-slate-400 hover:text-slate-600'} text-sm px-4 py-1.5 rounded transition-colors`}
+            >
+              {allDone ? '✓ 完成' : '×'}
             </button>
-            <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl">×</button>
           </div>
         </div>
         <div className="p-4 space-y-3 max-h-96 overflow-y-auto custom-scrollbar">
@@ -251,7 +512,9 @@ function PipelineProgress({ tasks, onClose, onMinimize }) {
               <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
                 <div 
                   className={`h-full transition-all duration-300 ${
-                    task.stage === 'failed' ? 'bg-red-500' : 'bg-blue-500'
+                    task.stage === 'failed' ? 'bg-red-500' : 
+                    task.stage === 'done' ? 'bg-green-500' :
+                    'bg-blue-500'
                   }`}
                   style={{ width: `${task.progress}%` }}
                 />
@@ -262,6 +525,13 @@ function PipelineProgress({ tasks, onClose, onMinimize }) {
             </div>
           ))}
         </div>
+        {allDone && (
+          <div className="p-4 border-t border-slate-100 bg-green-50">
+            <p className="text-sm text-green-700 text-center">
+              ✓ 所有视频已生成完成，已保存到项目的 <strong>输出</strong> 目录
+            </p>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -319,13 +589,27 @@ function MinimizedProgress({ tasks, onExpand, onClose }) {
 // =====================================================
 // 主组件
 // =====================================================
-export default function DigitalHumanStudio({ apiKey, apiBaseUrl }) {
+export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPerson }) {
   const [persons, setPersons] = useState([])
   const [voices, setVoices] = useState([])
   const [selectedPerson, setSelectedPerson] = useState(null)
   const [selectedVoice, setSelectedVoice] = useState('')
   const [scripts, setScripts] = useState([{ id: Date.now(), text: '' }])
   
+  // 高级设置
+  const [advancedSettings, setAdvancedSettings] = useState({
+    speed: 1.0,        // 语速
+    pitch: 1.0,        // 语调
+    volume: 100,       // 音量
+    language: 'cn',    // 语言
+    bg_type: 'color',  // 背景类型
+    bg_color: '#EDEDED', // 背景颜色
+    figure_type: 'whole_body', // 形象类型
+    hide_subtitle: false, // 隐藏字幕
+    drive_mode: 'random' // 驱动模式
+  })
+  const [showAdvancedSettings, setShowAdvancedSettings] = useState(false)
+
   // 项目选择
   const [projects, setProjects] = useState([])
   const [selectedProject, setSelectedProject] = useState(null)
@@ -361,6 +645,21 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl }) {
         if (projects.length > 0) {
           setSelectedProject(projects[0])
         }
+        
+        // 如果有预选数字人，自动选择（优先使用传入的 preselectedPerson）
+        if (preselectedPerson) {
+          console.log('[DigitalHumanStudio] 收到预选数字人:', preselectedPerson.name, preselectedPerson.id)
+          // 先在所有数字人中查找
+          const person = all.find(p => p.id === preselectedPerson.id)
+          if (person) {
+            console.log('[DigitalHumanStudio] 找到匹配的数字人，自动选择:', person.name)
+            setSelectedPerson(person)
+          } else {
+            // 如果没找到，直接使用 preselectedPerson 数据
+            console.log('[DigitalHumanStudio] 未在列表中找到，直接使用 preselectedPerson')
+            setSelectedPerson(preselectedPerson)
+          }
+        }
       } catch (err) {
         setStatusMsg('加载数据失败：' + err.message)
       } finally {
@@ -369,7 +668,7 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl }) {
     }
     
     loadData()
-  }, [])
+  }, [preselectedPerson])
 
   // 核心：生成数字人视频并保存到 VFS
   const startPipeline = async () => {
@@ -407,12 +706,21 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl }) {
         const script = validScripts[index]
         
         try {
-          // [阶段 1] 提交蝉镜数字人任务
+          // [阶段 1] 提交蝉镜数字人任务（包含高级设置）
           const dhRes = await createDhGenerateTask({
             text: script.text,
             person_id: selectedPerson.id,
             audio_man_id: selectedVoice || undefined,
-            hide_subtitle: false, // 保留原生字幕
+            // 高级设置参数
+            speed: advancedSettings.speed,
+            pitch: advancedSettings.pitch,
+            volume: advancedSettings.volume,
+            language: advancedSettings.language,
+            bg_type: advancedSettings.bg_type,
+            bg_color: advancedSettings.bg_color,
+            figure_type: advancedSettings.figure_type,
+            hide_subtitle: advancedSettings.hide_subtitle,
+            drive_mode: advancedSettings.drive_mode,
             client_ref_id: `dh_${task.id}`
           })
           
@@ -504,10 +812,20 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl }) {
         onSelectVoice={setSelectedVoice}
       />
       
-      <BatchScriptInput 
-        scripts={scripts} 
-        setScripts={setScripts} 
-      />
+      <div className="flex-1 bg-slate-50 border-r border-slate-200 flex flex-col h-full relative">
+        {/* 高级设置面板 */}
+        <AdvancedSettings 
+          settings={advancedSettings}
+          setSettings={setAdvancedSettings}
+          isOpen={showAdvancedSettings}
+          onToggle={() => setShowAdvancedSettings(!showAdvancedSettings)}
+        />
+        
+        <BatchScriptInput 
+          scripts={scripts} 
+          setScripts={setScripts} 
+        />
+      </div>
       
       <SavePathConfig 
         selectedProject={selectedProject}

@@ -386,6 +386,9 @@ function App() {
   // AI 聊天相关状态
   const [currentProject, setCurrentProject] = useState(null)
   
+  // 数字人创作平台预选数字人
+  const [studioPreselectedPerson, setStudioPreselectedPerson] = useState(null)
+  
   // 帮助指南状态
   const [showHelp, setShowHelp] = useState(false)
   
@@ -760,7 +763,21 @@ function App() {
         {/* 数字人资产管理页面 */}
         {activeTab === 'digital-human-manager' && (
           <div className="tile tile-light">
-            <DigitalHumanManager apiKey={apiKey} />
+            <DigitalHumanManager 
+              apiKey={apiKey} 
+              onCreateVideo={(person) => {
+                console.log('[App.jsx] 收到 onCreateVideo 回调，数字人:', person.name, person.id)
+                console.log('[App.jsx] 当前 activeTab:', activeTab)
+                console.log('[App.jsx] 设置 preselectedPerson:', person)
+                console.log('[App.jsx] 切换 activeTab 到 digital-human-studio')
+                // 先设置预选数字人
+                setStudioPreselectedPerson(person)
+                // 使用 setTimeout 确保状态更新后再切换 tab
+                setTimeout(() => {
+                  setActiveTab('digital-human-studio')
+                }, 0)
+              }}
+            />
           </div>
         )}
         
@@ -860,7 +877,7 @@ function App() {
           backgroundColor: '#f5f5f7',
           overflow: 'hidden',
         }}>
-            <DigitalHumanStudio apiKey={apiKey} apiBaseUrl={apiBaseUrl} />
+            <DigitalHumanStudio apiKey={apiKey} apiBaseUrl={apiBaseUrl} preselectedPerson={studioPreselectedPerson} />
         </div>
       )}
       
