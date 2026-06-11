@@ -49,21 +49,132 @@ export class MCPServer {
   // 连接管理
   // =====================================================
   
-  /**
-   * 作为服务器监听连接（WebSocket 模式）
+/**
+   * 作为服务器监听连接（通过 WebSocket 或 HTTP 长连接到 MCP Proxy）
+   * 
+   * 架构说明：
+   * 外部 Codex/MCP Client -> WebSocket -> MCP Proxy (Node.js:8001) -> WebSocket/SSE -> 浏览器中的 MCP Server
+   * 
+   * @param {number} port - MCP Proxy 端口（默认 8001）
+   * @param {string} proxyUrl - MCP Proxy URL（可选）
+   * @param {boolean} useWebSocket - 是否使用 WebSocket 长连接（默认 true，推荐）
    */
-  async listen(port = 8001) {
+  async listen(port = 8001, proxyUrl = null, useWebSocket = true) {
     return new Promise((resolve, reject) => {
       try {
-        // 在浏览器环境中，我们使用 postMessage 与父窗口/iframe 通信
-        // 或者通过 WebSocket 连接到外部 MCP 客户端
-        this.serverUrl = `ws://localhost:${port}/mcp`
+        const proxy = proxyUrl || `http://localhost:${port}`
+        this.proxyUrl = proxy
+        // 使用固定 clientId 以便外部客户端（如 Codex）可以连接
+        // 如果需要多个实例，可以改为随机：'studio_' + Math.random().toString(36).substring(2, 15)
+        this.clientId = process.env.MCP_CLIENT_ID || 'studio'
         
-        window.addEventListener('message', this._handleMessage.bind(this))
+        // 注册到 MCP Proxy
+        this._registerToProxy(proxy).then(() => {
+          this.connected = true
+          console.log('[MCP Server] 已连接到 MCP Proxy:', proxy)
+          console.log('[MCP Server] 客户端 ID:', this.clientId)
+          
+          // 优先使用 WebSocket 长连接（推荐，更稳定），备选 SSE 轮询
+          if (useWebSocket) {
+            this._connectWebSocket(proxy).then(resolve).catch(reject)
+          } else {
+            this._startPolling(proxy)
+            resolve()
+          }
+        }).catch(reject)
+      } catch (error) {
+        reject(error)
+      }
+    })
+  }
+
+async _registerToProxy(proxyUrl) {
+    const response = await fetch(`${proxyUrl}/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientId: this.clientId })
+    })
+    
+    if (!response.ok) {
+      throw new Error(`注册失败：${response.status}`)
+    }
+    
+    const data = await response.json()
+    console.log('[MCP Server] 注册成功:', data)
+  }
+
+_startPolling(proxyUrl) {
+    const poll = async () => {
+      if (!this.connected) return
+      
+      try {
+        // 通过 EventSource 接收 SSE 消息
+        const eventSource = new EventSource(`${proxyUrl}/events?clientId=${this.clientId}`)
         
-        this.connected = true
-        console.log('[MCP Server] 服务器已启动，监听端口:', port)
-        resolve()
+        eventSource.onmessage = (event) => {
+          try {
+            const message = JSON.parse(event.data)
+            console.log('[MCP Server] 收到 Proxy 转发消息:', message)
+            this._handleMessage({ data: event.data })
+          } catch (e) {
+            console.error('[MCP Server] SSE 消息解析失败:', e)
+          }
+        }
+        
+        eventSource.onerror = () => {
+          console.warn('[MCP Server] SSE 连接断开，尝试重连...')
+          eventSource.close()
+          setTimeout(poll, 1000)
+        }
+        
+        this._eventSource = eventSource
+      } catch (e) {
+        console.error('[MCP Server] 轮询失败:', e)
+        setTimeout(poll, 1000)
+      }
+    }
+    
+    poll()
+  }
+
+  /**
+   * 通过 WebSocket 长连接到 MCP Proxy（推荐方式）
+   */
+  async _connectWebSocket(proxyUrl) {
+    return new Promise((resolve, reject) => {
+      try {
+        const wsUrl = `${proxyUrl.replace('http://', 'ws://')}/ws?clientId=${this.clientId}&role=server`
+        this.ws = new WebSocket(wsUrl)
+        
+        this.ws.onopen = () => {
+          console.log('[MCP Server] WebSocket 长连接已建立')
+          resolve()
+        }
+        
+        this.ws.onclose = () => {
+          console.warn('[MCP Server] WebSocket 连接断开，尝试重连...')
+          this.connected = false
+          setTimeout(() => {
+            if (!this.ws || this.ws.readyState === WebSocket.CLOSED) {
+              this._connectWebSocket(proxyUrl).catch(console.error)
+            }
+          }, 1000)
+        }
+        
+        this.ws.onerror = (error) => {
+          console.error('[MCP Server] WebSocket 错误:', error)
+          reject(error)
+        }
+        
+        this.ws.onmessage = (event) => {
+          try {
+            const message = JSON.parse(event.data)
+            console.log('[MCP Server] 收到 Proxy 转发消息 (WebSocket):', message)
+            this._handleMessage({ data: event.data })
+          } catch (e) {
+            console.error('[MCP Server] WebSocket 消息解析失败:', e)
+          }
+        }
       } catch (error) {
         reject(error)
       }
@@ -112,6 +223,13 @@ export class MCPServer {
     this.initialized = false
   }
 
+  /**
+   * 关闭服务器（disconnect 的别名，用于清理）
+   */
+  close() {
+    this.disconnect()
+  }
+
   // =====================================================
   // 消息处理
   // =====================================================
@@ -152,7 +270,7 @@ export class MCPServer {
     }
   }
 
-  _send(message) {
+  async _send(message) {
     if (!this.connected) {
       console.warn('[MCP Server] 未连接，无法发送消息')
       return
@@ -163,6 +281,17 @@ export class MCPServer {
 
     if (this.ws) {
       this.ws.send(messageStr)
+    } else if (this.proxyUrl) {
+      // 通过 HTTP POST 发送到 Proxy
+      try {
+        await fetch(`${this.proxyUrl}/message`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: messageStr
+        })
+      } catch (e) {
+        console.error('[MCP Server] 发送到 Proxy 失败:', e)
+      }
     } else {
       // 通过 postMessage 发送（iframe/父窗口通信）
       window.postMessage({ type: 'mcp', data: message }, '*')
@@ -766,6 +895,173 @@ export class MCPServer {
         return results.map((p, i) => `${i + 1}. **${p.name}** (ID: ${p.id})`).join('\n') || '暂无数字人'
       }
     })
+
+    // 11. 移动/重命名文件
+    this.registerTool({
+      name: 'move_file',
+      description: '移动或重命名文件/目录',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          from: {
+            type: 'string',
+            description: '源路径'
+          },
+          to: {
+            type: 'string',
+            description: '目标路径'
+          }
+        },
+        required: ['from', 'to']
+      },
+      handler: async ({ from, to }) => {
+        if (!vfs) throw new Error('VFS 未初始化')
+        await vfs.move(from, to)
+        return `✅ 文件已移动：${from} -> ${to}`
+      }
+    })
+
+    // 12. 删除文件
+    this.registerTool({
+      name: 'delete_file',
+      description: '删除文件或目录',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          filePath: {
+            type: 'string',
+            description: '文件/目录路径'
+          },
+          recursive: {
+            type: 'boolean',
+            description: '是否递归删除目录（默认 false）',
+            default: false
+          }
+        },
+        required: ['filePath']
+      },
+      handler: async ({ filePath, recursive = false }) => {
+        if (!vfs) throw new Error('VFS 未初始化')
+        await vfs.delete(filePath, recursive)
+        return `✅ 文件已删除：${filePath}`
+      }
+    })
+
+    // 13. 创建项目
+    this.registerTool({
+      name: 'create_project',
+      description: '创建新的视频项目',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          projectName: {
+            type: 'string',
+            description: '项目名称'
+          },
+          config: {
+            type: 'object',
+            description: '项目配置 (可选)',
+            properties: {
+              pipeline: {
+                type: 'object',
+                properties: {
+                  remove_keyword: { type: 'string' },
+                  margin: { type: 'number' },
+                  min_segment_duration: { type: 'number' }
+                }
+              },
+              subtitle: {
+                type: 'object',
+                properties: {
+                  effect: { type: 'string' },
+                  font_size: { type: 'number' }
+                }
+              }
+            }
+          }
+        },
+        required: ['projectName']
+      },
+      handler: async ({ projectName, config }) => {
+        if (!vfs) throw new Error('VFS 未初始化')
+        const path = await vfs.createVideoProject(projectName, config || {})
+        return `✅ 项目已创建：${projectName}\n路径：${path}`
+      }
+    })
+
+    // 14. 复制文件
+    this.registerTool({
+      name: 'copy_file',
+      description: '复制文件到另一位置',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          from: {
+            type: 'string',
+            description: '源路径'
+          },
+          to: {
+            type: 'string',
+            description: '目标路径'
+          }
+        },
+        required: ['from', 'to']
+      },
+      handler: async ({ from, to }) => {
+        if (!vfs) throw new Error('VFS 未初始化')
+        const content = await vfs.readFile(from)
+        const file = vfs.getFile(from)
+        await vfs.writeFile(to, content, { type: file?.type || 'application/octet-stream' })
+        return `✅ 文件已复制：${from} -> ${to}`
+      }
+    })
+
+    // 15. 获取文件信息
+    this.registerTool({
+      name: 'get_file_info',
+      description: '获取文件的详细信息（大小、类型、创建时间等）',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          filePath: {
+            type: 'string',
+            description: '文件路径'
+          }
+        },
+        required: ['filePath']
+      },
+      handler: async ({ filePath }) => {
+        if (!vfs) throw new Error('VFS 未初始化')
+        const file = vfs.getFile(filePath)
+        if (!file) {
+          throw new Error(`文件不存在：${filePath}`)
+        }
+        return `📄 **${file.name}**\n- 路径：${file.path}\n- 类型：${file.type}\n- 大小：${(file.size / 1024).toFixed(1)} KB\n- 创建：${file.createdAt}\n- 更新：${file.updatedAt}`
+      }
+    })
+
+    // 16. 获取存储状态
+    this.registerTool({
+      name: 'get_storage_status',
+      description: '获取虚拟文件系统的存储使用情况',
+      inputSchema: {
+        type: 'object',
+        properties: {},
+        required: []
+      },
+      handler: async () => {
+        if (!vfs) throw new Error('VFS 未初始化')
+        const info = await vfs.getStorageInfo()
+        const formatSize = (bytes) => {
+          if (bytes === null) return '未知'
+          if (bytes >= 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`
+          if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(2)} MB`
+          if (bytes >= 1024) return `${(bytes / 1024).toFixed(2)} KB`
+          return `${bytes} B`
+        }
+        return `💾 **存储状态**\n- 文件数：${info.fileCount}\n- 已用：${formatSize(info.totalSize)}\n- 可用：${formatSize(info.available)}`
+      }
+    })
   }
 
   /**
@@ -906,18 +1202,80 @@ export class MCPServer {
       })
     })
   }
+
+  // =====================================================
+  // 获取已注册的项目（用于 MCPManager 显示）
+  // =====================================================
+  
+  /**
+   * 获取所有已注册的工具
+   */
+  getRegisteredTools() {
+    return Array.from(this.tools.values()).map(tool => ({
+      name: tool.name,
+      description: tool.description,
+      inputSchema: tool.inputSchema
+    }))
+  }
+
+  /**
+   * 获取所有已注册的资源
+   */
+  getRegisteredResources() {
+    return Array.from(this.resources.values()).map(resource => ({
+      uri: resource.uri,
+      name: resource.name,
+      description: resource.description,
+      mimeType: resource.mimeType
+    }))
+  }
+
+  /**
+   * 获取所有已注册的提示
+   */
+  getRegisteredPrompts() {
+    return Array.from(this.prompts.values()).map(prompt => ({
+      name: prompt.name,
+      description: prompt.description,
+      arguments: prompt.arguments
+    }))
+  }
 }
 
 // =====================================================
-// 导出单例工厂
+// 导出单例工厂（全局持久化，避免页面切换时断开）
 // =====================================================
+// 使用 window 对象存储全局实例，确保在组件卸载时不会被清理
 let mcpServerInstance = null
 
 export const getMCPServer = (options = {}) => {
+  // 优先从 window 对象获取（如果存在），确保跨组件/页面共享
+  if (window.__RJCutMCPServer__) {
+    return window.__RJCutMCPServer__
+  }
   if (!mcpServerInstance) {
     mcpServerInstance = new MCPServer(options)
+    // 存储到 window 对象，防止组件卸载时被垃圾回收
+    window.__RJCutMCPServer__ = mcpServerInstance
   }
   return mcpServerInstance
+}
+
+// 获取全局 MCP 服务器实例（不创建新实例）
+export const getGlobalMCPServer = () => {
+  return window.__RJCutMCPServer__ || mcpServerInstance
+}
+
+// 清理全局实例（仅在用户手动停止服务时调用）
+export const clearGlobalMCPServer = () => {
+  if (mcpServerInstance) {
+    mcpServerInstance.close()
+    mcpServerInstance = null
+  }
+  if (window.__RJCutMCPServer__) {
+    window.__RJCutMCPServer__ = null
+    delete window.__RJCutMCPServer__
+  }
 }
 
 export default MCPServer

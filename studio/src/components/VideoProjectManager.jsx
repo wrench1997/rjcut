@@ -152,7 +152,7 @@ function NewProjectDialog({ vfs, onClose, onCreated }) {
             >
               <option value="default">空白项目</option>
               <option value="speaking_video">📢 口播视频 - 单人讲解、产品介绍</option>
-              <option value="documentary"><Clapperboard size={12} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} /> 纪录片风格 - 故事叙述、品牌宣传</option>
+              <option value="documentary">🎬 纪录片风格 - 故事叙述、品牌宣传</option>
               <option value="short_video">⚡ 快节奏短视频 - 抖音/快手风格</option>
             </select>
             <p className="caption text-muted mt-xs" style={{ fontSize: '12px' }}>

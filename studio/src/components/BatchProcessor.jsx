@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import useBatchStore from '../api/useBatchProcessStore'
 import { setApiKey } from '../api/api'
-import { Hourglass, Upload, FileText, Clapperboard, Download, CheckCircle, XCircle, Ban, Rocket, Folder, Music } from 'lucide-react'
+import { Hourglass, Upload, FileText, Clapperboard, Download, CheckCircle, XCircle, Ban, Rocket, Folder, Music, X, Check, ArrowLeft, Info } from 'lucide-react'
 
 // --- 现代化进度条 ---
 function TailwindProgressBar({ progress, status }) {
@@ -133,20 +133,37 @@ function StatCard({ label, value, colorClass }) {
 }
 
 // --- 文件选择器组件（简化版）---
-function FileSelector({ label, vfs, selectedFile, onSelect, accept, disabled, multiple = false }) {
+function FileSelector({ label, vfs, selectedFile, onSelect, accept, disabled, multiple = false, allowDirectorySelection = false }) {
   const [showBrowser, setShowBrowser] = useState(false)
   const [browserPath, setBrowserPath] = useState('/projects')
   const [browserItems, setBrowserItems] = useState([])
 
-  const loadDirectory = useCallback((path) => {
-    if (!vfs) return
-    const items = vfs.listDirectory(path)
-    setBrowserItems(items)
+  const loadDirectory = useCallback(async (path) => {
+    if (!vfs) {
+      setBrowserItems([])
+      return
+    }
+    try {
+      const items = await vfs.listDirectory(path)
+      // 确保始终是数组
+      setBrowserItems(Array.isArray(items) ? items : [])
+    } catch (error) {
+      console.error('[FileSelector] 加载目录失败:', error)
+      setBrowserItems([])
+    }
     setBrowserPath(path)
   }, [vfs])
 
+  // 当浏览器打开时，自动加载目录
+  useEffect(() => {
+    if (showBrowser && vfs) {
+      loadDirectory(browserPath)
+    }
+  }, [showBrowser, vfs, loadDirectory])
+
   const handleFileSelect = (item) => {
     if (!item.isDirectory) {
+      // 文件：点击选择
       if (multiple) {
         const currentFiles = selectedFile || []
         if (!currentFiles.includes(item.path)) {
@@ -156,8 +173,27 @@ function FileSelector({ label, vfs, selectedFile, onSelect, accept, disabled, mu
         onSelect(item.path)
         setShowBrowser(false)
       }
-    } else {
+    }
+    // 文件夹：点击不处理，需要双击进入或点击选择按钮
+  }
+
+  const handleDirectoryEnter = (item) => {
+    if (item.isDirectory) {
       loadDirectory(item.path)
+    }
+  }
+
+  const handleDirectorySelect = (item) => {
+    if (item.isDirectory && allowDirectorySelection) {
+      if (multiple) {
+        const currentFiles = selectedFile || []
+        if (!currentFiles.includes(item.path)) {
+          onSelect([...currentFiles, item.path])
+        }
+      } else {
+        onSelect(item.path)
+        setShowBrowser(false)
+      }
     }
   }
 
@@ -171,7 +207,8 @@ function FileSelector({ label, vfs, selectedFile, onSelect, accept, disabled, mu
               <div className="space-y-1">
                 {selectedFile.map((file, idx) => (
                   <div key={idx} className="flex items-center gap-2 p-2 bg-blue-50 rounded-lg border border-blue-200">
-                    <span className="text-sm text-slate-700 truncate flex-1">📄 {file.split('/').pop()}</span>
+                    <FileText size={14} className="text-blue-500 flex-shrink-0" />
+                    <span className="text-sm text-slate-700 truncate flex-1">{file.split('/').pop()}</span>
                     <button
                       className="p-1 text-slate-400 hover:text-red-500 transition-colors"
                       onClick={() => {
@@ -179,14 +216,15 @@ function FileSelector({ label, vfs, selectedFile, onSelect, accept, disabled, mu
                         onSelect(newFiles.length > 0 ? newFiles : null)
                       }}
                     >
-                      ✕
+                      <X size={14} />
                     </button>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="p-2 bg-blue-50 rounded-lg border border-blue-200">
-                <span className="text-sm text-slate-700">📄 {typeof selectedFile === 'string' ? selectedFile.split('/').pop() : selectedFile}</span>
+              <div className="p-2 bg-blue-50 rounded-lg border border-blue-200 flex items-center gap-2">
+                <FileText size={14} className="text-blue-500 flex-shrink-0" />
+                <span className="text-sm text-slate-700">{typeof selectedFile === 'string' ? selectedFile.split('/').pop() : selectedFile}</span>
               </div>
             )}
           </div>
@@ -203,7 +241,7 @@ function FileSelector({ label, vfs, selectedFile, onSelect, accept, disabled, mu
           onClick={() => setShowBrowser(true)}
           disabled={disabled || !vfs}
         >
-          <Folder size={16} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} /> 从 VFS 选择文件
+          <Folder size={16} />从 VFS 选择文件
         </button>
       )}
 
@@ -211,14 +249,31 @@ function FileSelector({ label, vfs, selectedFile, onSelect, accept, disabled, mu
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowBrowser(false)}>
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
             <div className="p-4 border-b border-slate-100 flex justify-between items-center">
-              <h3 className="font-bold text-slate-800">选择文件 {multiple && '(多选模式)'}</h3>
-              <button className="p-2 hover:bg-slate-100 rounded-lg transition-colors" onClick={() => setShowBrowser(false)}>✕</button>
+              <h3 className="font-bold text-slate-800">
+                {allowDirectorySelection ? '选择文件或文件夹' : '选择文件'}
+                {multiple && ' (多选模式)'}
+              </h3>
+              <button className="p-2 hover:bg-slate-100 rounded-lg transition-colors" onClick={() => setShowBrowser(false)}><X size={18} /></button>
             </div>
             
-            <div className="p-4 border-b border-slate-100 flex gap-2">
-              <button className="px-3 py-1.5 text-sm bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1" onClick={() => loadDirectory('/projects')}><Folder size={14} /> 项目</button>
-              <button className="px-3 py-1.5 text-sm bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1" onClick={() => loadDirectory('/drafts')}><FileText size={14} /> 草稿</button>
-              <button className="px-3 py-1.5 text-sm bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1" onClick={() => loadDirectory('/audio')}><Music size={14} /> 音频</button>
+            <div className="p-4 border-b border-slate-100 flex justify-between items-center gap-2">
+              <div className="flex items-center gap-2 flex-1">
+                <button className="px-3 py-1.5 text-sm bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1" onClick={() => loadDirectory('/projects')}><Folder size={14} />项目</button>
+                <button className="px-3 py-1.5 text-sm bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1" onClick={() => loadDirectory('/drafts')}><FileText size={14} />草稿</button>
+                <button className="px-3 py-1.5 text-sm bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1" onClick={() => loadDirectory('/audio')}><Music size={14} />音频</button>
+                <div className="w-px h-4 bg-slate-300" />
+                <button 
+                  className="px-3 py-1.5 text-sm bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1 disabled:opacity-50"
+                  onClick={() => {
+                    const parentPath = browserPath.substring(0, browserPath.lastIndexOf('/')) || '/'
+                    loadDirectory(parentPath)
+                  }}
+                  disabled={browserPath === '/' || browserPath === ''}
+                >
+                  <ArrowLeft size={14} />上一层
+                </button>
+              </div>
+              <span className="text-xs text-slate-500 truncate max-w-[200px]">当前：{browserPath}</span>
             </div>
             
             <div className="flex-1 overflow-y-auto p-4">
@@ -229,14 +284,55 @@ function FileSelector({ label, vfs, selectedFile, onSelect, accept, disabled, mu
                   {browserItems.map(item => (
                     <div
                       key={item.path}
-                      className="flex items-center gap-3 p-3 hover:bg-slate-50 rounded-lg cursor-pointer transition-colors"
-                      onClick={() => handleFileSelect(item)}
+                      className="flex items-center gap-3 p-3 hover:bg-slate-50 rounded-lg transition-colors"
+                      onDoubleClick={() => handleDirectoryEnter(item)}
                     >
-                      <span className="text-lg">{item.isDirectory ? <Folder size={18} /> : <FileText size={18} />}</span>
+                      <span className="text-lg">
+                        {item.isDirectory 
+                          ? <Folder size={18} className="text-slate-500" /> 
+                          : <FileText size={18} className="text-slate-500" />
+                        }
+                      </span>
                       <span className="flex-1 text-sm text-slate-700">{item.name}</span>
-                      {item.size && <span className="text-xs text-slate-400">{(item.size / 1024 / 1024).toFixed(1)} MB</span>}
+                      {item.isDirectory ? (
+                        <span className="text-xs text-slate-400 mr-2 flex items-center gap-1"><Folder size={12} />目录</span>
+                      ) : (
+                        item.size && <span className="text-xs text-slate-400 mr-2">{(item.size / 1024 / 1024).toFixed(1)} MB</span>
+                      )}
+                      {/* 文件夹：显示选择按钮 */}
+                      {item.isDirectory && allowDirectorySelection && (
+                        <button
+                          className="px-2 py-1 text-xs bg-green-500 hover:bg-green-600 text-white rounded transition-colors flex items-center gap-1"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleDirectorySelect(item)
+                          }}
+                        >
+                          <Check size={12} />选择
+                        </button>
+                      )}
+                      {/* 文件：点击选择 */}
+                      {!item.isDirectory && (
+                        <button
+                          className="px-2 py-1 text-xs bg-blue-500 hover:bg-blue-600 text-white rounded transition-colors flex items-center gap-1"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleFileSelect(item)
+                          }}
+                        >
+                          <Check size={12} />选择
+                        </button>
+                      )}
                     </div>
                   ))}
+                </div>
+              )}
+              {allowDirectorySelection && (
+                <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200 flex items-start gap-2">
+                  <Info size={14} className="text-blue-600 mt-0.5 flex-shrink-0" />
+                  <p className="text-xs text-blue-700">
+                    双击文件夹进入，点击"选择"按钮选择当前文件夹
+                  </p>
                 </div>
               )}
             </div>
@@ -439,6 +535,7 @@ export default function BatchProcessor({ vfs, apiKey }) {
                               setSceneConfigs(newConfigs)
                             }}
                             multiple={false}
+                            allowDirectorySelection={true}
                           />
                           
                           <div className="grid grid-cols-2 gap-3">

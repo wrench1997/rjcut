@@ -992,11 +992,24 @@ function UploadDialog({ vfs, currentPath, onClose, onUploaded }) {
 // =====================================================
 function StorageInfo({ vfs }) {
   const [info, setInfo] = useState(null)
+  const [mode, setMode] = useState(null)
   
   useEffect(() => {
     const loadInfo = async () => {
-      const storageInfo = await vfs.getStorageInfo()
-      setInfo(storageInfo)
+      try {
+        const storageInfo = await vfs.getStorageInfo()
+        setInfo(storageInfo)
+        // 检测 VFS 模式
+        if (vfs.getMode) {
+          setMode(vfs.getMode())
+        } else if (typeof window !== 'undefined' && window.electronAPI) {
+          setMode('electron')
+        } else {
+          setMode('indexeddb')
+        }
+      } catch (e) {
+        console.error('加载存储信息失败:', e)
+      }
     }
     
     loadInfo()
@@ -1014,6 +1027,11 @@ function StorageInfo({ vfs }) {
       {info.available !== null && (
         <span className="caption text-muted">
           · 可用 {(info.available / 1024 / 1024 / 1024).toFixed(1)} GB
+        </span>
+      )}
+      {mode && (
+        <span className="caption text-muted" title={`当前使用：${mode === 'electron' ? 'Electron 本地文件系统' : 'IndexedDB 虚拟文件系统'}`}>
+          · {mode === 'electron' ? '🖥️ Electron' : '🌐 IndexedDB'}
         </span>
       )}
     </div>
@@ -1076,7 +1094,18 @@ function FileBrowser({ vfs, onFileSelect, onFileOpen, className, initialPath = '
   const loadDirectory = useCallback(async () => {
     try {
       setLoading(true)
-      let dirItems = vfs.listDirectory(currentPath)
+      let dirItems
+      try {
+        dirItems = await vfs.listDirectory(currentPath)
+        // 确保返回的是数组
+        if (!Array.isArray(dirItems)) {
+          console.warn('vfs.listDirectory 返回非数组:', dirItems)
+          dirItems = []
+        }
+      } catch (e) {
+        console.error('vfs.listDirectory 调用失败:', e)
+        dirItems = []
+      }
       
       if (filterType !== 'all') {
         dirItems = dirItems.filter(item => {
@@ -1099,20 +1128,23 @@ function FileBrowser({ vfs, onFileSelect, onFileOpen, className, initialPath = '
         )
       }
       
-      filtered.sort((a, b) => {
-        if (a.isDirectory && !b.isDirectory) return -1
-        if (!a.isDirectory && b.isDirectory) return 1
-        
-        let comparison = 0
-        switch (sortBy) {
-          case 'name': comparison = a.name.localeCompare(b.name); break
-          case 'size': comparison = (a.size || 0) - (b.size || 0); break
-          case 'time': comparison = new Date(a.updatedAt || 0) - new Date(b.updatedAt || 0); break
-          default: comparison = 0
-        }
-        
-        return sortOrder === 'asc' ? comparison : -comparison
-      })
+      // 确保 filtered 是数组后再排序
+      if (Array.isArray(filtered)) {
+        filtered.sort((a, b) => {
+          if (a.isDirectory && !b.isDirectory) return -1
+          if (!a.isDirectory && b.isDirectory) return 1
+          
+          let comparison = 0
+          switch (sortBy) {
+            case 'name': comparison = a.name.localeCompare(b.name); break
+            case 'size': comparison = (a.size || 0) - (b.size || 0); break
+            case 'time': comparison = new Date(a.updatedAt || 0) - new Date(b.updatedAt || 0); break
+            default: comparison = 0
+          }
+          
+          return sortOrder === 'asc' ? comparison : -comparison
+        })
+      }
       
       setItems(filtered)
     } catch (e) {

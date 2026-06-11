@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { getSharedFileSystem } from '../utils/virtualFileSystem'
+import { getVFS } from '../utils/vfsClient'
 import { 
   createDhGenerateTask, 
   getTaskStatus,
@@ -233,7 +233,8 @@ export function DigitalHumanVFSImporter({
     setError('')
 
     try {
-      const vfs = await getSharedFileSystem()
+      const vfs = getVFS()
+      await vfs.init()
 
       // 步骤 1: 创建视频生成任务 (10%)
       setProgress({ 

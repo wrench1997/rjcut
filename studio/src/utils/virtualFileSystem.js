@@ -1266,7 +1266,7 @@ export class VirtualFileSystem {
             try {
               const config = JSON.parse(projectConfig.content)
               projects.push({
-                name: childPath.split('/').pop(),
+                name: config.name || childPath.split('/').pop(),
                 path: childPath,
                 config,
                 createdAt: config.createdAt,
@@ -1287,10 +1287,407 @@ export class VirtualFileSystem {
 }
 
 // =====================================================
+// Electron VFS 客户端 - 通过 IPC 与 Electron 主进程通信
+// =====================================================
+class ElectronVFSClient {
+  constructor() {
+    this.isElectron = typeof window !== 'undefined' && window.electronAPI
+    this.currentPath = '/'
+  }
+
+  // 检查是否在 Electron 环境中
+  isAvailable() {
+    return this.isElectron
+  }
+
+  // 列出目录
+  async listDirectory(path = this.currentPath) {
+    if (!this.isElectron) throw new Error('Electron API 不可用')
+    const items = await window.electronAPI.listDirectory(path)
+    return items.map(item => ({
+      ...item,
+      isDirectory: item.isDirectory,
+      isFile: item.isFile,
+    }))
+  }
+
+  // 创建目录
+  async mkdir(path, recursive = false) {
+    if (!this.isElectron) throw new Error('Electron API 不可用')
+    return await window.electronAPI.mkdir(path, recursive)
+  }
+
+  // 读取文件
+  async readFile(path, encoding = 'utf-8') {
+    if (!this.isElectron) throw new Error('Electron API 不可用')
+    return await window.electronAPI.readFile(path, encoding)
+  }
+
+  // 读取文件为 Blob
+  async readFileAsBlob(path) {
+    if (!this.isElectron) throw new Error('Electron API 不可用')
+    const buffer = await window.electronAPI.readFileAsBuffer(path)
+    const uint8Array = new Uint8Array(buffer)
+    const file = await this.getFile(path)
+    return new Blob([uint8Array], { type: file?.type || 'application/octet-stream' })
+  }
+
+  // 读取文件为 DataURL
+  async readFileAsDataURL(path) {
+    const blob = await this.readFileAsBlob(path)
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result)
+      reader.onerror = () => reject(new Error('读取文件失败'))
+      reader.readAsDataURL(blob)
+    })
+  }
+
+  // 写入文件
+  async writeFile(path, content, options = {}) {
+    if (!this.isElectron) throw new Error('Electron API 不可用')
+    return await window.electronAPI.writeFile(path, content, options)
+  }
+
+  // 删除文件/目录
+  async delete(path, recursive = false) {
+    if (!this.isElectron) throw new Error('Electron API 不可用')
+    return await window.electronAPI.delete(path, recursive)
+  }
+
+  // 移动/重命名
+  async move(fromPath, toPath) {
+    if (!this.isElectron) throw new Error('Electron API 不可用')
+    return await window.electronAPI.move(fromPath, toPath)
+  }
+
+  // 复制文件
+  async copy(fromPath, toPath) {
+    if (!this.isElectron) throw new Error('Electron API 不可用')
+    return await window.electronAPI.copy(fromPath, toPath)
+  }
+
+  // 获取文件信息
+  async getFile(path) {
+    if (!this.isElectron) throw new Error('Electron API 不可用')
+    return await window.electronAPI.getFile(path)
+  }
+
+  // 检查路径是否存在
+  async exists(path) {
+    if (!this.isElectron) throw new Error('Electron API 不可用')
+    return await window.electronAPI.exists(path)
+  }
+
+  // 检查是否为目录
+  async isDirectory(path) {
+    if (!this.isElectron) throw new Error('Electron API 不可用')
+    return await window.electronAPI.isDirectory(path)
+  }
+
+  // 检查是否为文件
+  async isFile(path) {
+    if (!this.isElectron) throw new Error('Electron API 不可用')
+    return await window.electronAPI.isFile(path)
+  }
+
+  // 读取 JSON
+  async readJSON(path) {
+    if (!this.isElectron) throw new Error('Electron API 不可用')
+    return await window.electronAPI.readJSON(path)
+  }
+
+  // 写入 JSON
+  async writeJSON(path, data, options = {}) {
+    if (!this.isElectron) throw new Error('Electron API 不可用')
+    return await window.electronAPI.writeJSON(path, data, options)
+  }
+
+  // 切换当前目录
+  cd(path) {
+    this.currentPath = path
+    return this.currentPath
+  }
+
+  // 获取当前路径
+  pwd() {
+    return this.currentPath
+  }
+
+  // 搜索文件
+  async search(pattern, options = {}) {
+    if (!this.isElectron) throw new Error('Electron API 不可用')
+    return await window.electronAPI.search(pattern, options)
+  }
+
+  // 按类型搜索
+  async searchByType(type, options = {}) {
+    if (!this.isElectron) throw new Error('Electron API 不可用')
+    return await window.electronAPI.searchByType(type, options)
+  }
+
+  // 搜索视频
+  async searchVideos(options = {}) {
+    if (!this.isElectron) throw new Error('Electron API 不可用')
+    return await window.electronAPI.searchVideos(options)
+  }
+
+  // 搜索音频
+  async searchAudio(options = {}) {
+    if (!this.isElectron) throw new Error('Electron API 不可用')
+    return await window.electronAPI.searchAudio(options)
+  }
+
+  // 搜索字幕
+  async searchSubtitles(options = {}) {
+    if (!this.isElectron) throw new Error('Electron API 不可用')
+    return await window.electronAPI.searchSubtitles(options)
+  }
+
+  // 搜索 JSON
+  async searchJSON(options = {}) {
+    if (!this.isElectron) throw new Error('Electron API 不可用')
+    return await window.electronAPI.searchJSON(options)
+  }
+
+  // 获取存储信息
+  async getStorageInfo() {
+    if (!this.isElectron) throw new Error('Electron API 不可用')
+    return await window.electronAPI.getStorageInfo()
+  }
+
+  // 创建视频项目
+  async createVideoProject(projectName, config = {}) {
+    if (!this.isElectron) throw new Error('Electron API 不可用')
+    return await window.electronAPI.createVideoProject(projectName, config)
+  }
+
+  // 获取视频项目列表
+  async getVideoProjects() {
+    if (!this.isElectron) throw new Error('Electron API 不可用')
+    return await window.electronAPI.getVideoProjects()
+  }
+}
+
+// =====================================================
+// 混合文件系统 - 优先使用 Electron VFS，回退到 IndexedDB
+// =====================================================
+class HybridVirtualFileSystem extends VirtualFileSystem {
+  constructor() {
+    super()
+    this.electronClient = new ElectronVFSClient()
+    this.useElectron = false
+    this.initialized = false
+  }
+
+  async init() {
+    // 检测 Electron 环境
+    if (this.electronClient.isAvailable()) {
+      this.useElectron = true
+      console.log('[VFS] 使用 Electron 虚拟文件系统')
+      this.initialized = true
+      return true
+    } else {
+      console.log('[VFS] Electron 不可用，使用 IndexedDB 虚拟文件系统')
+      // 回退到 IndexedDB 实现
+      return await super.init()
+    }
+  }
+
+  // 代理所有方法到 Electron 客户端或 IndexedDB 实现
+  async listDirectory(path) {
+    if (this.useElectron) {
+      return await this.electronClient.listDirectory(path)
+    }
+    return super.listDirectory(path)
+  }
+
+  async mkdir(path, recursive = false) {
+    if (this.useElectron) {
+      return await this.electronClient.mkdir(path, recursive)
+    }
+    return await super.mkdir(path, recursive)
+  }
+
+  async readFile(path, encoding = 'utf-8') {
+    if (this.useElectron) {
+      return await this.electronClient.readFile(path, encoding)
+    }
+    return await super.readFile(path, encoding)
+  }
+
+  async readFileAsBlob(path) {
+    if (this.useElectron) {
+      return await this.electronClient.readFileAsBlob(path)
+    }
+    return await super.readFileAsBlob(path)
+  }
+
+  async readFileAsDataURL(path) {
+    if (this.useElectron) {
+      return await this.electronClient.readFileAsDataURL(path)
+    }
+    return await super.readFileAsDataURL(path)
+  }
+
+  async writeFile(path, content, options = {}) {
+    if (this.useElectron) {
+      return await this.electronClient.writeFile(path, content, options)
+    }
+    return await super.writeFile(path, content, options)
+  }
+
+  async delete(path, recursive = false) {
+    if (this.useElectron) {
+      return await this.electronClient.delete(path, recursive)
+    }
+    return await super.delete(path, recursive)
+  }
+
+  async move(fromPath, toPath) {
+    if (this.useElectron) {
+      return await this.electronClient.move(fromPath, toPath)
+    }
+    return await super.move(fromPath, toPath)
+  }
+
+  async copy(fromPath, toPath) {
+    if (this.useElectron) {
+      return await this.electronClient.copy(fromPath, toPath)
+    }
+    return await super.copy(fromPath, toPath)
+  }
+
+  async getFile(path) {
+    if (this.useElectron) {
+      return await this.electronClient.getFile(path)
+    }
+    return super.getFile(path)
+  }
+
+  async exists(path) {
+    if (this.useElectron) {
+      return await this.electronClient.exists(path)
+    }
+    return super.exists(path)
+  }
+
+  async isDirectory(path) {
+    if (this.useElectron) {
+      return await this.electronClient.isDirectory(path)
+    }
+    return super.isDirectory(path)
+  }
+
+  async isFile(path) {
+    if (this.useElectron) {
+      return await this.electronClient.isFile(path)
+    }
+    return super.isFile(path)
+  }
+
+  async readJSON(path) {
+    if (this.useElectron) {
+      return await this.electronClient.readJSON(path)
+    }
+    return await super.readJSON(path)
+  }
+
+  async writeJSON(path, data, options = {}) {
+    if (this.useElectron) {
+      return await this.electronClient.writeJSON(path, data, options)
+    }
+    return await super.writeJSON(path, data, options)
+  }
+
+  cd(path) {
+    if (this.useElectron) {
+      return this.electronClient.cd(path)
+    }
+    return super.cd(path)
+  }
+
+  pwd() {
+    if (this.useElectron) {
+      return this.electronClient.pwd()
+    }
+    return super.pwd()
+  }
+
+  async search(pattern, options = {}) {
+    if (this.useElectron) {
+      return await this.electronClient.search(pattern, options)
+    }
+    return super.search(pattern, options)
+  }
+
+  async searchByType(type, options = {}) {
+    if (this.useElectron) {
+      return await this.electronClient.searchByType(type, options)
+    }
+    return super.searchByType(type, options)
+  }
+
+  async searchVideos(options = {}) {
+    if (this.useElectron) {
+      return await this.electronClient.searchVideos(options)
+    }
+    return super.searchVideos(options)
+  }
+
+  async searchAudio(options = {}) {
+    if (this.useElectron) {
+      return await this.electronClient.searchAudio(options)
+    }
+    return super.searchAudio(options)
+  }
+
+  async searchSubtitles(options = {}) {
+    if (this.useElectron) {
+      return await this.electronClient.searchSubtitles(options)
+    }
+    return super.searchSubtitles(options)
+  }
+
+  async searchJSON(options = {}) {
+    if (this.useElectron) {
+      return await this.electronClient.searchJSON(options)
+    }
+    return super.searchJSON(options)
+  }
+
+  async getStorageInfo() {
+    if (this.useElectron) {
+      return await this.electronClient.getStorageInfo()
+    }
+    return await super.getStorageInfo()
+  }
+
+  async createVideoProject(projectName, config = {}) {
+    if (this.useElectron) {
+      return await this.electronClient.createVideoProject(projectName, config)
+    }
+    return await super.createVideoProject(projectName, config)
+  }
+
+  async getVideoProjects() {
+    if (this.useElectron) {
+      return await this.electronClient.getVideoProjects()
+    }
+    return await super.getVideoProjects()
+  }
+
+  // 获取当前模式
+  getMode() {
+    return this.useElectron ? 'electron' : 'indexeddb'
+  }
+}
+
+// =====================================================
 // 创建默认的文件系统实例
 // =====================================================
 export async function createDefaultFileSystem() {
-  const vfs = new VirtualFileSystem()
+  const vfs = new HybridVirtualFileSystem()
   await vfs.init()
   return vfs
 }
@@ -1302,10 +1699,10 @@ let sharedVFS = null
 
 export async function getSharedFileSystem() {
   if (!sharedVFS) {
-    sharedVFS = new VirtualFileSystem()
+    sharedVFS = new HybridVirtualFileSystem()
     await sharedVFS.init()
   }
   return sharedVFS
 }
 
-export default VirtualFileSystem
+export default HybridVirtualFileSystem

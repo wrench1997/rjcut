@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { getSharedFileSystem } from '../src/utils/virtualFileSystem'
 import { setApiKey } from '../src/api/api'
-import { FolderOpen, Folder, Layers, Sparkles, Settings, HelpCircle, Gem, Users, Scissors, Bot } from 'lucide-react'
+import { FolderOpen, Folder, Layers, Sparkles, Settings, HelpCircle, Gem, Users, Scissors } from 'lucide-react'
 
 // 导入你的各个组件
 import FileBrowser from '../src/components/FileBrowser'
@@ -11,7 +11,7 @@ import DigitalHumanStudio from '../src/components/DigitalHumanStudio'
 import DigitalHumanManager from '../src/components/DigitalHumanManager'
 import HelpGuide from '../src/components/HelpGuide'
 import AdvancedVideoEditor from '../src/components/AdvancedVideoEditor'
-import AIChat from '../src/components/AIChat'
+
 
 const DEFAULT_API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8001'
 const DEFAULT_API_KEY = 'rjk_oG3u1bRu10myprstb5o2AYVW6v9HipNT33ALuJTmFxaqemUC'
@@ -37,7 +37,7 @@ const NAV_ITEMS = [
   { id: 'batch', label: '批量处理', icon: Layers },
   { id: 'projects', label: '项目管理', icon: FolderOpen },
   { id: 'files', label: '文件浏览', icon: Folder },
-  { id: 'ai', label: 'AI 助手 (开发中)', icon: Bot },
+  
   { id: 'digital-human-studio', label: '数字人创作平台', icon: Sparkles },
   { id: 'digital-human', label: '数字人管理', icon: Users },
   { id: 'advanced-editor', label: '高级视频剪辑(开发中)', icon: Scissors },
@@ -95,7 +95,12 @@ export default function Home() {
     }
   }, [apiKey, apiBaseUrl])
 
-  useEffect(() => { fetchMerchantInfo() }, [fetchMerchantInfo])
+  useEffect(() => {
+    // 只在 API 服务可用时获取商户信息
+    fetchMerchantInfo().catch(err => {
+      console.warn('API 服务未启动，跳过商户信息获取:', err.message)
+    })
+  }, [fetchMerchantInfo])
 
   // --- 侧边栏 ---
   const Sidebar = () => (
@@ -182,16 +187,7 @@ export default function Home() {
             {activeTab === 'batch' && <BatchProcessor vfs={vfs} apiKey={apiKey} />}
             {activeTab === 'projects' && <VideoProjectManager vfs={vfs} onOpenProject={() => setActiveTab('files')} onNavigate={() => setActiveTab('files')} />}
             {activeTab === 'files' && <FileBrowser vfs={vfs} />}
-            {activeTab === 'ai' && vfs && (
-              <div className="h-full">
-                <AIChat 
-                  vfs={vfs} 
-                  currentProject={null}
-                  onProjectSwitch={() => {}}
-                  onFileCreated={() => {}}
-                />
-              </div>
-            )}
+            
             {activeTab === 'digital-human-studio' && <DigitalHumanStudio apiKey={apiKey} apiBaseUrl={apiBaseUrl} />}
             {activeTab === 'digital-human' && <DigitalHumanManager apiKey={apiKey} apiBaseUrl={apiBaseUrl} />}
             {activeTab === 'advanced-editor' && !vfsLoading && vfs && <AdvancedVideoEditor vfs={vfs} />}

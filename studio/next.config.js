@@ -1,6 +1,12 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // 允许外部访问
+  experimental: {
+    serverActions: {
+      bodySizeLimit: '2mb',
+    },
+  },
   // 允许加载 wasm 文件
   serverExternalPackages: [],
   // 配置 webpack 支持 wasm

@@ -29,6 +29,7 @@
 """
 
 import os
+import shutil
 import subprocess
 import tempfile
 from typing import Optional
@@ -58,10 +59,25 @@ def check_audio_stream(video_path: str) -> bool:
         return False
 
 
-def get_audio_duration(audio_path: str) -> float:
+def get_audio_duration(audio_path: str) -> Optional[float]:
     """
     获取音频文件时长（秒）
+    
+    Returns:
+        float: 时长（秒）
+        None: 如果文件不是有效的音频文件
     """
+    # 检查文件是否存在
+    if not os.path.isfile(audio_path):
+        return None
+    
+    # 检查文件扩展名，快速排除非音频文件
+    audio_extensions = {'.mp3', '.wav', '.aac', '.flac', '.ogg', '.m4a', '.wma', '.aiff'}
+    ext = os.path.splitext(audio_path)[1].lower()
+    if ext and ext not in audio_extensions:
+        print(f"  ⚠️  跳过背景音乐：'{os.path.basename(audio_path)}' 不是音频文件")
+        return None
+    
     cmd = [
         "ffprobe", "-v", "error",
         "-show_entries", "format=duration",
@@ -73,9 +89,11 @@ def get_audio_duration(audio_path: str) -> float:
         result = subprocess.run(
             cmd, capture_output=True, text=True, timeout=10, check=True
         )
-        return float(result.stdout.strip())
+        duration = float(result.stdout.strip())
+        return duration if duration > 0 else None
     except Exception as e:
-        raise RuntimeError(f"无法获取音频时长: {e}")
+        print(f"  ⚠️  跳过背景音乐：无法获取音频时长 - {e}")
+        return None
 
 
 def get_video_duration(video_path: str) -> float:
@@ -144,9 +162,15 @@ def add_background_music(
     if not os.path.isfile(bgm_path):
         raise FileNotFoundError(f"背景音乐不存在: {bgm_path}")
     
-    # 获取视频时长
+# 获取视频时长
     video_duration = get_video_duration(input_video)
     bgm_duration = get_audio_duration(bgm_path)
+    
+    # 如果无法获取 BGM 时长（文件无效或不是音频），直接复制视频
+    if bgm_duration is None:
+        print(f"  ⚠️  背景音乐文件无效，跳过添加背景音乐")
+        shutil.copy2(input_video, output_video)
+        return output_video
     
     print(f"  视频时长:     {video_duration:.2f}s")
     print(f"  BGM 时长:     {bgm_duration:.2f}s")

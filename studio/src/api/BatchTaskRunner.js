@@ -3,7 +3,7 @@
  */
 import pLimit from 'p-limit';
 import * as api from './api';
-import { getSharedFileSystem } from '../utils/virtualFileSystem';
+import { getVFS } from '../utils/vfsClient';
 
 // 分片大小：5MB
 const CHUNK_SIZE = 5 * 1024 * 1024;
@@ -73,7 +73,9 @@ export class BatchTaskRunner {
    */
   async getVFS() {
     if (!this.vfs) {
-      this.vfs = await getSharedFileSystem();
+      const vfsInstance = getVFS();
+      await vfsInstance.init();
+      this.vfs = vfsInstance;
     }
     return this.vfs;
   }

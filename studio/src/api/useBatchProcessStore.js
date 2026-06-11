@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { getSharedFileSystem } from '../utils/virtualFileSystem'
+import { getVFS } from '../utils/vfsClient'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8001'
 
@@ -68,7 +68,8 @@ const useBatchProcessStore = create((set, get) => ({
       abortController: new AbortController()
     })
 
-    const vfs = await getSharedFileSystem()
+    const vfs = getVFS()
+await vfs.init()
     const apiKey = localStorage.getItem('rjcut_api_key')
     const abortSignal = get().abortController.signal
 

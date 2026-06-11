@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { createDefaultFileSystem, getSharedFileSystem } from './utils/virtualFileSystem'
+// VFS 统一方案：使用 vfsClient 代理扩展 VFS
+import { getVFS } from './utils/vfsClient'
 import { setApiKey, getMerchantInfo as apiGetMerchantInfo } from './api/api'
-import { FolderOpen, Folder, Layers, Clapperboard, Settings, HelpCircle, Sparkles, Film, Scissors, FileText, Clock, RefreshCw, ScrollText, Download, User, Bot } from 'lucide-react'
+import { FolderOpen, Folder, Layers, Clapperboard, Settings, HelpCircle, Sparkles, Film, Scissors, FileText, Clock, RefreshCw, ScrollText, Download, User, Bot, Plug } from 'lucide-react'
 import FileBrowser from './components/FileBrowser'
 import VideoProjectManager from './components/VideoProjectManager'
 import AIChat from './components/AIChat'
@@ -10,6 +11,8 @@ import DigitalHumanStudio from './components/DigitalHumanStudio'
 import DigitalHumanManager from './components/DigitalHumanManager'
 import HelpGuide from './components/HelpGuide'
 import AdvancedVideoEditor from './components/AdvancedVideoEditor'
+import MCPManager from './components/MCPManager'
+import MCPTestClient from './components/MCPTestClient'
 
 // =====================================================
 // API 客户端实例（用于 MCP 工具调用）
@@ -412,10 +415,13 @@ function App() {
   const [apiBaseUrl, setApiBaseUrl] = useState(() => 
     localStorage.getItem('rjcut_api_base_url') || DEFAULT_API_BASE_URL
   )
+  const [mcpServerUrl, setMcpServerUrl] = useState(() => 
+    localStorage.getItem('rjcut_mcp_server_url') || 'ws://localhost:8001/mcp'
+  )
   const [tasks, setTasks] = useState([])
   
   // UI 状态
-  const [activeTab, setActiveTab] = useState('batch') // 'batch' | 'projects' | 'files' | 'tasks' | 'ai' | 'digital-human-studio' | 'digital-human-manager' | 'advanced-editor' | 'settings'
+  const [activeTab, setActiveTab] = useState('batch') // 'batch' | 'projects' | 'files' | 'tasks' | 'ai' | 'mcp' | 'mcp-test' | 'digital-human-studio' | 'digital-human-manager' | 'advanced-editor' | 'settings'
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [successMsg, setSuccessMsg] = useState('')
@@ -436,10 +442,16 @@ function App() {
       console.log('[App] 开始初始化 VFS...')
       try {
         setVfsLoading(true)
-        const sharedVfs = await getSharedFileSystem()
-        console.log('[App] VFS 初始化成功:', sharedVfs)
-        setVfs(sharedVfs)
-        vfsRef.current = sharedVfs
+        // 使用 VFS 客户端（支持扩展 VFS 和本地 VFS 两种模式）
+        const vfs = getVFS()
+        await vfs.init()
+        console.log('[App] VFS 初始化成功:', vfs)
+        setVfs(vfs)
+        vfsRef.current = vfs
+        
+        // 注意：MCP 服务器现在在 MCPManager 组件中手动启动
+        // 这样用户可以在 MCP 管理页面中配置和控制 MCP 服务器
+        
       } catch (e) {
         console.error('[App] 初始化文件系统失败:', e)
         setError(`文件系统初始化失败：${e.message}`)
@@ -461,6 +473,11 @@ function App() {
   useEffect(() => {
     localStorage.setItem('rjcut_api_base_url', apiBaseUrl)
   }, [apiBaseUrl])
+  
+  // 保存 MCP Server URL
+  useEffect(() => {
+    localStorage.setItem('rjcut_mcp_server_url', mcpServerUrl)
+  }, [mcpServerUrl])
   
   // 获取商户信息
   const fetchMerchantInfo = useCallback(async () => {
@@ -599,6 +616,24 @@ function App() {
             </button>
             
             <button 
+              className={`btn btn-utility ${activeTab === 'mcp' ? 'text-primary' : ''}`}
+              onClick={() => setActiveTab('mcp')}
+              title="MCP 服务器管理"
+            >
+              <Plug size={18} strokeWidth={2} />
+              <span style={{ marginLeft: '6px' }}>MCP 管理</span>
+            </button>
+            
+            <button 
+              className={`btn btn-utility ${activeTab === 'mcp-test' ? 'text-primary' : ''}`}
+              onClick={() => setActiveTab('mcp-test')}
+              title="MCP 测试客户端"
+            >
+              <Activity size={18} strokeWidth={2} />
+              <span style={{ marginLeft: '6px' }}>MCP 测试</span>
+            </button>
+            
+            <button 
               className={`btn btn-utility ${activeTab === 'digital-human-studio' ? 'text-primary' : ''}`}
               onClick={() => {
                 console.log('[App] 点击数字人创作台按钮，切换 activeTab 到 digital-human-studio')
@@ -670,6 +705,8 @@ function App() {
           {activeTab === 'batch' && '批量视频处理'}
           {activeTab === 'tasks' && '任务管理'}
           {activeTab === 'ai' && 'AI 智能助手（MCP 支持）'}
+          {activeTab === 'mcp' && 'MCP 服务器管理'}
+          {activeTab === 'mcp-test' && 'MCP 测试客户端'}
           {activeTab === 'digital-human-studio' && '数字人创作平台'}
           {activeTab === 'digital-human-manager' && '数字人资产管理'}
           {activeTab === 'advanced-editor' && '高级视频剪辑台'}
@@ -774,6 +811,27 @@ function App() {
                 console.log('[App] 文件已创建:', filePath)
               }}
               apiClient={apiClient}
+              mcpServerUrl={mcpServerUrl}
+            />
+          </div>
+        )}
+        
+        {/* MCP 服务器管理页面 */}
+        {!vfsLoading && activeTab === 'mcp' && vfs && (
+          <div className="tile tile-light">
+            <MCPManager
+              vfs={vfs}
+              mcpServerUrl={mcpServerUrl}
+              onMcpServerUrlChange={setMcpServerUrl}
+            />
+          </div>
+        )}
+        
+        {/* MCP 测试客户端页面 */}
+        {!vfsLoading && activeTab === 'mcp-test' && (
+          <div className="tile tile-light">
+            <MCPTestClient
+              mcpServerUrl={mcpServerUrl}
             />
           </div>
         )}

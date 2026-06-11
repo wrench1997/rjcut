@@ -167,7 +167,14 @@ function FileUploadSuggestion({ fileType, targetPath, onUpload }) {
 // =====================================================
 // 主 AI 聊天组件
 // =====================================================
-function AIChat({ vfs, currentProject, onProjectSwitch, onFileCreated, apiClient }) {
+function AIChat({ 
+  vfs, 
+  currentProject, 
+  onProjectSwitch, 
+  onFileCreated, 
+  apiClient,
+  mcpServerUrl = 'ws://localhost:8001/mcp' // 可配置的 MCP 服务器 URL
+}) {
   const [messages, setMessages] = useState([
     {
       role: 'assistant',
@@ -203,7 +210,7 @@ function AIChat({ vfs, currentProject, onProjectSwitch, onFileCreated, apiClient
   useEffect(() => {
     const initMCP = async () => {
       try {
-        const mcpClient = getMCPClient({ serverUrl: 'ws://localhost:8001/mcp' })
+        const mcpClient = getMCPClient({ serverUrl: mcpServerUrl })
         mcpClientRef.current = mcpClient
 
         // 注册内置工具和资源

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { getCommonPersons, getCustomPersons, getVoices, createDhGenerateTask, getDhTaskDetail, getDhVideoUrl } from '../api/api'
-import { getSharedFileSystem } from '../utils/virtualFileSystem'
+import { getVFS } from '../utils/vfsClient'
 import { User, Mic, Check, X, Film, Download, AlertCircle, Loader2, Book, Inbox, Folder, AlertTriangle, Rocket, Settings, Sliders, Volume2, Type, Image, ChevronDown, ChevronUp, Palette, Maximize } from 'lucide-react'
 
 // =====================================================
@@ -625,11 +625,12 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
     // 加载数字人、声音和项目列表
     const loadData = async () => {
       try {
-        const [cRes, pRes, vRes, vfs] = await Promise.all([
+        const vfs = getVFS()
+        await vfs.init()
+        const [cRes, pRes, vRes] = await Promise.all([
           getCommonPersons(),
           getCustomPersons(),
           getVoices(),
-          getSharedFileSystem(),
         ])
         
         let all = []
@@ -693,7 +694,7 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
 
     try {
       const apiKey = localStorage.getItem('rjcut_api_key')
-      const vfs = await getSharedFileSystem()
+      const vfs = getVFS()
       
       // 使用所选项目的 输出 目录作为保存路径
       const savePath = `${selectedProject.path}/输出`

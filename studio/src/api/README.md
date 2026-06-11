@@ -81,8 +81,8 @@ import useBatchStore from './api/useBatchProcessStore'
 const tasks = [
   {
     id: 'task1',
-    vfsVideoPath: '/raw/project1/video.mp4',
-    vfsScriptPath: '/raw/project1/scenes.json',
+    vfsVideoPath: '/project1/video.mp4',
+    vfsScriptPath: '/project1/scenes.json',
     vfsBgmPath: '/audio/bgm.mp3',
     stage: 'idle',
     progress: 0,
