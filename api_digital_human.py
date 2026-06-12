@@ -94,6 +94,71 @@ def list_common_persons(_: Merchant = Depends(verify_api_key)):
     
     return ok(result_list)
 
+@router.get("/persons/common/{person_id}")
+def get_common_person_detail(
+    person_id: str,
+    _: Merchant = Depends(verify_api_key)
+):
+    """获取单个公共数字人的详细信息（包含可用动作/形象）"""
+    api = get_chanjing_api()
+    
+    # 蝉镜 API 没有直接的公共数字人详情接口，需要从列表中筛选
+    # 或者调用 list_common_digital_persons 并找到对应的 person
+    res = api.list_common_digital_persons(page=1, size=100)
+    
+    if not res or "data" not in res:
+        return fail(50000, "failed to fetch person details", status_code=500)
+    
+    persons = res.get("data", {}).get("list", [])
+    
+    # 找到匹配的 person_id
+    target_person = None
+    for person in persons:
+        if person.get("id") == person_id:
+            target_person = person
+            break
+    
+    if not target_person:
+        return fail(40400, "person not found", status_code=404)
+    
+    figures = target_person.get("figures", [])
+    available_figure_types = [fig.get("type", "") for fig in figures if fig.get("type")]
+    
+    # 获取封面和预览视频
+    cover_url = ""
+    preview_video_url = ""
+    figure_type = "whole_body"
+    
+    if figures and len(figures) > 0:
+        for fig in figures:
+            if fig.get("cover"):
+                cover_url = fig.get("cover", "")
+                preview_video_url = fig.get("preview_video_url", "")
+                figure_type = fig.get("type", "whole_body")
+                break
+        if not cover_url and figures[0]:
+            cover_url = figures[0].get("cover", "")
+            preview_video_url = figures[0].get("preview_video_url", "")
+            figure_type = figures[0].get("type", "whole_body")
+    
+    if not cover_url:
+        cover_url = target_person.get("cover_url", "")
+        preview_video_url = target_person.get("preview_video_url", "")
+    
+    result = {
+        "id": person_id,
+        "name": target_person.get("name", ""),
+        "person_id": person_id,
+        "figure_type": figure_type,
+        "available_figure_types": available_figure_types,
+        "cover_url": cover_url,
+        "preview_video_url": preview_video_url,
+        "audio_man_id": target_person.get("audio_man_id", ""),
+        "gender": target_person.get("gender", ""),
+        "figures": figures,
+    }
+    
+    return ok(result)
 
 
 

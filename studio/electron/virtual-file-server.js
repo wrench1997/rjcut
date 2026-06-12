@@ -17,6 +17,8 @@ const WebSocket = require('ws')
 const path = require('path')
 const fs = require('fs').promises
 const fsSync = require('fs')
+const fsUtils = require('./fs-utils')
+const projectStructure = require('./project-structure')
 
 // =====================================================
 // 配置
@@ -752,6 +754,76 @@ class VirtualFileSystem {
     
     return projects.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
   }
+
+  // =====================================================
+  // 物理文件系统同步
+  // =====================================================
+
+  /**
+   * 同步物理文件系统到 VFS
+   * 扫描物理目录并更新 VFS 中的对应项目
+   */
+  async syncFromPhysical(vfsPath, physicalPath) {
+    const normalized = this.normalizePath(vfsPath)
+    
+    // 确保 VFS 目录存在
+    await this.mkdir(normalized, true)
+    
+    // 使用 fs-utils 扫描物理目录
+    const items = await fsUtils.listDirectory(physicalPath)
+    
+    for (const item of items) {
+      const vfsItemPath = normalized + '/' + item.name
+      if (item.isDirectory) {
+        // 递归同步子目录
+        await this.syncFromPhysical(vfsItemPath, item.path)
+      } else if (item.isFile) {
+        // 只记录文件元数据，不复制大文件内容
+        const fileInfo = {
+          path: vfsItemPath,
+          name: item.name,
+          content: '[Physical File - Not Loaded]',
+          size: item.size,
+          type: item.type,
+          createdAt: new Date().toISOString(),
+          updatedAt: item.updatedAt,
+          metadata: {
+            isPhysical: true,
+            physicalPath: item.path,
+          },
+        }
+        this.files.set(vfsItemPath, fileInfo)
+        
+        // 添加到目录
+        const dir = this.getDirectory(normalized)
+        if (dir && !dir.children.has(vfsItemPath)) {
+          dir.children.add(vfsItemPath)
+        }
+      }
+    }
+    
+    return normalized
+  }
+
+  /**
+   * 从外部文件夹导入到项目（调用 fs-utils 的智能组织功能）
+   */
+  async importExternalProject(externalPath, projectPath, options = {}) {
+    // 调用 fs-utils 的智能组织功能
+    const result = await fsUtils.smartOrganizeToProject(externalPath, projectPath, options)
+    
+    // 同步到 VFS
+    await this.syncFromPhysical(projectPath, projectPath)
+    
+    return result
+  }
+
+  /**
+   * 分析外部文件夹
+   */
+  async analyzeExternal(externalPath) {
+    return await fsUtils.analyzeExternalFolder(externalPath)
+  }
 }
 
 // =====================================================
@@ -980,6 +1052,70 @@ class VirtualFileServer {
       await this.vfs.createDefaultStructure()
       console.log('[VFS Server] 已创建默认目录结构')
     }
+    
+    // 自动扫描物理项目目录，同步到 VFS（解决 VFS 同步问题）
+    await this.syncPhysicalProjects()
+  }
+
+  /**
+   * 自动扫描物理项目目录并同步到 VFS
+   */
+  async syncPhysicalProjects() {
+    try {
+      const allowedRoots = fsUtils.getAllowedRoots()
+      if (!allowedRoots || allowedRoots.length === 0) {
+        console.log('[VFS Server] 跳过物理项目同步：未设置允许的根目录')
+        return
+      }
+      
+      const root = allowedRoots[0]
+      const projectsPath = path.join(root, 'projects')
+      
+      // 检查物理项目目录是否存在
+      try {
+        await fs.access(projectsPath)
+      } catch {
+        console.log('[VFS Server] 物理项目目录不存在，跳过同步:', projectsPath)
+        return
+      }
+      
+      // 扫描项目目录
+      const items = await fs.readdir(projectsPath, { withFileTypes: true })
+      let syncedCount = 0
+      
+      for (const item of items) {
+        if (item.isDirectory()) {
+          const projectPath = path.join(projectsPath, item.name)
+          const vfsProjectPath = `/projects/${item.name}`
+          
+          // 检查 VFS 中是否已存在该项目
+          if (!this.vfs.exists(vfsProjectPath)) {
+            // 同步到 VFS
+            await this.vfs.syncFromPhysical(vfsProjectPath, projectPath)
+            syncedCount++
+            console.log(`[VFS Server] 同步物理项目到 VFS: ${item.name}`)
+          } else {
+            // 如果项目已存在，检查是否需要更新子目录结构（确保三个标准目录存在）
+            const standardFolders = projectStructure.getProjectFolderNames()
+            for (const folder of standardFolders) {
+              const subDirPath = `${vfsProjectPath}/${folder}`
+              if (!this.vfs.exists(subDirPath)) {
+                await this.vfs.mkdir(subDirPath)
+                console.log(`[VFS Server] 补充项目标准目录：${subDirPath}`)
+              }
+            }
+          }
+        }
+      }
+      
+      if (syncedCount > 0) {
+        console.log(`[VFS Server] 完成物理项目同步：${syncedCount} 个项目`)
+        // 保存同步后的状态
+        await this.vfs.saveToFile(CONFIG.STORAGE_FILE)
+      }
+    } catch (error) {
+      console.error('[VFS Server] 同步物理项目失败:', error.message)
+    }
   }
 
   start() {
@@ -1014,6 +1150,24 @@ class VirtualFileServer {
       // MCP API
       if (req.url === '/api/mcp' && req.method === 'POST') {
         this.handleHTTPMCP(req, res)
+        return
+      }
+      
+      // 物理文件系统同步 API（前端直接调用）
+      if (req.url === '/api/sync-physical' && req.method === 'POST') {
+        this.handleHTTPSyncPhysical(req, res)
+        return
+      }
+      
+      // 外部项目导入 API
+      if (req.url === '/api/import-external' && req.method === 'POST') {
+        this.handleHTTPImportExternal(req, res)
+        return
+      }
+      
+      // 外部文件夹分析 API
+      if (req.url === '/api/analyze-external' && req.method === 'POST') {
+        this.handleHTTPAnalyzeExternal(req, res)
         return
       }
       
@@ -1112,6 +1266,90 @@ class VirtualFileServer {
           id: -1,
           error: { code: -32000, message: error.message },
         }))
+      }
+    })
+  }
+
+  /**
+   * HTTP API: 同步物理文件系统到 VFS
+   */
+  async handleHTTPSyncPhysical(req, res) {
+    let body = ''
+    req.on('data', chunk => { body += chunk })
+    req.on('end', async () => {
+      try {
+        const { vfsPath, physicalPath } = JSON.parse(body)
+        
+        if (!physicalPath) {
+          throw new Error('缺少参数：physicalPath')
+        }
+        
+        const result = await this.vfs.syncFromPhysical(vfsPath || '/projects/imported', physicalPath)
+        
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({
+          success: true,
+          data: { vfsPath: result, physicalPath },
+        }))
+      } catch (error) {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ success: false, error: error.message }))
+      }
+    })
+  }
+
+  /**
+   * HTTP API: 导入外部项目
+   */
+  async handleHTTPImportExternal(req, res) {
+    let body = ''
+    req.on('data', chunk => { body += chunk })
+    req.on('end', async () => {
+      try {
+        const { externalPath, projectPath, options = {} } = JSON.parse(body)
+        
+        if (!externalPath || !projectPath) {
+          throw new Error('缺少参数：externalPath 和 projectPath')
+        }
+        
+        const result = await this.vfs.importExternalProject(externalPath, projectPath, options)
+        
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({
+          success: true,
+          data: result,
+        }))
+      } catch (error) {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ success: false, error: error.message }))
+      }
+    })
+  }
+
+  /**
+   * HTTP API: 分析外部文件夹
+   */
+  async handleHTTPAnalyzeExternal(req, res) {
+    let body = ''
+    req.on('data', chunk => { body += chunk })
+    req.on('end', async () => {
+      try {
+        const { externalPath } = JSON.parse(body)
+        
+        if (!externalPath) {
+          throw new Error('缺少参数：externalPath')
+        }
+        
+        const analysis = await this.vfs.analyzeExternal(externalPath)
+        
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({
+          success: true,
+          data: analysis,
+        }))
+      } catch (error) {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ success: false, error: error.message }))
       }
     })
   }

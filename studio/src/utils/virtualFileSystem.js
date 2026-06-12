@@ -845,6 +845,112 @@ export class VirtualFileSystem {
     await this.saveState()
   }
 
+  // 复制文件/目录
+  async copy(fromPath, toPath) {
+    const fromNormalized = this.normalizePath(fromPath)
+    const toNormalized = this.normalizePath(toPath)
+    
+    if (fromNormalized === ROOT_PATH) {
+      throw new Error('不能复制根目录')
+    }
+    
+    if (!this.files.has(fromNormalized) && !this.directories.has(fromNormalized)) {
+      throw new Error(`路径不存在：${fromPath}`)
+    }
+    
+    // 检查目标路径的父目录是否存在
+    const toParentPath = toNormalized.substring(0, toNormalized.lastIndexOf('/')) || ROOT_PATH
+    if (!this.directories.has(toParentPath)) {
+      throw new Error(`目标父目录不存在：${toParentPath}`)
+    }
+    
+    const isFile = this.files.has(fromNormalized)
+    
+    if (isFile) {
+      // 复制文件
+      const file = this.files.get(fromNormalized)
+      const newFile = {
+        ...file,
+        name: toNormalized.split('/').pop(),
+        path: toNormalized,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }
+      this.files.set(toNormalized, newFile)
+      
+      // 更新父目录
+      const parentDir = this.directories.get(toParentPath)
+      if (parentDir && !parentDir.children.has(toNormalized)) {
+        parentDir.children.add(toNormalized)
+        await dbOperations.putDirectory({
+          path: toParentPath,
+          name: parentDir.name,
+          parent: parentDir.parent,
+          children: Array.from(parentDir.children),
+          createdAt: parentDir.createdAt,
+        })
+      }
+      
+      // 保存到数据库
+      await dbOperations.putFile({
+        ...newFile,
+        children: undefined,
+      })
+    } else {
+      // 复制目录（递归）
+      const copyDirectory = async (srcPath, destPath) => {
+        const srcDir = this.directories.get(srcPath)
+        if (!srcDir) return
+        
+        // 创建目标目录
+        await this.mkdir(destPath, false)
+        
+        // 递归复制子项
+        for (const childPath of srcDir.children) {
+          const childName = childPath.split('/').pop()
+          const childDestPath = `${destPath}/${childName}`
+          
+          if (this.directories.has(childPath)) {
+            // 子目录
+            await copyDirectory(childPath, childDestPath)
+          } else if (this.files.has(childPath)) {
+            // 子文件
+            const file = this.files.get(childPath)
+            const newFile = {
+              ...file,
+              name: childName,
+              path: childDestPath,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            }
+            this.files.set(childDestPath, newFile)
+            
+            const destDir = this.directories.get(destPath)
+            if (destDir && !destDir.children.has(childDestPath)) {
+              destDir.children.add(childDestPath)
+              await dbOperations.putDirectory({
+                path: destPath,
+                name: destDir.name,
+                parent: destDir.parent,
+                children: Array.from(destDir.children),
+                createdAt: destDir.createdAt,
+              })
+            }
+            
+            await dbOperations.putFile({
+              ...newFile,
+              children: undefined,
+            })
+          }
+        }
+      }
+      
+      await copyDirectory(fromNormalized, toNormalized)
+    }
+    
+    await this.saveState()
+  }
+
   // 读取文件为 JSON
   async readJSON(path) {
     const content = await this.readFile(path)

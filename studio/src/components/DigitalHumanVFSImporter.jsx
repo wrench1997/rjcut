@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { getVFS } from '../utils/vfsClient'
+import { PROJECT_FOLDERS, buildVFSPath, parseProjectNameFromVFS } from '../utils/project-structure'
 import { 
   createDhGenerateTask, 
   getTaskStatus,
@@ -495,7 +496,10 @@ async function importVideoToVFS(vfs, projectPath, task, filename) {
   const blob = await response.blob()
 
   // 确定保存路径 - 直接保存到项目根目录的 输出 子目录
-  const savePath = `${projectPath}/输出/${filename}`
+  // 使用统一的项目结构模块构建路径
+  const projectName = parseProjectNameFromVFS(projectPath)
+  const outputDir = buildVFSPath(projectName, PROJECT_FOLDERS.OUTPUT)
+  const savePath = `${outputDir}/${filename}`
 
   // 写入 VFS
   const fileInfo = await vfs.writeFile(savePath, blob, {

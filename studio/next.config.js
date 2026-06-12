@@ -1,11 +1,11 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  // 允许外部访问
-  experimental: {
-    serverActions: {
-      bodySizeLimit: '2mb',
-    },
+  // 告诉 Next.js 导出静态 HTML 到 /out 文件夹
+  output: 'export',
+  // 确保图片不使用 Node.js 的图像优化服务
+  images: {
+    unoptimized: true,
   },
   // 允许加载 wasm 文件
   serverExternalPackages: [],
@@ -21,8 +21,6 @@ const nextConfig = {
   turbopack: {
     // 如果需要配置 Turbopack，可以在这里添加
   },
-  // 输出静态文件或 Node.js 服务器
-  output: 'standalone',
 }
 
 module.exports = nextConfig

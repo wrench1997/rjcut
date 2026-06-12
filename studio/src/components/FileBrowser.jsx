@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Folder, FileVideo, FileAudio, FileImage, FileJson, FileCode, FileBox, FileText, File, Film, Music, Image, ArrowUp, RefreshCw, FolderPlus, FilePlus, Trash2, Eye, Download, Clapperboard, Home, List, Grid3x3, FolderOpen } from 'lucide-react'
+import { Folder, FileVideo, FileAudio, FileImage, FileJson, FileCode, FileBox, FileText, File, Film, Music, Image, ArrowUp, RefreshCw, FolderPlus, FilePlus, Trash2, Eye, Download, Clapperboard, Home, List, Grid3x3, FolderOpen, Copy, Clipboard, Scissors, Move, FileInput } from 'lucide-react'
 
 // =====================================================
 // 文件图标
@@ -268,7 +268,7 @@ function TextPreview({ file, vfs }) {
 // =====================================================
 // 文件项组件 - 列表视图
 // =====================================================
-function FileListItem({ item, onSelect, onOpen, selected, onDelete }) {
+function FileListItem({ item, onSelect, onOpen, selected, onDelete, onContextMenu }) {
   const handleDelete = (e) => {
     e.stopPropagation()
     if (window.confirm(`确定要删除 "${item.name}" ${item.isDirectory ? '文件夹' : '文件'} 吗？`)) {
@@ -286,11 +286,17 @@ function FileListItem({ item, onSelect, onOpen, selected, onDelete }) {
     onOpen(e, item)
   }
   
+  const handleItemContextMenu = (e) => {
+    e.stopPropagation()
+    onContextMenu?.(e, item)
+  }
+  
   return (
     <div
       className={`file-list-item ${selected ? 'selected' : ''}`}
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
+      onContextMenu={handleItemContextMenu}
     >
       <span className="file-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <FileIcon isDirectory={item.isDirectory} fileName={item.name} type={item.type} />
@@ -318,13 +324,6 @@ function FileListItem({ item, onSelect, onOpen, selected, onDelete }) {
             <Film size={12} strokeWidth={2} /> 视频
           </span>
         )}
-        <button
-          className="btn-icon"
-          onClick={handleDelete}
-          title="删除"
-        >
-          <Trash2 size={14} strokeWidth={2} />
-        </button>
       </span>
     </div>
   )
@@ -333,7 +332,7 @@ function FileListItem({ item, onSelect, onOpen, selected, onDelete }) {
 // =====================================================
 // 文件项组件 - 网格视图
 // =====================================================
-function FileGridItem({ item, onSelect, onOpen, selected, onDelete }) {
+function FileGridItem({ item, onSelect, onOpen, selected, onDelete, onContextMenu }) {
   const handleDelete = (e) => {
     e.stopPropagation()
     if (window.confirm(`确定要删除 "${item.name}" ${item.isDirectory ? '文件夹' : '文件'} 吗？`)) {
@@ -351,11 +350,17 @@ function FileGridItem({ item, onSelect, onOpen, selected, onDelete }) {
     onOpen(e, item)
   }
   
+  const handleItemContextMenu = (e) => {
+    e.stopPropagation()
+    onContextMenu?.(e, item)
+  }
+  
   return (
     <div
       className={`file-grid-item ${selected ? 'selected' : ''}`}
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
+      onContextMenu={handleItemContextMenu}
     >
       <div className="file-grid-icon">
         <FileIcon isDirectory={item.isDirectory} fileName={item.name} type={item.type} />
@@ -371,14 +376,55 @@ function FileGridItem({ item, onSelect, onOpen, selected, onDelete }) {
         )}
       </div>
       <div className="file-grid-actions">
-        <button
-          className="btn-icon-sm"
-          onClick={handleDelete}
-          title="删除"
-        >
-          <Trash2 size={14} strokeWidth={2} />
-        </button>
+        {/* 删除功能已移至右键菜单 */}
       </div>
+    </div>
+  )
+}
+// =====================================================
+// 右键菜单组件
+// =====================================================
+function ContextMenu({ x, y, item, onClose, onCopy, onCut, onPaste, canPaste, onDelete, onRename, onDownload }) {
+  useEffect(() => {
+    const handleClick = () => onClose()
+    document.addEventListener('click', handleClick)
+    return () => document.removeEventListener('click', handleClick)
+  }, [onClose])
+
+  const menuStyle = {
+    position: 'fixed',
+    left: x,
+    top: y,
+    zIndex: 9999,
+  }
+
+  return (
+    <div className="context-menu" style={menuStyle}>
+      {item && (
+        <>
+          <div className="context-menu-item" onClick={() => { onCopy?.(item); onClose(); }}>
+            <Copy size={14} /> 复制
+          </div>
+          <div className="context-menu-item" onClick={() => { onCut?.(item); onClose(); }}>
+            <Scissors size={14} /> 剪切
+          </div>
+          <div className="context-menu-item" onClick={() => { onRename?.(item); onClose(); }}>
+            <FileInput size={14} /> 重命名
+          </div>
+          <div className="context-menu-item" onClick={() => { onDownload?.(item); onClose(); }}>
+            <Download size={14} /> 下载
+          </div>
+          <div className="context-menu-divider" />
+          <div className="context-menu-item danger" onClick={() => { onDelete?.(item); onClose(); }}>
+            <Trash2 size={14} /> 删除
+          </div>
+        </>
+      )}
+      {!item && canPaste && (
+        <div className="context-menu-item" onClick={() => { onPaste?.(); onClose(); }}>
+          <Clipboard size={14} /> 粘贴
+        </div>
+      )}
     </div>
   )
 }
@@ -676,6 +722,82 @@ function FileDetailPanel({ file, vfs, onClose, onEdit, onDelete }) {
             <p>不支持预览此文件类型</p>
           </div>
         )}
+      </div>
+    </div>
+  )
+}
+
+// =====================================================
+// 重命名对话框
+// =====================================================
+function RenameDialog({ item, onClose, onRename }) {
+  const [name, setName] = useState(item?.name || '')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+  
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    
+    if (!name.trim()) {
+      setError('请输入名称')
+      return
+    }
+    
+    if (name === item.name) {
+      onClose()
+      return
+    }
+    
+    try {
+      setLoading(true)
+      await onRename(item, name.trim())
+      onClose()
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+  
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h3 className="modal-title">重命名</h3>
+        
+        <form onSubmit={handleSubmit}>
+          <div className="form-group">
+            <label className="form-label">名称</label>
+            <input
+              type="text"
+              className="input"
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value)
+                setError('')
+              }}
+              placeholder="输入新名称"
+              autoFocus
+            />
+            {error && <p className="form-error">{error}</p>}
+          </div>
+          
+          <div className="modal-actions">
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={onClose}
+            >
+              取消
+            </button>
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={loading}
+            >
+              {loading ? '重命名中...' : '确定'}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   )
@@ -1056,6 +1178,12 @@ function FileBrowser({ vfs, onFileSelect, onFileOpen, className, initialPath = '
   const [loading, setLoading] = useState(false)
   const [filterType, setFilterType] = useState('all')
   
+  // 右键菜单相关状态
+  const [contextMenu, setContextMenu] = useState(null) // { x, y, item }
+  const [clipboard, setClipboard] = useState(null) // { item, action: 'copy' | 'cut' }
+  const [showRenameDialog, setShowRenameDialog] = useState(false)
+  const [renameItem, setRenameItem] = useState(null)
+  
   useEffect(() => {
     const initPath = async () => {
       // 尝试使用传入的 initialPath，如果没有则使用 VFS 保存的当前路径
@@ -1240,6 +1368,111 @@ function FileBrowser({ vfs, onFileSelect, onFileOpen, className, initialPath = '
     }
   }
   
+  // 右键菜单处理函数
+  const handleContextMenu = (e, item) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setContextMenu({
+      x: Math.min(e.clientX, window.innerWidth - 200),
+      y: Math.min(e.clientY, window.innerHeight - 300),
+      item,
+    })
+  }
+  
+  // 复制文件/文件夹
+  const handleCopy = async (item) => {
+    try {
+      setClipboard({ item, action: 'copy' })
+    } catch (e) {
+      alert(`复制失败：${e.message}`)
+    }
+  }
+  
+  // 剪切文件/文件夹
+  const handleCut = async (item) => {
+    try {
+      setClipboard({ item, action: 'cut' })
+    } catch (e) {
+      alert(`剪切失败：${e.message}`)
+    }
+  }
+  
+  // 粘贴文件/文件夹
+  const handlePaste = async () => {
+    if (!clipboard) return
+    
+    try {
+      const { item, action } = clipboard
+      const targetPath = `${currentPath === '/' ? '' : currentPath + '/'}${item.name}`
+      
+      if (action === 'copy') {
+        // 复制操作 - 使用 vfs.copy 方法
+        await vfs.copy(item.path, targetPath)
+      } else if (action === 'cut') {
+        // 移动操作
+        await vfs.move(item.path, targetPath)
+      }
+      
+      setClipboard(null)
+      refresh()
+    } catch (e) {
+      alert(`粘贴失败：${e.message}`)
+    }
+  }
+  
+  // 重命名文件/文件夹
+  const handleRename = async (item, newName) => {
+    if (!newName || newName === item.name) return
+    
+    try {
+      const newPath = `${item.path.substring(0, item.path.lastIndexOf('/') + 1)}${newName}`
+      await vfs.move(item.path, newPath)
+      setRenameItem(null)
+      setShowRenameDialog(false)
+      refresh()
+    } catch (e) {
+      alert(`重命名失败：${e.message}`)
+    }
+  }
+  
+  // 下载文件
+  const handleDownload = async (item) => {
+    if (item.isDirectory) {
+      alert('暂不支持下载文件夹')
+      return
+    }
+    
+    try {
+      const blob = await vfs.readFileAsBlob(item.path)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = item.name
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      alert(`下载失败：${e.message}`)
+    }
+  }
+  
+  // 处理文件列表区域的右键（空白处）
+  const handleContentContextMenu = (e) => {
+    e.preventDefault()
+    // 如果点击的是空白处，只显示粘贴选项
+    if (e.target.classList.contains('file-list-container') || 
+        e.target.classList.contains('file-list') || 
+        e.target.classList.contains('file-grid') ||
+        e.target.classList.contains('empty-state')) {
+      setContextMenu({
+        x: Math.min(e.clientX, window.innerWidth - 200),
+        y: Math.min(e.clientY, window.innerHeight - 300),
+        item: null,
+      })
+    }
+  }
+  
   return (
     <div className={`file-browser ${showDetail ? 'show-detail' : ''} ${className || ''}`}>
       {/* 左侧项目导航 */}
@@ -1358,7 +1591,10 @@ function FileBrowser({ vfs, onFileSelect, onFileOpen, className, initialPath = '
         </div>
         
         {/* 文件列表 */}
-        <div className={`file-list-container view-${viewMode}`}>
+        <div 
+          className={`file-list-container view-${viewMode}`}
+          onContextMenu={handleContentContextMenu}
+        >
           {loading ? (
             <div className="empty-state">
               <span>加载中...</span>
@@ -1389,6 +1625,7 @@ function FileBrowser({ vfs, onFileSelect, onFileOpen, className, initialPath = '
                     onOpen={handleOpen}
                     selected={selectedFile?.path === item.path}
                     onDelete={handleDeleteFile}
+                    onContextMenu={handleContextMenu}
                   />
                 ))}
               </div>
@@ -1402,6 +1639,7 @@ function FileBrowser({ vfs, onFileSelect, onFileOpen, className, initialPath = '
                     onOpen={handleOpen}
                     selected={selectedFile?.path === item.path}
                     onDelete={handleDeleteFile}
+                    onContextMenu={handleContextMenu}
                   />
                 ))}
               </div>
@@ -1455,6 +1693,37 @@ function FileBrowser({ vfs, onFileSelect, onFileOpen, className, initialPath = '
           currentPath={currentPath}
           onClose={() => setShowUploadDialog(false)}
           onUploaded={handleUploadComplete}
+        />
+      )}
+      
+      {showRenameDialog && renameItem && (
+        <RenameDialog
+          item={renameItem}
+          onClose={() => {
+            setShowRenameDialog(false)
+            setRenameItem(null)
+          }}
+          onRename={handleRename}
+        />
+      )}
+      
+      {/* 右键菜单 */}
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          item={contextMenu.item}
+          onClose={() => setContextMenu(null)}
+          onCopy={handleCopy}
+          onCut={handleCut}
+          onPaste={handlePaste}
+          canPaste={clipboard !== null}
+          onDelete={handleDeleteFile}
+          onRename={(item) => {
+            setRenameItem(item)
+            setShowRenameDialog(true)
+          }}
+          onDownload={handleDownload}
         />
       )}
     </div>

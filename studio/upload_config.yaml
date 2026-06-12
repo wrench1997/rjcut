@@ -1,0 +1,17 @@
+output_file: selected_code.txt
+include:
+
+  - src/*.jsx
+  - src/*.js
+  - src/package.json
+  - electron/*.js
+  - electron/package.json
+  - pages/*.js
+  
+  # ===== 前端组件 =====
+  - src/components/*.jsx
+  
+  # ===== 前端 API 客户端 =====
+  - src/api/*.js
+  
+  

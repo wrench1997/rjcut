@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
-import { getCommonPersons, getCustomPersons, getVoices, createDhGenerateTask, getDhTaskDetail, getDhVideoUrl } from '../api/api'
+import { getCommonPersons, getCustomPersons, getCommonPersonDetail, getCustomPersonDetail, getVoices, createDhGenerateTask, getDhTaskDetail, getDhVideoUrl } from '../api/api'
 import { getVFS } from '../utils/vfsClient'
+import { PROJECT_FOLDERS, buildVFSPath } from '../utils/project-structure'
 import { User, Mic, Check, X, Film, Download, AlertCircle, Loader2, Book, Inbox, Folder, AlertTriangle, Rocket, Settings, Sliders, Volume2, Type, Image, ChevronDown, ChevronUp, Palette, Maximize } from 'lucide-react'
 
 // =====================================================
@@ -18,9 +19,9 @@ function AvatarPicker({ persons, voices, selectedPerson, onSelectPerson, selecte
       {/* 数字人 9 宫格 */}
       <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
         <div className="grid grid-cols-3 gap-3">
-          {persons.map(person => (
+          {persons.map((person, index) => (
             <div
-              key={person.id}
+              key={`${person.uniqueId || person.id}_${index}`}
               onClick={() => onSelectPerson(person)}
               className={`group relative aspect-[3/4] rounded-xl overflow-hidden cursor-pointer transition-all duration-200 ${
                 selectedPerson?.id === person.id 
@@ -417,7 +418,7 @@ function SavePathConfig({ selectedProject, setSelectedProject, projects, onGener
           )}
           {selectedProject && (
             <p className="text-[10px] text-slate-500 mt-2">
-              📂 视频将保存到：<code className="bg-slate-100 px-1 rounded">{selectedProject.path}/输出</code>
+              📂 视频将保存到：<code className="bg-slate-100 px-1 rounded">{selectedProject.path}/{PROJECT_FOLDERS.OUTPUT}</code>
             </p>
           )}
         </div>
@@ -593,6 +594,7 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
   const [persons, setPersons] = useState([])
   const [voices, setVoices] = useState([])
   const [selectedPerson, setSelectedPerson] = useState(null)
+  const [selectedPersonDetails, setSelectedPersonDetails] = useState(null) // 数字人详情（包含可用动作）
   const [selectedVoice, setSelectedVoice] = useState('')
   const [scripts, setScripts] = useState([{ id: Date.now(), text: '' }])
   
@@ -634,17 +636,95 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
         ])
         
         let all = []
-        if (cRes?.data?.code === 0) all = [...all, ...(cRes.data.data || [])]
-        if (pRes?.data?.code === 0) all = [...all, ...(pRes.data.data || [])]
+        if (cRes?.data?.code === 0) {
+          // 给公共数字人添加 type 标记和唯一前缀 - 使用 id + cover_url 哈希作为唯一标识
+          const commons = (cRes.data.data || []).map(p => {
+            // 如果存在重复 ID，使用 id + cover_url 生成唯一标识
+            const uniqueSuffix = p.cover_url ? p.cover_url.split('/').pop()?.substring(0, 8) : 'default'
+            return { 
+              ...p, 
+              type: 'common', 
+              uniqueId: `common_${p.id}_${uniqueSuffix}`,
+              displayName: p.name // 保留原始名称用于显示
+            }
+          })
+          all = [...all, ...commons]
+          
+          // 检查重复 ID
+          const idCount = {}
+          commons.forEach(p => {
+            idCount[p.id] = (idCount[p.id] || 0) + 1
+          })
+          const duplicates = Object.entries(idCount).filter(([id, count]) => count > 1)
+          if (duplicates.length > 0) {
+            console.warn('[DigitalHumanStudio] 发现重复 ID 的数字人:', duplicates)
+            console.log('[DigitalHumanStudio] 已为每个变体生成唯一 uniqueId:', commons.filter(p => idCount[p.id] > 1).map(p => ({
+              id: p.id,
+              name: p.name,
+              uniqueId: p.uniqueId,
+              cover_url: p.cover_url?.substring(0, 60)
+            })))
+          }
+        }
+        if (pRes?.data?.code === 0) {
+          // 给自定义数字人添加 type 标记和唯一前缀
+          const customs = (pRes.data.data || []).map(p => ({ ...p, type: 'custom', uniqueId: `custom_${p.id}` }))
+          all = [...all, ...customs]
+          console.log('[DigitalHumanStudio] 自定义数字人列表 (检查 actions 字段):', customs.map(p => ({ id: p.id, name: p.name, hasActions: !!p.actions, actions: p.actions })))
+        }
+        console.log('[DigitalHumanStudio] 合并后的数字人列表:', all.map(p => ({ id: p.id, uniqueId: p.uniqueId, name: p.name, type: p.type })))
         setPersons(all)
         if (vRes?.data?.code === 0) setVoices(vRes.data.data || [])
         
-        // 加载项目列表
+        // 加载项目列表 - 使用 VFS API
+        console.log('[DigitalHumanStudio] 开始加载项目列表')
         const projects = await vfs.getVideoProjects()
-        setProjects(projects)
+        console.log('[DigitalHumanStudio] 项目列表:', projects)
+        setProjects(projects || [])
         // 默认选择第一个项目
-        if (projects.length > 0) {
+        if (projects && projects.length > 0) {
           setSelectedProject(projects[0])
+        }
+        
+        // 加载数字人详情（获取可用动作）
+        const loadPersonDetails = async (person) => {
+          // 优先检查列表数据中是否已有 actions 字段
+          if (person.actions && person.actions.length > 0) {
+            console.log('[DigitalHumanStudio] 列表数据已包含 actions，直接使用:', person.actions)
+            setSelectedPersonDetails(person)
+            return
+          }
+          
+          try {
+            const isCustom = person.type === 'custom'
+            const apiPath = isCustom 
+              ? `/v1/dh/persons/custom/${person.id}` 
+              : `/v1/dh/persons/common/${person.id}`
+            console.log('[DigitalHumanStudio] 加载数字人详情，type:', isCustom ? 'custom' : 'common', ', id:', person.id, ', path:', apiPath)
+            const detailRes = isCustom 
+              ? await getCustomPersonDetail(person.id)
+              : await getCommonPersonDetail(person.id)
+            console.log('[DigitalHumanStudio] 数字人详情响应 status:', detailRes?.status, ', code:', detailRes?.data?.code)
+            if (detailRes?.data?.code === 0) {
+              const details = detailRes.data.data
+              console.log('[DigitalHumanStudio] 数字人详情:', details)
+              // 保存可用动作列表
+              setSelectedPersonDetails(details)
+            } else {
+              console.warn('[DigitalHumanStudio] 数字人详情响应异常，但继续处理。response:', detailRes)
+              // 即使 API 返回非 0，也尝试使用返回的数据
+              if (detailRes?.data?.data) {
+                setSelectedPersonDetails(detailRes.data.data)
+              }
+            }
+          } catch (err) {
+            console.error('[DigitalHumanStudio] 加载数字人详情失败:', err.message, ', status:', err.response?.status)
+            // 404 时尝试使用基础数据
+            if (err.response?.status === 404) {
+              console.log('[DigitalHumanStudio] 详情接口返回 404，使用基础数字人数据')
+              setSelectedPersonDetails({ id: person.id, name: person.name, actions: [] })
+            }
+          }
         }
         
         // 如果有预选数字人，自动选择（优先使用传入的 preselectedPerson）
@@ -655,6 +735,7 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
           if (person) {
             console.log('[DigitalHumanStudio] 找到匹配的数字人，自动选择:', person.name)
             setSelectedPerson(person)
+            loadPersonDetails(person)
           } else {
             // 如果没找到，直接使用 preselectedPerson 数据
             console.log('[DigitalHumanStudio] 未在列表中找到，直接使用 preselectedPerson')
@@ -662,6 +743,7 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
           }
         }
       } catch (err) {
+        console.error('[DigitalHumanStudio] 加载数据失败:', err)
         setStatusMsg('加载数据失败：' + err.message)
       } finally {
         setLoadingProjects(false)
@@ -682,9 +764,9 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
     setShowProgress(true)
     setStatusMsg('正在生成数字人视频...')
 
-    // 初始化任务状态
+    // 初始化任务状态（使用 crypto.randomUUID 确保唯一性）
     const initialTasks = validScripts.map((script, idx) => ({
-      id: `dh_${Date.now()}_${idx}`,
+      id: `dh_${Date.now()}_${idx}_${crypto.randomUUID ? crypto.randomUUID().slice(0, 8) : Math.random().toString(36).slice(2, 10)}`,
       text: script.text.substring(0, 20) + (script.text.length > 20 ? '...' : ''),
       stage: 'dh_generating',
       progress: 0,
@@ -697,21 +779,48 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
       const vfs = getVFS()
       
       // 使用所选项目的 输出 目录作为保存路径
-      const savePath = `${selectedProject.path}/输出`
+      const projectName = selectedProject.name || selectedProject.path.replace('/projects/', '').split('/')[0]
+      const savePath = buildVFSPath(projectName, PROJECT_FOLDERS.OUTPUT)
+      
+      console.log('[DigitalHumanStudio] 开始生成流程，保存路径:', savePath)
       
       // 创建 VFS 保存目录
+      console.log('[DigitalHumanStudio] 创建目录:', savePath)
       await vfs.createDirectory(savePath, true)
+      console.log('[DigitalHumanStudio] 目录创建成功')
 
       // 并发处理所有任务
+      console.log('[DigitalHumanStudio] 开始并发处理', initialTasks.length, '个任务')
       await Promise.all(initialTasks.map(async (task, index) => {
         const script = validScripts[index]
+        console.log('[DigitalHumanStudio] 处理任务', index + 1, '/', initialTasks.length)
         
         try {
-          // [阶段 1] 提交蝉镜数字人任务（包含高级设置）
+          // [阶段 1] 提交蝉镜数字人任务（包含高级设置和动作）
+          console.log('[DigitalHumanStudio] 任务', index + 1, ': 提交数字人任务')
+          
+          // 构建动作参数：从数字人详情中获取可用动作
+          let actionParams = {}
+          if (selectedPersonDetails?.actions && selectedPersonDetails.actions.length > 0) {
+            // 使用第一个可用动作，或者根据 drive_mode 随机选择
+            if (advancedSettings.drive_mode === 'random') {
+              const randomIndex = Math.floor(Math.random() * selectedPersonDetails.actions.length)
+              actionParams.action_id = selectedPersonDetails.actions[randomIndex].id
+              console.log('[DigitalHumanStudio] 随机选择动作:', actionParams.action_id)
+            } else {
+              actionParams.action_id = selectedPersonDetails.actions[0].id
+              console.log('[DigitalHumanStudio] 使用默认动作:', actionParams.action_id)
+            }
+          } else {
+            console.log('[DigitalHumanStudio] 该数字人没有可用动作列表')
+          }
+          
           const dhRes = await createDhGenerateTask({
             text: script.text,
             person_id: selectedPerson.id,
             audio_man_id: selectedVoice || undefined,
+            // 动作参数
+            ...actionParams,
             // 高级设置参数
             speed: advancedSettings.speed,
             pitch: advancedSettings.pitch,
@@ -730,6 +839,7 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
           }
           
           const dhTaskId = dhRes.data.data.task_id
+          console.log('[DigitalHumanStudio] 任务', index + 1, ': 数字人任务 ID', dhTaskId)
           
           // 轮询数字人状态
           let dhCompleted = false
@@ -741,6 +851,7 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
             
             if (status === 'succeeded') {
               dhCompleted = true
+              console.log('[DigitalHumanStudio] 任务', index + 1, ': 数字人生成成功')
             } else if (status === 'failed') {
               throw new Error('数字人生成失败')
             } else {
@@ -752,6 +863,7 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
           }
 
           // [阶段 2] 下载视频到 VFS
+          console.log('[DigitalHumanStudio] 任务', index + 1, ': 开始下载视频')
           setPipelineTasks(prev => prev.map(t => 
             t.id === task.id ? { ...t, stage: 'downloading', progress: 60 } : t
           ))
@@ -762,21 +874,29 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
           }
           
           const downloadUrl = urlRes.data.data.download_url
+          console.log('[DigitalHumanStudio] 任务', index + 1, ': 下载链接', downloadUrl.substring(0, 50) + '...')
           const videoBlob = await (await fetch(downloadUrl)).blob()
+          console.log('[DigitalHumanStudio] 任务', index + 1, ': 视频 Blob 大小', videoBlob.size, 'bytes')
           
           // 生成保存文件名
           const timestamp = Date.now()
           const fileName = `dh_${selectedPerson.name}_${timestamp}_${index + 1}.mp4`
           const vfsVideoPath = `${savePath}/${fileName}`
+          console.log('[DigitalHumanStudio] 任务', index + 1, ': 保存路径', vfsVideoPath)
           
-          await vfs.writeFile(vfsVideoPath, videoBlob)
+          // 将 Blob 转换为 ArrayBuffer 以确保兼容性
+          const arrayBuffer = await videoBlob.arrayBuffer()
+          await vfs.writeFile(vfsVideoPath, arrayBuffer)
+          console.log('[DigitalHumanStudio] 任务', index + 1, ': 写入 VFS 成功')
 
           // 任务完成
           setPipelineTasks(prev => prev.map(t => 
             t.id === task.id ? { ...t, stage: 'done', progress: 100 } : t
           ))
+          console.log('[DigitalHumanStudio] 任务', index + 1, ': 完成')
 
         } catch (err) {
+          console.error('[DigitalHumanStudio] 任务', index + 1, ': 失败', err)
           setPipelineTasks(prev => prev.map(t => 
             t.id === task.id ? { ...t, stage: 'failed', error: err.message } : t
           ))
@@ -784,8 +904,10 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
       }))
 
       setStatusMsg(`生成完成！视频已保存到 ${savePath}，请前往【批量处理】进行后期合成`)
+      console.log('[DigitalHumanStudio] 所有任务完成')
       
     } catch (err) {
+      console.error('[DigitalHumanStudio] 生成流程失败:', err)
       setStatusMsg('生成失败：' + err.message)
     } finally {
       setIsGenerating(false)
@@ -808,7 +930,25 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
         persons={persons} 
         voices={voices}
         selectedPerson={selectedPerson} 
-        onSelectPerson={setSelectedPerson}
+        onSelectPerson={(person) => {
+          setSelectedPerson(person)
+          // 加载数字人详情（获取可用动作）
+          ;(async () => {
+            try {
+              const isCustom = person.type === 'custom'
+              const detailRes = isCustom 
+                ? await getCustomPersonDetail(person.id)
+                : await getCommonPersonDetail(person.id)
+              if (detailRes?.data?.code === 0) {
+                const details = detailRes.data.data
+                console.log('[DigitalHumanStudio] 数字人详情:', details)
+                setSelectedPersonDetails(details)
+              }
+            } catch (err) {
+              console.error('[DigitalHumanStudio] 加载数字人详情失败:', err)
+            }
+          })()
+        }}
         selectedVoice={selectedVoice} 
         onSelectVoice={setSelectedVoice}
       />

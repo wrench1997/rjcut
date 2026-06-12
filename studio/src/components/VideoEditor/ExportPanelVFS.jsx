@@ -2,6 +2,7 @@ import React, { useState, useRef, useCallback } from 'react'
 import { useTimelineStore, mediaFileRegistry } from '../../stores/timelineStore'
 import { Rocket, CheckCircle, AlertCircle, Settings, Download } from 'lucide-react'
 import { videoEditorEngine } from '../../utils/videoEditorEngine'
+import { PROJECT_FOLDERS, buildVFSPath } from '../../utils/project-structure'
 
 /**
  * 导出面板 - 将剪辑完成的视频导出并保存到 VFS
@@ -118,16 +119,12 @@ export default function ExportPanelVFS({ vfs }) {
           // 🚀 核心改造：获取导出的 Blob 数据
           const blob = new Blob([payload.data], { type: 'video/mp4' })
           
-          // 生成保存路径
+          // 生成保存路径 - 使用统一的项目结构模块
+          // 注意：导出面板需要知道当前项目路径，这里使用默认的项目输出目录
           const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5)
-          const savePath = `/output/export_${timestamp}.mp4`
-          
-          // 确保 output 目录存在
-          try {
-            vfs.mkdir('/output')
-          } catch (e) {
-            // 目录可能已存在
-          }
+          // TODO: 应该从父组件获取当前项目路径，这里暂时使用默认路径
+          const projectName = '默认项目' // 需要从父组件传入
+          const savePath = buildVFSPath(projectName, `${PROJECT_FOLDERS.OUTPUT}/export_${timestamp}.mp4`)
           
           // 写入 rjcut 的 VFS
           await vfs.writeFile(savePath, blob)

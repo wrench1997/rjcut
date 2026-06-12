@@ -84,6 +84,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 获取视频项目列表
   getVideoProjects: () => ipcRenderer.invoke('fs:getVideoProjects'),
   
+  // 创建目录（别名，兼容 createDirectory 调用）
+  createDirectory: (path, recursive = false) => ipcRenderer.invoke('fs:mkdir', path, recursive),
+  
   // ==================== 对话框操作 ====================
   
   // 打开文件选择对话框

@@ -335,6 +335,16 @@ export class VFSProxy {
   }
   
   /**
+   * 创建目录（别名，兼容 createDirectory 调用）
+   * @param {string} path - 目录路径
+   * @param {boolean} recursive - 是否递归创建
+   * @returns {Promise<string>} 创建的目录路径
+   */
+  async createDirectory(path, recursive = false) {
+    return this.mkdir(path, recursive)
+  }
+  
+  /**
    * 切换当前目录
    * @param {string} path - 目录路径
    * @returns {Promise<string>} 当前目录路径
@@ -559,7 +569,7 @@ export class VFSProxy {
    */
   async createVideoProject(projectName, config = {}) {
     this.invalidateCache('list:')
-    return callVFS('createVideoProject', projectName, config)
+    return this._callAPI('createVideoProject', projectName, config)
   }
   
   /**
@@ -567,7 +577,7 @@ export class VFSProxy {
    * @returns {Promise<Array>} 项目列表
    */
   async getVideoProjects() {
-    return callVFS('getVideoProjects')
+    return this._callAPI('getVideoProjects')
   }
   
   // ==================== 存储 ====================

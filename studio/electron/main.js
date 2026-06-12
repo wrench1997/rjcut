@@ -7,10 +7,17 @@
  * 3. 完全脱离浏览器沙盒限制
  */
 
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, shell, protocol, net } = require('electron')
 const path = require('path')
+const fs = require('fs')
+const { spawn } = require('child_process')
 const fsUtils = require('./fs-utils')
 const { ElectronMCPServer } = require('./mcp-server')
+
+// 1. 注册特权协议 (必须在 app ready 之前调用)
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true, bypassCSP: true, corsEnabled: true } }
+])
 
 // 保持 window 对象的全局引用
 let mainWindow = null
@@ -34,7 +41,7 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
-      webSecurity: process.env.NODE_ENV === 'development',
+      webSecurity: false, // 生产环境中加载本地 file:// 可能遇到跨域问题，建议关闭 webSecurity
     },
     icon: path.join(__dirname, '../public/icon.png'),
     titleBarStyle: 'hiddenInset',
@@ -42,27 +49,16 @@ function createWindow() {
     backgroundColor: '#f8fafc',
   })
 
-  // 开发模式加载 localhost，生产模式加载 build 文件
-  const isDev = process.env.NODE_ENV === 'development'
+  // 判断是否为打包后的环境
+  const isPackaged = app.isPackaged || process.env.NODE_ENV === 'production';
   
-  if (isDev) {
+  if (!isPackaged) {
+    // 开发模式：加载 localhost
     mainWindow.loadURL('http://localhost:3000')
     mainWindow.webContents.openDevTools()
   } else {
-    // 生产模式：加载 Next.js 构建的 HTML 文件
-    const nextDistPath = path.join(__dirname, '../.next/server/app/index.html')
-    const fallbackPath = path.join(__dirname, '../out/index.html')
-    
-    // 尝试不同的构建输出路径
-    if (fsSync.existsSync(nextDistPath)) {
-      mainWindow.loadFile(nextDistPath)
-    } else if (fsSync.existsSync(fallbackPath)) {
-      mainWindow.loadFile(fallbackPath)
-    } else {
-      // 如果都找不到，尝试使用 next start 服务器
-      console.error('[Main] 未找到构建文件，请先运行 npm run build')
-      mainWindow.loadURL('http://localhost:3000')
-    }
+    // 生产模式（exe）：使用我们自定义的 app:// 协议加载
+    mainWindow.loadURL('app://localhost/index.html')
   }
 
   // 窗口准备好后再显示
@@ -204,6 +200,23 @@ function registerIPCHandlers() {
   // 获取视频项目列表
   ipcMain.handle('fs:getVideoProjects', async () => {
     return fsUtils.getVideoProjects()
+  })
+
+  // ==================== 外部文件导入 ====================
+  
+  // 分析外部文件夹
+  ipcMain.handle('fs:analyzeExternalFolder', async (event, externalPath) => {
+    return fsUtils.analyzeExternalFolder(externalPath)
+  })
+
+  // 导入外部文件夹到 VFS
+  ipcMain.handle('fs:importExternalFolder', async (event, externalPath, vfsTargetPath, options = {}) => {
+    return fsUtils.importExternalFolder(externalPath, vfsTargetPath, options)
+  })
+
+  // 智能组织外部文件到项目
+  ipcMain.handle('fs:smartOrganizeToProject', async (event, externalPath, projectPath, options = {}) => {
+    return fsUtils.smartOrganizeToProject(externalPath, projectPath, options)
   })
 
   // ==================== 对话框操作 ====================
@@ -500,6 +513,29 @@ function registerIPCHandlers() {
  * 应用初始化
  */
 app.whenReady().then(async () => {
+  // 2. 拦截并处理 app:// 协议的请求
+  protocol.handle('app', (request) => {
+    const url = new URL(request.url)
+    let relativePath = url.pathname
+    
+    // 如果是根路径，指向 index.html
+    if (relativePath === '/' || relativePath === '') {
+      relativePath = '/index.html'
+    }
+    
+    // 拼接出本地真实路径 (假设 Next.js 打包在 out 目录)
+    let absolutePath = path.join(__dirname, '../out', relativePath)
+    
+    // SPA 路由 fallback：如果文件不存在，返回 index.html
+    if (!fs.existsSync(absolutePath)) {
+      absolutePath = path.join(__dirname, '../out/index.html')
+    }
+    
+    // 转换为 file:// 协议供 net.fetch 读取
+    const fileUrl = 'file:///' + absolutePath.replace(/\\/g, '/')
+    return net.fetch(fileUrl)
+  })
+
   // 设置允许的根目录 - 以 RJCut 目录为主要根目录
   const documentsPath = app.getPath('documents')
   const videosPath = app.getPath('videos')
@@ -518,6 +554,7 @@ app.whenReady().then(async () => {
   
   // 注册 IPC 处理器
   registerIPCHandlers()
+  
   
   // 创建窗口
   createWindow()
@@ -807,6 +844,201 @@ app.whenReady().then(async () => {
       }
     })
     
+    // ==================== 外部文件导入工具 ====================
+    
+    mcpServer.registerTool({
+      name: 'vfs_analyze_external',
+      description: '分析外部文件夹内容（视频、音频、图片、文档等），返回详细的文件分类和统计信息。💡 提示：分析后可配合 vfs_smart_organize 将文件智能组织到 /projects/项目名 目录中',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          externalPath: { 
+            type: 'string', 
+            description: '外部文件夹的绝对路径，例如 "C:\\Users\\admin\\Desktop\\MyFiles" 或 "C:/Users/admin/Desktop/MyFiles"' 
+          }
+        },
+        required: ['externalPath']
+      },
+      handler: async ({ externalPath }) => {
+        try {
+          const analysis = await fsUtils.analyzeExternalFolder(externalPath)
+          
+          let report = `📂 外部文件夹分析报告\n`
+          report += `━━━━━━━━━━━━━━━━━━━━━━\n`
+          report += `📍 路径：${analysis.path}\n`
+          report += `📊 文件总数：${analysis.summary.videoCount + analysis.summary.audioCount + analysis.summary.imageCount + analysis.summary.documentCount + analysis.summary.scriptCount + analysis.summary.subtitleCount + analysis.summary.otherCount}\n`
+          report += `💾 总大小：${analysis.summary.totalSizeMB} MB\n\n`
+          report += `📁 文件分类:\n`
+          report += `  🎬 视频：${analysis.summary.videoCount} 个\n`
+          report += `  🎵 音频：${analysis.summary.audioCount} 个\n`
+          report += `  🖼️  图片：${analysis.summary.imageCount} 个\n`
+          report += `  📄 文档：${analysis.summary.documentCount} 个\n`
+          report += `  💻 脚本：${analysis.summary.scriptCount} 个\n`
+          report += `  📝 字幕：${analysis.summary.subtitleCount} 个\n`
+          report += `  📦 其他：${analysis.summary.otherCount} 个\n`
+          
+          if (analysis.filesByType.video.length > 0) {
+            report += `\n🎬 视频文件:\n`
+            analysis.filesByType.video.slice(0, 10).forEach(f => {
+              report += `  - ${f.name} (${(f.size / 1024 / 1024).toFixed(1)} MB)\n`
+            })
+            if (analysis.filesByType.video.length > 10) {
+              report += `  ... 还有 ${analysis.filesByType.video.length - 10} 个视频文件\n`
+            }
+          }
+          
+          return report
+        } catch (error) {
+          return `❌ 分析失败：${error.message}`
+        }
+      }
+    })
+    
+    mcpServer.registerTool({
+      name: 'vfs_import_external',
+      description: '将外部文件夹导入到 VFS 虚拟文件系统中，支持文件过滤、目录结构保持或扁平化。⚠️ 重要：vfsTargetPath 必须指向 /projects/项目名/xxx 目录，例如 /projects/我的视频项目/素材',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          externalPath: { 
+            type: 'string', 
+            description: '外部文件夹的绝对路径' 
+          },
+          vfsTargetPath: { 
+            type: 'string', 
+            description: '⚠️ 必须指向 /projects/项目名/xxx 目录！例如：/projects/我的视频项目/素材 或 /projects/我的视频项目/原始视频。不允许使用其他路径。' 
+          },
+          includePatterns: { 
+            type: 'array', 
+            items: { type: 'string' },
+            description: '包含的文件正则模式（可选），例如 ["\\.mp4$", "\\.mov$"] 只导入视频',
+            default: []
+          },
+          excludePatterns: { 
+            type: 'array', 
+            items: { type: 'string' },
+            description: '排除的文件正则模式（可选），例如 ["\\.tmp$", "~$"]',
+            default: []
+          },
+          flatten: { 
+            type: 'boolean', 
+            description: '是否扁平化目录结构（true=所有文件放到同一层，false=保持原目录结构）',
+            default: false
+          },
+          maxFileSize: { 
+            type: 'number', 
+            description: '最大文件大小（字节），默认 500MB (524288000)',
+            default: 524288000
+          }
+        },
+        required: ['externalPath', 'vfsTargetPath']
+      },
+      handler: async ({ externalPath, vfsTargetPath, includePatterns = [], excludePatterns = [], flatten = false, maxFileSize = 524288000 }) => {
+        try {
+          const result = await fsUtils.importExternalFolder(externalPath, vfsTargetPath, {
+            includePatterns,
+            excludePatterns,
+            flatten,
+            maxFileSize,
+          })
+          
+          let report = `✅ 导入完成\n`
+          report += `━━━━━━━━━━━━━━━━━━━━━━\n`
+          report += `📥 源路径：${result.sourcePath}\n`
+          report += `📤 目标路径：${result.targetPath}\n`
+          report += `📊 成功复制：${result.summary.totalCopied} 个文件\n`
+          report += `💾 总大小：${result.summary.totalSizeMB} MB\n`
+          
+          if (result.summary.totalSkipped > 0) {
+            report += `⚠️  跳过：${result.summary.totalSkipped} 个文件\n`
+          }
+          if (result.summary.totalErrors > 0) {
+            report += `❌ 错误：${result.summary.totalErrors} 个\n`
+          }
+          
+          return report
+        } catch (error) {
+          return `❌ 导入失败：${error.message}`
+        }
+      }
+    })
+    
+    mcpServer.registerTool({
+      name: 'vfs_smart_organize',
+      description: '智能组织外部文件到项目结构中。如果检测到 script.json 脚本文件，会根据 flag 自动分类视频（human→原始视频，scene→剪辑视频），其他文件按类型分类（字幕、音乐、文案等放主目录）。⚠️ 重要：projectPath 必须指向 /projects/项目名 目录，例如 /projects/我的视频项目',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          externalPath: { 
+            type: 'string', 
+            description: '外部文件夹的绝对路径' 
+          },
+          projectPath: { 
+            type: 'string', 
+            description: '⚠️ 必须指向 /projects/项目名 目录！例如：/projects/我的视频项目。不允许使用其他路径。' 
+          },
+          autoRename: { 
+            type: 'boolean', 
+            description: '是否自动重命名重复文件（添加时间戳）',
+            default: true
+          },
+          createSubfolders: { 
+            type: 'boolean', 
+            description: '是否创建分类子文件夹',
+            default: true
+          },
+          useScriptAnalysis: { 
+            type: 'boolean', 
+            description: '是否使用脚本文件分析（检测 script.json 并根据 flag 分类视频：human→原始视频，scene→剪辑视频）',
+            default: true
+          }
+        },
+        required: ['externalPath', 'projectPath']
+      },
+      handler: async ({ externalPath, projectPath, autoRename = true, createSubfolders = true, useScriptAnalysis = true }) => {
+        try {
+          const result = await fsUtils.smartOrganizeToProject(externalPath, projectPath, {
+            autoRename,
+            createSubfolders,
+            useScriptAnalysis,
+          })
+          
+          let report = `🎯 智能组织完成\n`
+          report += `━━━━━━━━━━━━━━━━━━━━━━\n`
+          report += `📥 源路径：${result.sourcePath}\n`
+          report += `📤 项目路径：${result.projectPath}\n`
+          
+          if (result.scriptFound) {
+            report += `✅ 检测到脚本文件：${result.scriptAnalysis.scriptPath}\n`
+            report += `   - human 视频（数字人）：${result.scriptAnalysis.humanVideos.length} 个\n`
+            report += `   - scene 视频（场景）：${result.scriptAnalysis.sceneVideos.length} 个\n\n`
+          }
+          
+          report += `📊 总文件数：${result.summary.totalFiles}\n\n`
+          report += `📁 分类结果:\n`
+          report += `  🎬 原始视频 (human)：${result.summary.humanVideoCount} 个\n`
+          report += `  🎬 剪辑视频 (scene)：${result.summary.sceneVideoCount} 个\n`
+          report += `  🎵 音频素材：${result.summary.audioCount} 个\n`
+          report += `  🖼️  图片素材：${result.summary.imageCount} 个\n`
+          report += `  📄 文案文档：${result.summary.documentCount} 个\n`
+          report += `  📝 字幕文件：${result.summary.subtitleCount} 个\n`
+          report += `  💻 脚本代码：${result.summary.scriptCount} 个\n`
+          report += `  📦 其他文件：${result.summary.otherCount} 个\n`
+          
+          if (result.summary.errorCount > 0) {
+            report += `\n⚠️  处理错误：${result.summary.errorCount} 个\n`
+            result.errors.slice(0, 5).forEach(e => {
+              report += `  - ${e.path}: ${e.error}\n`
+            })
+          }
+          
+          return report
+        } catch (error) {
+          return `❌ 组织失败：${error.message}`
+        }
+      }
+    })
+    
     await mcpServer.start(8001)
     console.log('[Main] MCP 服务器已自动启动在端口 8001')
   } catch (error) {
@@ -832,8 +1064,17 @@ app.on('web-contents-created', (event, contents) => {
   // 阻止导航到外部 URL
   contents.on('will-navigate', (event, navigationUrl) => {
     const parsedUrl = new URL(navigationUrl)
-    if (parsedUrl.origin !== 'http://localhost:3000') {
-      event.preventDefault()
+    // 开发模式允许 localhost，生产模式允许 app:// 协议
+    const isDev = !app.isPackaged
+    if (isDev) {
+      if (parsedUrl.origin !== 'http://localhost:3000') {
+        event.preventDefault()
+      }
+    } else {
+      // 生产模式只允许 app:// 协议
+      if (parsedUrl.protocol !== 'app:') {
+        event.preventDefault()
+      }
     }
   })
 })

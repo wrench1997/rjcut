@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import useBatchStore from '../api/useBatchProcessStore'
 import { setApiKey } from '../api/api'
+import { PROJECT_FOLDERS, parseProjectNameFromVFS, buildVFSPath } from '../utils/project-structure'
 import { Hourglass, Upload, FileText, Clapperboard, Download, CheckCircle, XCircle, Ban, Rocket, Folder, Music, X, Check, ArrowLeft, Info } from 'lucide-react'
 
 // --- 现代化进度条 ---
@@ -26,7 +27,10 @@ function TailwindProgressBar({ progress, status }) {
 }
 
 // --- 任务卡片组件 ---
-function TaskCard({ task }) {
+function TaskCard({ task, vfs }) {
+  const [downloadProgress, setDownloadProgress] = useState(null)
+  const [isDownloading, setIsDownloading] = useState(false)
+  
   const stageLabels = {
     idle: '等待中',
     uploading: '上传中',
@@ -49,7 +53,10 @@ function TaskCard({ task }) {
     cancelled: Ban,
   }
 
-  const handleDownload = async () => {
+  const handleDownload = async (saveToVFS = true) => {
+    setIsDownloading(true)
+    setDownloadProgress(0)
+    
     try {
       const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8001'
       const apiKey = localStorage.getItem('rjcut_api_key')
@@ -62,13 +69,97 @@ function TaskCard({ task }) {
       })
       
       const data = await res.json()
-      if (data.code === 0 && data.data?.download_url) {
-        window.open(data.data.download_url, '_blank')
-      } else {
+      if (data.code !== 0 || !data.data?.download_url) {
         alert('获取下载链接失败：' + (data.message || '未知错误'))
+        setIsDownloading(false)
+        setDownloadProgress(null)
+        return
+      }
+
+      const downloadUrl = data.data.download_url
+      
+      if (saveToVFS && vfs) {
+        // 保存到 VFS 项目输出文件夹
+        const videoFilename = `${task.id}_成片.mp4`
+        // 使用统一的项目结构模块构建输出路径
+        // 优先保存到场景父目录下的"输出"文件夹（场景外面）
+        let outputDir
+        if (task.vfsScenesPath && task.vfsScenesPath.startsWith('/projects/')) {
+          // 从场景路径解析项目名，例如 /projects/项目名/剪辑视频/场景 1 -> 项目名
+          const projectName = parseProjectNameFromVFS(task.vfsScenesPath)
+          if (projectName) {
+            outputDir = buildVFSPath(projectName, PROJECT_FOLDERS.OUTPUT)
+          } else {
+            outputDir = '/projects/输出'
+          }
+        } else {
+          outputDir = '/projects/输出'
+        }
+        const outputPath = `${outputDir}/${videoFilename}`
+        
+        // 确保输出目录存在
+        try {
+          const dirExists = await vfs.exists(outputDir)
+          if (!dirExists) {
+            await vfs.mkdir(outputDir, true)
+          }
+        } catch (e) {
+          console.error('创建输出目录失败:', e)
+        }
+        
+        // 下载文件并保存到 VFS（带进度）
+        const downloadRes = await fetch(downloadUrl)
+        if (!downloadRes.ok) throw new Error('下载文件失败')
+        
+        const contentLength = downloadRes.headers.get('content-length')
+        const total = contentLength ? parseInt(contentLength) : 0
+        
+        const reader = downloadRes.body.getReader()
+        const chunks = []
+        let loaded = 0
+        
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          
+          chunks.push(value)
+          loaded += value.length
+          
+          if (total > 0) {
+            const percent = Math.round((loaded / total) * 100)
+            setDownloadProgress(percent)
+          }
+        }
+        
+        setDownloadProgress(90)
+        
+        // 合并 chunks 为 ArrayBuffer
+        const arrayBuffer = new Uint8Array(loaded)
+        let position = 0
+        for (const chunk of chunks) {
+          arrayBuffer.set(chunk, position)
+          position += chunk.length
+        }
+        
+        // 写入 VFS
+        await vfs.writeFile(outputPath, arrayBuffer)
+        
+        setDownloadProgress(100)
+        setTimeout(() => {
+          alert(`视频已保存到：${outputPath}`)
+          setIsDownloading(false)
+          setDownloadProgress(null)
+        }, 300)
+      } else {
+        // 直接在浏览器中打开下载
+        window.open(downloadUrl, '_blank')
+        setIsDownloading(false)
+        setDownloadProgress(null)
       }
     } catch (e) {
-      alert('请求下载失败：' + e.message)
+      alert('下载失败：' + e.message)
+      setIsDownloading(false)
+      setDownloadProgress(null)
     }
   }
 
@@ -109,12 +200,38 @@ function TaskCard({ task }) {
           </div>
           
           {task.stage === 'succeeded' && (
-            <button
-              className="w-full py-2 bg-green-50 hover:bg-green-100 text-green-700 text-sm font-medium rounded-lg transition-colors border border-green-200"
-              onClick={handleDownload}
-            >
-              <Download size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} /> 下载成片
-            </button>
+            <div className="space-y-2">
+              {isDownloading ? (
+                <div className="space-y-2">
+                  <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-blue-500 transition-all duration-300 ease-out"
+                      style={{ width: `${downloadProgress || 0}%` }}
+                    />
+                  </div>
+                  <p className="text-xs text-center text-slate-500">
+                    下载中... {downloadProgress || 0}%
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <button
+                    className="w-full py-2 bg-green-50 hover:bg-green-100 text-green-700 text-sm font-medium rounded-lg transition-colors border border-green-200 flex items-center justify-center gap-2"
+                    onClick={() => handleDownload(true)}
+                    title="保存到 VFS 项目输出文件夹"
+                  >
+                    <Folder size={14} style={{ display: 'inline', verticalAlign: 'middle' }} /> 保存到项目文件夹
+                  </button>
+                  <button
+                    className="w-full py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 text-sm font-medium rounded-lg transition-colors border border-slate-200 flex items-center justify-center gap-2"
+                    onClick={() => handleDownload(false)}
+                    title="直接在浏览器中下载"
+                  >
+                    <Download size={14} style={{ display: 'inline', verticalAlign: 'middle' }} /> 浏览器下载
+                  </button>
+                </>
+              )}
+            </div>
           )}
         </div>
       )}
@@ -448,7 +565,7 @@ export default function BatchProcessor({ vfs, apiKey }) {
           {/* 任务卡片网格 */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {tasks.map(task => (
-              <TaskCard key={task.id} task={task} />
+              <TaskCard key={task.id} task={task} vfs={vfs} />
             ))}
           </div>
 
@@ -456,10 +573,11 @@ export default function BatchProcessor({ vfs, apiKey }) {
           <div className="flex justify-center gap-4 pt-4">
             {isRunning && (
               <button
-                className="px-6 py-2.5 bg-red-50 hover:bg-red-100 text-red-700 font-medium rounded-lg transition-colors border border-red-200"
+                className="px-6 py-2.5 bg-red-50 hover:bg-red-100 text-red-700 font-medium rounded-lg transition-colors border border-red-200 flex items-center gap-2"
                 onClick={abortBatch}
               >
-                🛑 取消所有任务
+                <XCircle size={20} strokeWidth={2} />
+                取消所有任务
               </button>
             )}
             {!isRunning && (

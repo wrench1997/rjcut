@@ -1,0 +1,173 @@
+/**
+ * RJCut Studio - 项目结构定义模块
+ * 
+ * 统一项目目录结构定义，确保前端组件和 Electron 后端使用相同的路径规则
+ * 
+ * 项目目录结构：
+ * C:\Users\admin\Documents\RJCut\projects\项目名\
+ * ├── project.json          # 项目配置文件
+ * ├── 原始视频/             # human 类型视频（数字人出镜）
+ * ├── 剪辑视频/             # scene 类型视频（场景展示）
+ * └── 输出/                 # 渲染输出文件
+ */
+
+const path = require('path')
+
+/**
+ * 项目子目录名称常量
+ */
+const PROJECT_FOLDERS = {
+  RAW_VIDEO: '原始视频',    // human 类型视频（数字人出镜）
+  EDITED_VIDEO: '剪辑视频', // scene 类型视频（场景展示）
+  OUTPUT: '输出',           // 渲染输出文件
+}
+
+/**
+ * 项目必需文件
+ */
+const PROJECT_FILES = {
+  CONFIG: 'project.json',   // 项目配置文件
+}
+
+/**
+ * 获取项目文件夹名称列表
+ */
+function getProjectFolderNames() {
+  return Object.values(PROJECT_FOLDERS)
+}
+
+/**
+ * 获取项目必需文件列表
+ */
+function getProjectFileNames() {
+  return Object.values(PROJECT_FILES)
+}
+
+/**
+ * 构建项目根路径
+ * @param {string} baseRoot - 基础根目录（例如：C:\Users\admin\Documents\RJCut）
+ * @param {string} projectName - 项目名称
+ * @returns {string} 项目根路径
+ */
+function buildProjectPath(baseRoot, projectName) {
+  return path.join(baseRoot, 'projects', projectName)
+}
+
+/**
+ * 构建项目子目录路径
+ * @param {string} baseRoot - 基础根目录
+ * @param {string} projectName - 项目名称
+ * @param {string} folderType - 目录类型 ('raw_video' | 'edited_video' | 'output')
+ * @returns {string} 子目录路径
+ */
+function buildProjectSubPath(baseRoot, projectName, folderType) {
+  const folderName = PROJECT_FOLDERS[folderType.toUpperCase()]
+  if (!folderName) {
+    throw new Error(`无效的目录类型：${folderType}。有效类型：raw_video, edited_video, output`)
+  }
+  return path.join(buildProjectPath(baseRoot, projectName), folderName)
+}
+
+/**
+ * 构建 VFS 虚拟路径
+ * @param {string} projectName - 项目名称
+ * @param {string} subPath - 可选的子路径（例如 '原始视频' 或 '剪辑视频/xxx.mp4'）
+ * @returns {string} VFS 虚拟路径（例如 /projects/项目名/原始视频）
+ */
+function buildVFSPath(projectName, subPath = '') {
+  const base = `/projects/${projectName}`
+  if (subPath) {
+    // 确保子路径使用正斜杠
+    const normalizedSub = subPath.replace(/\\/g, '/')
+    return `${base}/${normalizedSub}`
+  }
+  return base
+}
+
+/**
+ * 从 VFS 路径解析项目名称
+ * @param {string} vfsPath - VFS 路径（例如 /projects/项目名/xxx）
+ * @returns {string|null} 项目名称，如果路径无效则返回 null
+ */
+function parseProjectNameFromVFS(vfsPath) {
+  if (!vfsPath || !vfsPath.startsWith('/projects/')) {
+    return null
+  }
+  // 移除 /projects/ 前缀，获取剩余部分
+  const remaining = vfsPath.replace('/projects/', '')
+  // 获取第一个路径段作为项目名
+  const projectName = remaining.split('/')[0]
+  return projectName || null
+}
+
+/**
+ * 验证 VFS 路径是否是有效的项目路径
+ * @param {string} vfsPath - VFS 路径
+ * @returns {Object} 验证结果 { isValid, projectName, subPath }
+ */
+function validateVFSProjectPath(vfsPath) {
+  const projectName = parseProjectNameFromVFS(vfsPath)
+  
+  if (!projectName) {
+    return {
+      isValid: false,
+      error: '路径必须以 /projects/项目名 格式开头',
+    }
+  }
+  
+  // 获取子路径（如果有）
+  const subPath = vfsPath.replace(`/projects/${projectName}`, '')
+  
+  // 检查是否是项目根目录或有效的子目录
+  if (!subPath || subPath === '' || subPath === '/') {
+    return { isValid: true, projectName, subPath: '' }
+  }
+  
+  // 规范化子路径
+  const normalizedSub = subPath.replace(/^\//, '').replace(/\\/g, '/')
+  const folderName = normalizedSub.split('/')[0]
+  
+  // 检查子目录是否是项目允许的子目录
+  const validFolders = getProjectFolderNames()
+  if (validFolders.includes(folderName)) {
+    return { isValid: true, projectName, subPath: normalizedSub }
+  }
+  
+  // 允许其他子路径（例如具体文件）
+  return { isValid: true, projectName, subPath: normalizedSub }
+}
+
+/**
+ * 将 VFS 项目路径转换为物理路径
+ * @param {string} vfsPath - VFS 路径（例如 /projects/项目名/原始视频）
+ * @param {string} baseRoot - 基础根目录（例如 C:\Users\admin\Documents\RJCut）
+ * @returns {string} 物理路径
+ */
+function vfsToPhysicalPath(vfsPath, baseRoot) {
+  const validation = validateVFSProjectPath(vfsPath)
+  if (!validation.isValid) {
+    throw new Error(`无效的 VFS 项目路径：${vfsPath}。${validation.error}`)
+  }
+  
+  const projectPath = buildProjectPath(baseRoot, validation.projectName)
+  if (validation.subPath) {
+    return path.join(projectPath, validation.subPath.replace(/\//g, path.sep))
+  }
+  return projectPath
+}
+
+module.exports = {
+  // 常量
+  PROJECT_FOLDERS,
+  PROJECT_FILES,
+  
+  // 工具函数
+  getProjectFolderNames,
+  getProjectFileNames,
+  buildProjectPath,
+  buildProjectSubPath,
+  buildVFSPath,
+  parseProjectNameFromVFS,
+  validateVFSProjectPath,
+  vfsToPhysicalPath,
+}

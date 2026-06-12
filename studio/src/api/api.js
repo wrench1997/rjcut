@@ -105,10 +105,13 @@ export const getTaskList = (limit = 50) => apiClient.get(`/v1/tasks?limit=${limi
 // 获取公共数字人列表
 export const getCommonPersons = () => apiClient.get('/v1/dh/persons/common');
 
+// 获取公共数字人详情（包含可用动作）
+export const getCommonPersonDetail = (person_id) => apiClient.get(`/v1/dh/persons/common/${person_id}`);
+
 // 获取自定义数字人列表
 export const getCustomPersons = () => apiClient.get('/v1/dh/persons/custom');
 
-// 获取自定义数字人详情
+// 获取自定义数字人详情（包含可用动作）
 export const getCustomPersonDetail = (person_id) => apiClient.get(`/v1/dh/persons/custom/${person_id}`);
 
 // 同步自定义数字人
