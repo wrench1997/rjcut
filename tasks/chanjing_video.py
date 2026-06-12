@@ -79,12 +79,15 @@ def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merch
             chanjing_file_id = api.upload_file(local_bg, service="background")
             bg_params = {"file_id": chanjing_file_id, "x": 0, "y": 0, "width": 1080, "height": 1920}
 
-        # 🆕 获取 audio_man_id：如果 payload 中未提供，则从数字人详情中获取原生声音 ID
-        audio_man_id = payload.get("audio_man_id")
+        # 🆕 获取 audio_man：如果 payload 中未提供，则从数字人详情中获取原生声音 ID
+        # 前端发送的字段名是 audio_man
+        audio_man_id = payload.get("audio_man")
+        api.logger.info(f"[DEBUG] payload keys: {list(payload.keys())}")
+        api.logger.info(f"[DEBUG] audio_man from payload: {audio_man_id}")
         digital_person_id = payload.get("person_id")
         
         if not audio_man_id and digital_person_id:
-            api.logger.info(f"audio_man_id 未提供，正在从数字人 {digital_person_id} 详情中获取原生声音 ID...")
+            api.logger.info(f"audio_man 未提供，正在从数字人 {digital_person_id} 详情中获取原生声音 ID...")
             person_detail_resp = api.get_customised_person_status(digital_person_id)
             if ChanjingStatusCode.is_success(person_detail_resp.get('code')):
                 person_data = person_detail_resp.get('data', {})
@@ -106,7 +109,7 @@ def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merch
         video_params = {
             "digital_person_id": digital_person_id,
             "text": payload.get("text"),
-            "audio_man_id": audio_man_id,  # 可为 None，表示使用数字人原生声音
+            "audio_man_id": audio_man_id,  # 传递给 chanjing_api.create_video 的参数名
             
             # 数字人形象设置
             "figure_type": figure_type,

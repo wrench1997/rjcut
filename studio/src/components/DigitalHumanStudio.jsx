@@ -78,10 +78,25 @@ function AvatarPicker({ persons, voices, selectedPerson, onSelectPerson, selecte
 // =====================================================
 // 高级设置面板（折叠式）
 // =====================================================
-function AdvancedSettings({ settings, setSettings, isOpen, onToggle }) {
+function AdvancedSettings({ settings, setSettings, isOpen, onToggle, personDetails }) {
   const handleChange = (key, value) => {
     setSettings(prev => ({ ...prev, [key]: value }))
   }
+
+  // 当数字人变化时，同步更新动作选择
+  useEffect(() => {
+    if (personDetails?.actions && personDetails.actions.length > 0) {
+      // 如果当前选择的 action_id 不在可用动作列表中，重置为第一个动作
+      const currentActionId = settings.action_id
+      const availableIds = personDetails.actions.map(a => a.id)
+      if (!currentActionId || !availableIds.includes(currentActionId)) {
+        setSettings(prev => ({ ...prev, action_id: personDetails.actions[0].id }))
+      }
+    } else {
+      // 没有可用动作时，清空 action_id
+      setSettings(prev => ({ ...prev, action_id: null }))
+    }
+  }, [personDetails, settings.action_id])
 
   return (
     <div className="border-b border-slate-200 bg-slate-50">
@@ -289,6 +304,34 @@ function AdvancedSettings({ settings, setSettings, isOpen, onToggle }) {
                 {settings.hide_subtitle ? '不显示字幕' : '显示蝉镜原生字幕'}
               </p>
             </div>
+          </div>
+
+          {/* 动作选择 */}
+          <div className="bg-white p-3 rounded-lg border border-slate-200">
+            <label className="block text-xs font-bold text-slate-600 mb-2 flex items-center gap-1">
+              <Film size={12} /> 动作选择
+            </label>
+            {personDetails?.actions && personDetails.actions.length > 0 ? (
+              <select
+                value={settings.action_id || ''}
+                onChange={(e) => handleChange('action_id', e.target.value)}
+                className="w-full text-xs p-2 rounded border border-slate-200 bg-white"
+              >
+                <option value="">自动（根据驱动模式）</option>
+                {personDetails.actions.map((action, idx) => (
+                  <option key={action.id} value={action.id}>
+                    {action.name || `动作 ${idx + 1}`} (ID: {action.id.substring(0, 8)}...)
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div className="text-xs text-slate-500 p-2 bg-slate-50 rounded">
+                ℹ️ 该数字人没有可用动作，将使用默认驱动
+              </div>
+            )}
+            <p className="text-[10px] text-slate-400 mt-1">
+              {settings.action_id ? '✅ 使用选定的动作' : '🔄 根据驱动模式自动选择'}
+            </p>
           </div>
 
           {/* 驱动模式 */}
@@ -608,7 +651,8 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
     bg_color: '#EDEDED', // 背景颜色
     figure_type: 'whole_body', // 形象类型
     hide_subtitle: false, // 隐藏字幕
-    drive_mode: 'random' // 驱动模式
+    drive_mode: 'random', // 驱动模式
+    action_id: null    // 动作 ID（由数字人详情自动同步）
   })
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false)
 
@@ -708,6 +752,8 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
             if (detailRes?.data?.code === 0) {
               const details = detailRes.data.data
               console.log('[DigitalHumanStudio] 数字人详情:', details)
+              console.log('[DigitalHumanStudio] 数字人 actions:', details?.actions)
+              console.log('[DigitalHumanStudio] 数字人 audio_man_id:', details?.audio_man_id)
               // 保存可用动作列表
               setSelectedPersonDetails(details)
             } else {
@@ -799,15 +845,20 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
           // [阶段 1] 提交蝉镜数字人任务（包含高级设置和动作）
           console.log('[DigitalHumanStudio] 任务', index + 1, ': 提交数字人任务')
           
-          // 构建动作参数：从数字人详情中获取可用动作
+          // 构建动作参数：使用高级设置中同步的 action_id
           let actionParams = {}
           if (selectedPersonDetails?.actions && selectedPersonDetails.actions.length > 0) {
-            // 使用第一个可用动作，或者根据 drive_mode 随机选择
-            if (advancedSettings.drive_mode === 'random') {
+            // 优先使用高级设置中的 action_id（由组件自动同步）
+            if (advancedSettings.action_id) {
+              actionParams.action_id = advancedSettings.action_id
+              console.log('[DigitalHumanStudio] 使用高级设置中的动作:', actionParams.action_id)
+            } else if (advancedSettings.drive_mode === 'random') {
+              // 如果没有设置 action_id 且是随机模式，则随机选择
               const randomIndex = Math.floor(Math.random() * selectedPersonDetails.actions.length)
               actionParams.action_id = selectedPersonDetails.actions[randomIndex].id
               console.log('[DigitalHumanStudio] 随机选择动作:', actionParams.action_id)
             } else {
+              // 默认使用第一个动作
               actionParams.action_id = selectedPersonDetails.actions[0].id
               console.log('[DigitalHumanStudio] 使用默认动作:', actionParams.action_id)
             }
@@ -815,10 +866,10 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
             console.log('[DigitalHumanStudio] 该数字人没有可用动作列表')
           }
           
-          const dhRes = await createDhGenerateTask({
+          // 构建请求参数
+          const taskPayload = {
             text: script.text,
             person_id: selectedPerson.id,
-            audio_man_id: selectedVoice || undefined,
             // 动作参数
             ...actionParams,
             // 高级设置参数
@@ -832,7 +883,28 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
             hide_subtitle: advancedSettings.hide_subtitle,
             drive_mode: advancedSettings.drive_mode,
             client_ref_id: `dh_${task.id}`
+          }
+          
+          // 处理 audio_man 字段：优先使用用户选择的声音，否则使用数字人自带的 audio_man_id
+          console.log('[DigitalHumanStudio] 检查 audio_man 参数:', {
+            selectedVoice,
+            person_audio_man_id: selectedPersonDetails?.audio_man_id,
+            person_details: selectedPersonDetails
           })
+          
+          if (selectedVoice) {
+            taskPayload.audio_man = selectedVoice
+            console.log('[DigitalHumanStudio] 使用用户选择的声音:', selectedVoice)
+          } else if (selectedPersonDetails?.audio_man_id) {
+            taskPayload.audio_man = selectedPersonDetails.audio_man_id
+            console.log('[DigitalHumanStudio] 使用数字人自带的 audio_man_id:', selectedPersonDetails.audio_man_id)
+          } else {
+            console.warn('[DigitalHumanStudio] 警告：没有设置 audio_man 字段！')
+          }
+          
+          console.log('[DigitalHumanStudio] 最终提交任务 payload:', taskPayload)
+          
+          const dhRes = await createDhGenerateTask(taskPayload)
           
           if (dhRes?.data?.code !== 0) {
             throw new Error('数字人任务创建失败')
@@ -853,7 +925,13 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
               dhCompleted = true
               console.log('[DigitalHumanStudio] 任务', index + 1, ': 数字人生成成功')
             } else if (status === 'failed') {
-              throw new Error('数字人生成失败')
+              // 获取详细错误信息（优先从 error 字段获取）
+              const errorMsg = statusRes.data.data?.error || 
+                               statusRes.data.data?.error_message || 
+                               statusRes.data.data?.fail_reason || 
+                               '未知错误'
+              console.error('[DigitalHumanStudio] 蝉镜 API 返回错误详情:', statusRes.data.data)
+              throw new Error(`数字人生成失败：${errorMsg}`)
             } else {
               // 更新进度 (0-50%)
               setPipelineTasks(prev => prev.map(t => 
@@ -960,6 +1038,7 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
           setSettings={setAdvancedSettings}
           isOpen={showAdvancedSettings}
           onToggle={() => setShowAdvancedSettings(!showAdvancedSettings)}
+          personDetails={selectedPersonDetails}
         />
         
         <BatchScriptInput 
