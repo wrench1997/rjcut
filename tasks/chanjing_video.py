@@ -79,11 +79,11 @@ def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merch
             chanjing_file_id = api.upload_file(local_bg, service="background")
             bg_params = {"file_id": chanjing_file_id, "x": 0, "y": 0, "width": 1080, "height": 1920}
 
-        # 🆕 获取 audio_man：如果 payload 中未提供，则从数字人详情中获取原生声音 ID
-        # 前端发送的字段名是 audio_man
-        audio_man_id = payload.get("audio_man")
+        # 🆕 获取 audio_man_id：如果 payload 中未提供，则从数字人详情中获取原生声音 ID
+        # 前端发送的字段名是 audio_man_id
+        audio_man_id = payload.get("audio_man_id")
         api.logger.info(f"[DEBUG] payload keys: {list(payload.keys())}")
-        api.logger.info(f"[DEBUG] audio_man from payload: {audio_man_id}")
+        api.logger.info(f"[DEBUG] audio_man_id from payload: {audio_man_id}")
         digital_person_id = payload.get("person_id")
         
         if not audio_man_id and digital_person_id:
@@ -109,7 +109,6 @@ def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merch
         video_params = {
             "digital_person_id": digital_person_id,
             "text": payload.get("text"),
-            "audio_man_id": audio_man_id,  # 传递给 chanjing_api.create_video 的参数名
             
             # 数字人形象设置
             "figure_type": figure_type,
@@ -149,9 +148,8 @@ def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merch
             "callback": payload.get("callback_url"),
         }
         
-        # 背景：如果有上传的背景文件，使用 bg 参数覆盖 bg_color
-        if bg_params:
-            video_params["bg"] = bg_params
+        # 始终传递 audio_man_id 字段，蝉镜 API 需要该字段（空字符串表示使用默认 TTS）
+        video_params["audio_man_id"] = audio_man_id or ""
         
         api.logger.info(f"调用蝉镜 create_video，参数：{json.dumps(video_params, ensure_ascii=False, default=str)}")
         

@@ -885,21 +885,23 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
             client_ref_id: `dh_${task.id}`
           }
           
-          // 处理 audio_man 字段：优先使用用户选择的声音，否则使用数字人自带的 audio_man_id
-          console.log('[DigitalHumanStudio] 检查 audio_man 参数:', {
+          // 处理 audio_man_id 字段：优先使用用户选择的声音，否则使用数字人自带的 audio_man_id
+          console.log('[DigitalHumanStudio] 检查 audio_man_id 参数:', {
             selectedVoice,
             person_audio_man_id: selectedPersonDetails?.audio_man_id,
             person_details: selectedPersonDetails
           })
           
           if (selectedVoice) {
-            taskPayload.audio_man = selectedVoice
+            taskPayload.audio_man_id = selectedVoice
             console.log('[DigitalHumanStudio] 使用用户选择的声音:', selectedVoice)
           } else if (selectedPersonDetails?.audio_man_id) {
-            taskPayload.audio_man = selectedPersonDetails.audio_man_id
+            taskPayload.audio_man_id = selectedPersonDetails.audio_man_id
             console.log('[DigitalHumanStudio] 使用数字人自带的 audio_man_id:', selectedPersonDetails.audio_man_id)
           } else {
-            console.warn('[DigitalHumanStudio] 警告：没有设置 audio_man 字段！')
+            // 即使没有声音 ID，也要传递空字符串，让后端使用默认 TTS 配置
+            taskPayload.audio_man_id = ''
+            console.log('[DigitalHumanStudio] 未设置声音 ID，将使用默认 TTS 配置')
           }
           
           console.log('[DigitalHumanStudio] 最终提交任务 payload:', taskPayload)
