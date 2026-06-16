@@ -17,3 +17,5 @@ deps/
 *.MOV
 __pycache__/
 .next/
+studio/out/*
+studio/release/*

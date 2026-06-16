@@ -47,6 +47,7 @@ function createWindow() {
     titleBarStyle: 'hiddenInset',
     show: false,
     backgroundColor: '#f8fafc',
+    autoHideMenuBar: true, // 隐藏菜单栏（File Edit View Window 等）
   })
 
   // 判断是否为打包后的环境
@@ -536,15 +537,15 @@ app.whenReady().then(async () => {
     return net.fetch(fileUrl)
   })
 
-  // 设置允许的根目录 - 以 RJCut 目录为主要根目录
+  // 设置允许的根目录 - 以 剪辑工作室 目录为主要根目录
   const documentsPath = app.getPath('documents')
   const videosPath = app.getPath('videos')
-  const rjcutPath = path.join(documentsPath, 'RJCut')
+  const studioPath = path.join(documentsPath, '剪辑工作室')
   
   allowedRoots = [
-    rjcutPath,      // 主要根目录：Documents/RJCut
-    documentsPath,  // 备用：Documents
-    videosPath,     // 备用：Videos
+    studioPath,      // 主要根目录：Documents/剪辑工作室
+    documentsPath,   // 备用：Documents
+    videosPath,      // 备用：Videos
   ]
   
   // 初始化 fs-utils 的允许根目录
@@ -592,7 +593,7 @@ app.whenReady().then(async () => {
       inputSchema: {
         type: 'object',
         properties: {
-          path: { type: 'string', description: '文件路径，例如 /projects/test.json' }
+          path: { type: 'string', description: '文件路径，例如 /我的项目/test.json' }
         },
         required: ['path']
       },
@@ -848,7 +849,7 @@ app.whenReady().then(async () => {
     
     mcpServer.registerTool({
       name: 'vfs_analyze_external',
-      description: '分析外部文件夹内容（视频、音频、图片、文档等），返回详细的文件分类和统计信息。💡 提示：分析后可配合 vfs_smart_organize 将文件智能组织到 /projects/项目名 目录中',
+      description: '分析外部文件夹内容（视频、音频、图片、文档等），返回详细的文件分类和统计信息。💡 提示：分析后可配合 vfs_smart_organize 将文件智能组织到 /项目名 目录中',
       inputSchema: {
         type: 'object',
         properties: {
@@ -896,7 +897,7 @@ app.whenReady().then(async () => {
     
     mcpServer.registerTool({
       name: 'vfs_import_external',
-      description: '将外部文件夹导入到 VFS 虚拟文件系统中，支持文件过滤、目录结构保持或扁平化。⚠️ 重要：vfsTargetPath 必须指向 /projects/项目名/xxx 目录，例如 /projects/我的视频项目/素材',
+      description: '将外部文件夹导入到 VFS 虚拟文件系统中，支持文件过滤、目录结构保持或扁平化。⚠️ 重要：vfsTargetPath 必须指向 /项目名/xxx 目录，例如 /我的视频项目/素材',
       inputSchema: {
         type: 'object',
         properties: {
@@ -906,7 +907,7 @@ app.whenReady().then(async () => {
           },
           vfsTargetPath: { 
             type: 'string', 
-            description: '⚠️ 必须指向 /projects/项目名/xxx 目录！例如：/projects/我的视频项目/素材 或 /projects/我的视频项目/原始视频。不允许使用其他路径。' 
+            description: '⚠️ 必须指向 /项目名/xxx 目录！例如：/我的视频项目/素材 或 /我的视频项目/原始视频。不允许使用其他路径。' 
           },
           includePatterns: { 
             type: 'array', 
@@ -965,7 +966,7 @@ app.whenReady().then(async () => {
     
     mcpServer.registerTool({
       name: 'vfs_smart_organize',
-      description: '智能组织外部文件到项目结构中。如果检测到 script.json 脚本文件，会根据 flag 自动分类视频（human→原始视频，scene→剪辑视频），其他文件按类型分类（字幕、音乐、文案等放主目录）。⚠️ 重要：projectPath 必须指向 /projects/项目名 目录，例如 /projects/我的视频项目',
+      description: '智能组织外部文件到项目结构中。如果检测到 script.json 脚本文件，会根据 flag 自动分类视频（human→原始视频，scene→剪辑视频），其他文件按类型分类（字幕、音乐、文案等放主目录）。⚠️ 重要：projectPath 必须指向 /项目名 目录，例如 /我的视频项目',
       inputSchema: {
         type: 'object',
         properties: {
@@ -975,7 +976,7 @@ app.whenReady().then(async () => {
           },
           projectPath: { 
             type: 'string', 
-            description: '⚠️ 必须指向 /projects/项目名 目录！例如：/projects/我的视频项目。不允许使用其他路径。' 
+            description: '⚠️ 必须指向 /项目名 目录！例如：/我的视频项目。不允许使用其他路径。' 
           },
           autoRename: { 
             type: 'boolean', 

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Folder, FileVideo, FileAudio, FileImage, FileJson, FileCode, FileBox, FileText, File, Film, Music, Image, ArrowUp, RefreshCw, FolderPlus, FilePlus, Trash2, Eye, Download, Clapperboard, Home, List, Grid3x3, FolderOpen, Copy, Clipboard, Scissors, Move, FileInput } from 'lucide-react'
+import Tooltip from './Tooltip'
 
 // =====================================================
 // 文件图标
@@ -402,28 +403,40 @@ function ContextMenu({ x, y, item, onClose, onCopy, onCut, onPaste, canPaste, on
     <div className="context-menu" style={menuStyle}>
       {item && (
         <>
-          <div className="context-menu-item" onClick={() => { onCopy?.(item); onClose(); }}>
-            <Copy size={14} /> 复制
-          </div>
-          <div className="context-menu-item" onClick={() => { onCut?.(item); onClose(); }}>
-            <Scissors size={14} /> 剪切
-          </div>
-          <div className="context-menu-item" onClick={() => { onRename?.(item); onClose(); }}>
-            <FileInput size={14} /> 重命名
-          </div>
-          <div className="context-menu-item" onClick={() => { onDownload?.(item); onClose(); }}>
-            <Download size={14} /> 下载
-          </div>
+          <Tooltip tip="复制文件到剪贴板" delay={1000} position="right">
+            <div className="context-menu-item" onClick={() => { onCopy?.(item); onClose(); }}>
+              <Copy size={14} /> 复制
+            </div>
+          </Tooltip>
+          <Tooltip tip="剪切文件，可粘贴到其他位置" delay={1000} position="right">
+            <div className="context-menu-item" onClick={() => { onCut?.(item); onClose(); }}>
+              <Scissors size={14} /> 剪切
+            </div>
+          </Tooltip>
+          <Tooltip tip="重命名文件或文件夹" delay={1000} position="right">
+            <div className="context-menu-item" onClick={() => { onRename?.(item); onClose(); }}>
+              <FileInput size={14} /> 重命名
+            </div>
+          </Tooltip>
+          <Tooltip tip="下载文件到本地" delay={1000} position="right">
+            <div className="context-menu-item" onClick={() => { onDownload?.(item); onClose(); }}>
+              <Download size={14} /> 下载
+            </div>
+          </Tooltip>
           <div className="context-menu-divider" />
-          <div className="context-menu-item danger" onClick={() => { onDelete?.(item); onClose(); }}>
-            <Trash2 size={14} /> 删除
-          </div>
+          <Tooltip tip="永久删除此项目" delay={1000} position="right">
+            <div className="context-menu-item danger" onClick={() => { onDelete?.(item); onClose(); }}>
+              <Trash2 size={14} /> 删除
+            </div>
+          </Tooltip>
         </>
       )}
       {!item && canPaste && (
-        <div className="context-menu-item" onClick={() => { onPaste?.(); onClose(); }}>
-          <Clipboard size={14} /> 粘贴
-        </div>
+        <Tooltip tip="粘贴剪贴板中的内容到当前位置" delay={1000} position="right">
+          <div className="context-menu-item" onClick={() => { onPaste?.(); onClose(); }}>
+            <Clipboard size={14} /> 粘贴
+          </div>
+        </Tooltip>
       )}
     </div>
   )
@@ -437,24 +450,28 @@ function Breadcrumb({ path, onNavigate }) {
   
   return (
     <div className="breadcrumb">
-      <button 
-        className="breadcrumb-btn"
-        onClick={() => onNavigate('/')}
-        title="根目录"
-      >
-        <Home size={16} />
-      </button>
+      <Tooltip tip="返回根目录" delay={1000}>
+        <button 
+          className="breadcrumb-btn"
+          onClick={() => onNavigate('/')}
+          title="根目录"
+        >
+          <Home size={16} />
+        </button>
+      </Tooltip>
       {parts.map((part, index) => {
         const fullPath = '/' + parts.slice(0, index + 1).join('/')
         return (
           <span key={fullPath} className="breadcrumb-sep">
             <span>/</span>
-            <button 
-              className="breadcrumb-btn"
-              onClick={() => onNavigate(fullPath)}
-            >
-              {part}
-            </button>
+            <Tooltip tip={`导航到：${fullPath}`} delay={1000}>
+              <button 
+                className="breadcrumb-btn"
+                onClick={() => onNavigate(fullPath)}
+              >
+                {part}
+              </button>
+            </Tooltip>
           </span>
         )
       })}
@@ -1220,6 +1237,11 @@ function FileBrowser({ vfs, onFileSelect, onFileOpen, className, initialPath = '
   }, [])
   
   const loadDirectory = useCallback(async () => {
+    if (!vfs) {
+      setItems([])
+      setLoading(false)
+      return
+    }
     try {
       setLoading(true)
       let dirItems
@@ -1493,99 +1515,89 @@ function FileBrowser({ vfs, onFileSelect, onFileOpen, className, initialPath = '
           </div>
           
           <div className="toolbar-right">
-            <button
-              className="btn btn-ghost btn-sm"
-              onClick={goUp}
-              disabled={currentPath === '/'}
-              title="上一级"
-            >
-              <ArrowUp size={16} strokeWidth={2} />
-            </button>
+            <Tooltip tip="返回上一级目录" delay={1000}>
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={goUp}
+                disabled={currentPath === '/'}
+                title="上一级"
+              >
+                <ArrowUp size={16} strokeWidth={2} />
+              </button>
+            </Tooltip>
             
-            <button
-              className="btn btn-ghost btn-sm"
-              onClick={refresh}
-              title="刷新"
-            >
-              <RefreshCw size={16} strokeWidth={2} />
-            </button>
+            <Tooltip tip="刷新当前目录文件列表" delay={1000}>
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={refresh}
+                title="刷新"
+              >
+                <RefreshCw size={16} strokeWidth={2} />
+              </button>
+            </Tooltip>
             
-            <button
-              className="btn btn-ghost btn-sm"
-              onClick={() => handleCreate('folder')}
-              title="新建文件夹"
-            >
-              <FolderPlus size={16} strokeWidth={2} />
-            </button>
+            <Tooltip tip="按文件类型筛选显示" delay={1000}>
+              <select
+                className="filter-select"
+                value={filterType}
+                onChange={(e) => setFilterType(e.target.value)}
+              >
+                <option value="all">全部</option>
+                <option value="video">视频</option>
+                <option value="audio">音频</option>
+                <option value="image">图片</option>
+                <option value="document">文档</option>
+              </select>
+            </Tooltip>
             
-            <button
-              className="btn btn-ghost btn-sm"
-              onClick={() => handleCreate('file')}
-              title="新建文件"
-            >
-              <FilePlus size={16} strokeWidth={2} />
-            </button>
+            <Tooltip tip="搜索文件名" delay={1000}>
+              <input
+                type="text"
+                className="search-input"
+                placeholder="搜索文件..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </Tooltip>
             
-            <button
-              className="btn btn-primary btn-sm"
-              onClick={handleUpload}
-              title="上传文件"
-            >
-              上传
-            </button>
-            
-            <select
-              className="filter-select"
-              value={filterType}
-              onChange={(e) => setFilterType(e.target.value)}
-            >
-              <option value="all">全部</option>
-              <option value="video">视频</option>
-              <option value="audio">音频</option>
-              <option value="image">图片</option>
-              <option value="document">文档</option>
-            </select>
-            
-            <input
-              type="text"
-              className="search-input"
-              placeholder="搜索文件..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-            
-            <select
-              className="sort-select"
-              value={`${sortBy}-${sortOrder}`}
-              onChange={(e) => {
-                const [newSortBy, newSortOrder] = e.target.value.split('-')
-                setSortBy(newSortBy)
-                setSortOrder(newSortOrder)
-              }}
-            >
-              <option value="name-asc">名称 (A-Z)</option>
-              <option value="name-desc">名称 (Z-A)</option>
-              <option value="time-desc">时间 (新→旧)</option>
-              <option value="time-asc">时间 (旧→新)</option>
-              <option value="size-desc">大小 (大→小)</option>
-              <option value="size-asc">大小 (小→大)</option>
-            </select>
+            <Tooltip tip="选择文件排序方式" delay={1000}>
+              <select
+                className="sort-select"
+                value={`${sortBy}-${sortOrder}`}
+                onChange={(e) => {
+                  const [newSortBy, newSortOrder] = e.target.value.split('-')
+                  setSortBy(newSortBy)
+                  setSortOrder(newSortOrder)
+                }}
+              >
+                <option value="name-asc">名称 (A-Z)</option>
+                <option value="name-desc">名称 (Z-A)</option>
+                <option value="time-desc">时间 (新→旧)</option>
+                <option value="time-asc">时间 (旧→新)</option>
+                <option value="size-desc">大小 (大→小)</option>
+                <option value="size-asc">大小 (小→大)</option>
+              </select>
+            </Tooltip>
             
             <div className="view-toggle">
-              <button
-                className={`btn-toggle ${viewMode === 'list' ? 'active' : ''}`}
-                onClick={() => setViewMode('list')}
-                title="列表视图"
-              >
-                <List size={16} />
-              </button>
-              <button
-                className={`btn-toggle ${viewMode === 'grid' ? 'active' : ''}`}
-                onClick={() => setViewMode('grid')}
-                title="网格视图"
-              >
-                <Grid3x3 size={16} />
-              </button>
+              <Tooltip tip="切换到列表视图" delay={1000}>
+                <button
+                  className={`btn-toggle ${viewMode === 'list' ? 'active' : ''}`}
+                  onClick={() => setViewMode('list')}
+                  title="列表视图"
+                >
+                  <List size={16} />
+                </button>
+              </Tooltip>
+              <Tooltip tip="切换到网格视图" delay={1000}>
+                <button
+                  className={`btn-toggle ${viewMode === 'grid' ? 'active' : ''}`}
+                  onClick={() => setViewMode('grid')}
+                  title="网格视图"
+                >
+                  <Grid3x3 size={16} />
+                </button>
+              </Tooltip>
             </div>
           </div>
         </div>

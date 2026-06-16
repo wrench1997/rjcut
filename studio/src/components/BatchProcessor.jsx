@@ -3,6 +3,8 @@ import useBatchStore from '../api/useBatchProcessStore'
 import { setApiKey } from '../api/api'
 import { PROJECT_FOLDERS, parseProjectNameFromVFS, buildVFSPath } from '../utils/project-structure'
 import { Hourglass, Upload, FileText, Clapperboard, Download, CheckCircle, XCircle, Ban, Rocket, Folder, Music, X, Check, ArrowLeft, Info } from 'lucide-react'
+import Tooltip from './Tooltip'
+import GlobalParamsVisualEditor from './GlobalParamsVisualEditor'
 
 // --- 现代化进度条 ---
 function TailwindProgressBar({ progress, status }) {
@@ -177,7 +179,7 @@ function TaskCard({ task, vfs }) {
             return <StageIcon size={20} className="text-slate-500" strokeWidth={2} />
           })()}
           <div>
-            <h3 className="font-bold text-slate-800 text-sm truncate max-w-[200px]" title={task.id}>{task.id}</h3>
+            <h3 className="font-bold text-slate-800 text-sm truncate max-w-[200px]" title={task.id}>{task.vfsVideoPath?.split('/').pop() || task.id}</h3>
             <p className="text-xs text-slate-500">{stageLabels[task.stage] || task.stage}</p>
           </div>
         </div>
@@ -191,13 +193,6 @@ function TaskCard({ task, vfs }) {
           <p className="text-xs text-red-600">{task.error}</p>
         </div>
       )}
-
-      {(task.draftTaskId || task.composeTaskId) && (
-        <div className="mt-3 pt-3 border-t border-slate-100">
-          <div className="text-xs text-slate-400 space-y-1 mb-3">
-            {task.draftTaskId && <div>草稿：{task.draftTaskId.substring(0, 12)}...</div>}
-            {task.composeTaskId && <div>合成：{task.composeTaskId.substring(0, 12)}...</div>}
-          </div>
           
           {task.stage === 'succeeded' && (
             <div className="space-y-2">
@@ -234,8 +229,6 @@ function TaskCard({ task, vfs }) {
             </div>
           )}
         </div>
-      )}
-    </div>
   )
 }
 
@@ -249,6 +242,17 @@ function StatCard({ label, value, colorClass }) {
   )
 }
 
+// 文件选择器标签提示
+const getLabelTip = (label) => {
+  const tips = {
+    '数字人视频（单选）*': '选择已生成的数字人视频作为批量处理的源视频',
+    '场景文件夹 *': '选择包含场景配置文件的文件夹，每个场景将生成一个独立视频',
+    '脚本文件 (可选)': '选择 JSON 格式的脚本文件，用于指导视频剪辑',
+    '背景音乐 (可选)': '选择背景音乐文件，将添加到生成的视频中',
+    '全局修正文件 (可选)': '选择全局修正配置文件，用于批量修正所有任务的生成结果',
+  }
+  return tips[label] || ''
+}
 // --- 文件选择器组件（简化版）---
 function FileSelector({ label, vfs, selectedFile, onSelect, accept, disabled, multiple = false, allowDirectorySelection = false }) {
   const [showBrowser, setShowBrowser] = useState(false)
@@ -316,7 +320,9 @@ function FileSelector({ label, vfs, selectedFile, onSelect, accept, disabled, mu
 
   return (
     <div>
-      <label className="block text-sm font-medium text-slate-700 mb-1.5">{label}</label>
+      <Tooltip tip={getLabelTip(label)} delay={1000}>
+        <label className="block text-sm font-medium text-slate-700 mb-1.5">{label}</label>
+      </Tooltip>
       {selectedFile && ((multiple && Array.isArray(selectedFile) && selectedFile.length > 0) || (!multiple && selectedFile)) ? (
         <div className="flex gap-2 items-center">
           <div className="flex-1 min-w-0">
@@ -326,15 +332,17 @@ function FileSelector({ label, vfs, selectedFile, onSelect, accept, disabled, mu
                   <div key={idx} className="flex items-center gap-2 p-2 bg-blue-50 rounded-lg border border-blue-200">
                     <FileText size={14} className="text-blue-500 flex-shrink-0" />
                     <span className="text-sm text-slate-700 truncate flex-1">{file.split('/').pop()}</span>
-                    <button
-                      className="p-1 text-slate-400 hover:text-red-500 transition-colors"
-                      onClick={() => {
-                        const newFiles = selectedFile.filter((_, i) => i !== idx)
-                        onSelect(newFiles.length > 0 ? newFiles : null)
-                      }}
-                    >
-                      <X size={14} />
-                    </button>
+                    <Tooltip tip="移除此文件" delay={1000}>
+                      <button
+                        className="p-1 text-slate-400 hover:text-red-500 transition-colors"
+                        onClick={() => {
+                          const newFiles = selectedFile.filter((_, i) => i !== idx)
+                          onSelect(newFiles.length > 0 ? newFiles : null)
+                        }}
+                      >
+                        <X size={14} />
+                      </button>
+                    </Tooltip>
                   </div>
                 ))}
               </div>
@@ -345,21 +353,25 @@ function FileSelector({ label, vfs, selectedFile, onSelect, accept, disabled, mu
               </div>
             )}
           </div>
-          <button
-            className="px-3 py-2 text-sm text-slate-500 hover:text-slate-700 transition-colors"
-            onClick={() => onSelect(multiple ? [] : null)}
-          >
-            清除
-          </button>
+          <Tooltip tip="清空当前选择" delay={1000}>
+            <button
+              className="px-3 py-2 text-sm text-slate-500 hover:text-slate-700 transition-colors"
+              onClick={() => onSelect(multiple ? [] : null)}
+            >
+              清除
+            </button>
+          </Tooltip>
         </div>
       ) : (
-        <button
-          className="w-full py-3 border-2 border-dashed border-slate-300 rounded-xl text-slate-500 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 transition-all flex items-center justify-center gap-2"
-          onClick={() => setShowBrowser(true)}
-          disabled={disabled || !vfs}
-        >
-          <Folder size={16} />从 VFS 选择文件
-        </button>
+        <Tooltip tip="从虚拟文件系统中选择文件" delay={1000}>
+          <button
+            className="w-full py-3 border-2 border-dashed border-slate-300 rounded-xl text-slate-500 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 transition-all flex items-center justify-center gap-2"
+            onClick={() => setShowBrowser(true)}
+            disabled={disabled || !vfs}
+          >
+            <Folder size={16} />从 VFS 选择文件
+          </button>
+        </Tooltip>
       )}
 
       {showBrowser && (
@@ -468,6 +480,7 @@ export default function BatchProcessor({ vfs, apiKey }) {
   const [correctionsFile, setCorrectionsFile] = useState(null)
   const [maxConcurrent, setMaxConcurrent] = useState(3)
   const [localError, setLocalError] = useState('')
+  const [globalParams, setGlobalParams] = useState(null)
 
   const {
     tasks,
@@ -546,7 +559,9 @@ export default function BatchProcessor({ vfs, apiKey }) {
     <div className="space-y-6 max-w-7xl mx-auto">
       <div className="flex justify-between items-end">
         <div>
-          <h2 className="text-2xl font-bold text-slate-800">批量视频处理</h2>
+          <Tooltip tip="批量上传视频或指定参数，并行处理多个生成任务" delay={1000}>
+            <h2 className="text-2xl font-bold text-slate-800">批量视频处理</h2>
+          </Tooltip>
           <p className="text-sm text-slate-500 mt-1">上传视频或指定参数，并行处理多个生成任务</p>
         </div>
       </div>
@@ -572,26 +587,30 @@ export default function BatchProcessor({ vfs, apiKey }) {
           {/* 控制按钮 */}
           <div className="flex justify-center gap-4 pt-4">
             {isRunning && (
-              <button
-                className="px-6 py-2.5 bg-red-50 hover:bg-red-100 text-red-700 font-medium rounded-lg transition-colors border border-red-200 flex items-center gap-2"
-                onClick={abortBatch}
-              >
-                <XCircle size={20} strokeWidth={2} />
-                取消所有任务
-              </button>
+              <Tooltip tip="立即停止所有正在处理的任务" delay={1000}>
+                <button
+                  className="px-6 py-2.5 bg-red-50 hover:bg-red-100 text-red-700 font-medium rounded-lg transition-colors border border-red-200 flex items-center gap-2"
+                  onClick={abortBatch}
+                >
+                  <XCircle size={20} strokeWidth={2} />
+                  取消所有任务
+                </button>
+              </Tooltip>
             )}
             {!isRunning && (
-              <button
-                className="px-6 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-lg transition-colors"
-                onClick={() => {
-                  reset()
-                  setDigitalHumanVideo(null)
-                  setSceneConfigs([])
-                  setCorrectionsFile(null)
-                }}
-              >
-                重置
-              </button>
+              <Tooltip tip="清空所有任务记录，重新开始配置" delay={1000}>
+                <button
+                  className="px-6 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-lg transition-colors"
+                  onClick={() => {
+                    reset()
+                    setDigitalHumanVideo(null)
+                    setSceneConfigs([])
+                    setCorrectionsFile(null)
+                  }}
+                >
+                  重置
+                </button>
+              </Tooltip>
             )}
           </div>
         </div>
@@ -709,7 +728,9 @@ export default function BatchProcessor({ vfs, apiKey }) {
               <h3 className="text-base font-bold text-slate-800 mb-4">全局参数配置</h3>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">并发数量</label>
+                  <Tooltip tip="同时处理的任务数量，数量越大速度越快但可能导致 API 限流" delay={1000}>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">并发数量</label>
+                  </Tooltip>
                   <select 
                     className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                     value={maxConcurrent}
@@ -724,21 +745,21 @@ export default function BatchProcessor({ vfs, apiKey }) {
                 </div>
                 
                 <div className="pt-4 border-t border-slate-100">
-                  <button
-                    className="w-full text-left text-sm font-medium text-slate-700 flex justify-between items-center"
-                    onClick={() => setShowConfigEditor(!showConfigEditor)}
-                  >
-                    {showConfigEditor ? '收起高级配置' : '展开高级配置'}
-                    <span className="transform transition-transform">{showConfigEditor ? '▲' : '▼'}</span>
-                  </button>
+                  <Tooltip tip="点击展开或收起高级可视化配置选项" delay={1000}>
+                    <button
+                      className="w-full text-left text-sm font-medium text-slate-700 flex justify-between items-center"
+                      onClick={() => setShowConfigEditor(!showConfigEditor)}
+                    >
+                      {showConfigEditor ? '收起高级配置' : '展开高级配置'}
+                      <span className="transform transition-transform">{showConfigEditor ? '▲' : '▼'}</span>
+                    </button>
+                  </Tooltip>
                   
                   {showConfigEditor && (
                     <div className="mt-3">
-                      <label className="block text-xs font-medium text-slate-600 mb-1">自定义配置 (JSON)</label>
-                      <textarea
-                        className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-mono focus:ring-2 focus:ring-blue-500 outline-none"
-                        rows={4}
-                        placeholder='{"pipeline": {"remove_keyword": "转场"}}'
+                      <GlobalParamsVisualEditor
+                        value={globalParams}
+                        onChange={setGlobalParams}
                       />
                     </div>
                   )}

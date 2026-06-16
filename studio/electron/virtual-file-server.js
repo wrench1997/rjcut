@@ -697,7 +697,8 @@ class VirtualFileSystem {
   }
 
   async createVideoProject(projectName, config = {}) {
-    const projectPath = `/projects/${projectName}`
+    // 项目直接创建在根目录下，不需要 /projects 前缀
+    const projectPath = `/${projectName}`
     
     await this.mkdir(projectPath, true)
     await this.mkdir(`${projectPath}/原始视频`, true)
@@ -728,10 +729,11 @@ class VirtualFileSystem {
 
   async getVideoProjects() {
     const projects = []
-    const projectsDir = this.getDirectory('/projects')
+    // 项目直接在根目录下，获取根目录
+    const rootDir = this.getDirectory('/')
     
-    if (projectsDir) {
-      for (const childPath of projectsDir.children) {
+    if (rootDir) {
+      for (const childPath of rootDir.children) {
         if (this.directories.has(childPath)) {
           const projectConfig = this.getFile(`${childPath}/project.json`)
           if (projectConfig) {
@@ -1086,7 +1088,7 @@ class VirtualFileServer {
       for (const item of items) {
         if (item.isDirectory()) {
           const projectPath = path.join(projectsPath, item.name)
-          const vfsProjectPath = `/projects/${item.name}`
+          const vfsProjectPath = `/${item.name}`
           
           // 检查 VFS 中是否已存在该项目
           if (!this.vfs.exists(vfsProjectPath)) {
@@ -1284,7 +1286,7 @@ class VirtualFileServer {
           throw new Error('缺少参数：physicalPath')
         }
         
-        const result = await this.vfs.syncFromPhysical(vfsPath || '/projects/imported', physicalPath)
+        const result = await this.vfs.syncFromPhysical(vfsPath || '/imported', physicalPath)
         
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({

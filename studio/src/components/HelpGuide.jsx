@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Rocket, FileText, Book, Settings, HelpCircle, Clapperboard, Clipboard, Search, Lightbulb, Video, Image, RefreshCw, Folder } from 'lucide-react';
+import { Layers, Folder, Sparkles, FileText, Settings, HelpCircle, Clapperboard, Clipboard, Search, Lightbulb, Video, Image, RefreshCw, Book } from 'lucide-react';
 
 /**
  * HelpGuide - 前端使用说明和脚本格式帮助指南
@@ -9,10 +9,11 @@ function HelpGuide({ onClose }) {
   const [activeTab, setActiveTab] = useState('quickstart');
 
   const tabs = [
-    { id: 'quickstart', label: '快速开始', icon: <Rocket size={16} /> },
+    { id: 'batch', label: '批量处理', icon: <Layers size={16} /> },
+    { id: 'files', label: '文件浏览', icon: <Folder size={16} /> },
+    { id: 'digital-human', label: '数字人创作', icon: <Sparkles size={16} /> },
     { id: 'script', label: '脚本格式', icon: <FileText size={16} /> },
-    { id: 'corrections', label: '纠错字典', icon: <Book size={16} /> },
-    { id: 'config', label: '自定义配置', icon: <Settings size={16} /> },
+    { id: 'config', label: '高级配置', icon: <Settings size={16} /> },
     { id: 'faq', label: '常见问题', icon: <HelpCircle size={16} /> },
   ];
 
@@ -128,9 +129,10 @@ function HelpGuide({ onClose }) {
             padding: '24px',
           }}
         >
-          {activeTab === 'quickstart' && <QuickStartContent />}
+          {activeTab === 'batch' && <BatchModuleContent />}
+          {activeTab === 'files' && <FileBrowserModuleContent />}
+          {activeTab === 'digital-human' && <DigitalHumanModuleContent />}
           {activeTab === 'script' && <ScriptFormatContent />}
-          {activeTab === 'corrections' && <CorrectionsContent />}
           {activeTab === 'config' && <CustomConfigContent />}
           {activeTab === 'faq' && <FAQContent />}
         </div>
@@ -140,16 +142,16 @@ function HelpGuide({ onClose }) {
 }
 
 /**
- * 快速开始内容
+ * 批量处理模块内容
  */
-function QuickStartContent() {
+function BatchModuleContent() {
   return (
     <div style={{ lineHeight: 1.6, color: '#1d1d1f' }}>
       <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', color: '#1d1d1f', display: 'flex', alignItems: 'center', gap: '8px' }}>
-        <Clapperboard size={18} /> 产品概述
+        <Layers size={18} /> 批量处理模块
       </h3>
       <p style={{ marginBottom: '16px', color: '#3a3a3c' }}>
-        RJCut Studio 是一款基于 Web 的批量视频处理工作台，采用 React + Vite 技术构建，遵循 Apple 设计风格的极简美学。
+        批量处理模块用于同时处理多个视频剪辑任务，支持数字人视频与场景素材的自动合成。
       </p>
 
       <div
@@ -160,122 +162,229 @@ function QuickStartContent() {
           marginBottom: '24px',
         }}
       >
-        <h4 style={{ margin: '0 0 12px 0', fontSize: '15px', fontWeight: 600 }}>核心能力</h4>
+        <h4 style={{ margin: '0 0 12px 0', fontSize: '15px', fontWeight: 600 }}>核心功能</h4>
         <ul style={{ margin: 0, paddingLeft: '20px', color: '#3a3a3c' }}>
-          <li><strong>批量视频处理</strong> - 支持同时配置和提交多个视频处理任务</li>
-          <li><strong>并发控制</strong> - 可配置最大并发任务数（1-10）</li>
-          <li><strong>自动合成</strong> - 支持草稿完成后自动合成最终视频</li>
-          <li><strong>任务管理</strong> - 实时查看任务状态、进度和结果</li>
-          <li><strong>极简设计</strong> - 遵循 Apple 设计系统，摄影优先，UI 退居其次</li>
+          <li><strong>数字人视频选择</strong> - 从文件管理中选择已生成的数字人视频</li>
+          <li><strong>场景配置</strong> - 为每个场景配置脚本文件和背景音乐</li>
+          <li><strong>批量处理</strong> - 一个数字人视频可对应多个场景，批量生成</li>
+          <li><strong>并发控制</strong> - 可配置同时处理的任务数量（1-10）</li>
+          <li><strong>进度查看</strong> - 实时查看每个任务的处理进度和状态</li>
         </ul>
       </div>
 
       <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', color: '#1d1d1f', display: 'flex', alignItems: 'center', gap: '8px' }}>
-        <Clipboard size={18} /> 快速开始步骤
+        <Clipboard size={18} /> 使用步骤
       </h3>
 
       <div style={{ marginBottom: '20px' }}>
         <h4 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '8px', color: '#1d1d1f' }}>
-          1. 配置 API Key
+          1. 选择数字人视频
         </h4>
         <p style={{ margin: 0, color: '#3a3a3c' }}>
-          点击右下角 <strong>设置</strong> 图标，输入您的 API Key 并保存。Key 仅保存在本地浏览器。
+          从文件管理中选择已生成的数字人视频。如果没有数字人视频，请先前往 <strong>数字人创作台</strong> 生成。
         </p>
       </div>
 
       <div style={{ marginBottom: '20px' }}>
         <h4 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '8px', color: '#1d1d1f' }}>
-          2. 创建任务
+          2. 添加场景配置
         </h4>
         <p style={{ margin: 0, color: '#3a3a3c' }}>
-          点击顶部导航栏 <strong>批量处理</strong> 标签，配置全局参数后添加任务配置。
+          点击 <strong>+ 添加场景</strong> 按钮，为每个场景配置：
+        </p>
+        <ul style={{ margin: '8px 0 0 20px', color: '#3a3a3c' }}>
+          <li><strong>场景文件夹</strong>（必填）- 包含场景素材的目录</li>
+          <li><strong>脚本文件</strong>（可选）- JSON 格式脚本，定义每个片段的内容</li>
+          <li><strong>背景音乐</strong>（可选）- MP3/WAV 等音频文件</li>
+        </ul>
+      </div>
+
+      <div style={{ marginBottom: '20px' }}>
+        <h4 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '8px', color: '#1d1d1f' }}>
+          3. 全局配置（可选）
+        </h4>
+        <p style={{ margin: 0, color: '#3a3a3c' }}>
+          可设置全局的纠错字典文件，用于修正 ASR 识别错误。
         </p>
       </div>
 
       <div style={{ marginBottom: '20px' }}>
         <h4 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '8px', color: '#1d1d1f' }}>
-          3. 任务配置字段
+          4. 开始处理
         </h4>
-        <table
-          style={{
-            width: '100%',
-            borderCollapse: 'collapse',
-            fontSize: '13px',
-            backgroundColor: '#fff',
-            border: '1px solid #e5e5e5',
-          }}
-        >
-          <thead>
-            <tr style={{ backgroundColor: '#f5f5f7' }}>
-              <th style={{ padding: '10px', textAlign: 'left', borderBottom: '1px solid #e5e5e5' }}>字段</th>
-              <th style={{ padding: '10px', textAlign: 'left', borderBottom: '1px solid #e5e5e5' }}>类型</th>
-              <th style={{ padding: '10px', textAlign: 'left', borderBottom: '1px solid #e5e5e5' }}>必填</th>
-              <th style={{ padding: '10px', textAlign: 'left', borderBottom: '1px solid #e5e5e5' }}>说明</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td style={{ padding: '10px', borderBottom: '1px solid #e5e5e5' }}>任务名称</td>
-              <td style={{ padding: '10px', borderBottom: '1px solid #e5e5e5' }}>文本</td>
-              <td style={{ padding: '10px', borderBottom: '1px solid #e5e5e5' }}>否</td>
-              <td style={{ padding: '10px', borderBottom: '1px solid #e5e5e5' }}>任务的自定义名称</td>
-            </tr>
-            <tr>
-              <td style={{ padding: '10px', borderBottom: '1px solid #e5e5e5' }}>视频文件</td>
-              <td style={{ padding: '10px', borderBottom: '1px solid #e5e5e5' }}>文件路径</td>
-              <td style={{ padding: '10px', borderBottom: '1px solid #e5e5e5' }}><strong>是</strong></td>
-              <td style={{ padding: '10px', borderBottom: '1px solid #e5e5e5' }}>主视频文件（MP4/MOV 等）</td>
-            </tr>
-            <tr>
-              <td style={{ padding: '10px', borderBottom: '1px solid #e5e5e5' }}>脚本文件</td>
-              <td style={{ padding: '10px', borderBottom: '1px solid #e5e5e5' }}>文件路径</td>
-              <td style={{ padding: '10px', borderBottom: '1px solid #e5e5e5' }}>条件</td>
-              <td style={{ padding: '10px', borderBottom: '1px solid #e5e5e5' }}>JSON 格式脚本（纯场景模式可不填）</td>
-            </tr>
-            <tr>
-              <td style={{ padding: '10px', borderBottom: '1px solid #e5e5e5' }}>纠错字典</td>
-              <td style={{ padding: '10px', borderBottom: '1px solid #e5e5e5' }}>文件路径</td>
-              <td style={{ padding: '10px', borderBottom: '1px solid #e5e5e5' }}>否</td>
-              <td style={{ padding: '10px', borderBottom: '1px solid #e5e5e5' }}>JSON 格式，用于 ASR 纠错</td>
-            </tr>
-            <tr>
-              <td style={{ padding: '10px', borderBottom: '1px solid #e5e5e5' }}>背景音乐</td>
-              <td style={{ padding: '10px', borderBottom: '1px solid #e5e5e5' }}>文件路径</td>
-              <td style={{ padding: '10px', borderBottom: '1px solid #e5e5e5' }}>否</td>
-              <td style={{ padding: '10px', borderBottom: '1px solid #e5e5e5' }}>MP3/WAV 等音频文件</td>
-            </tr>
-            <tr>
-              <td style={{ padding: '10px', borderBottom: '1px solid #e5e5e5' }}>场景素材目录</td>
-              <td style={{ padding: '10px', borderBottom: '1px solid #e5e5e5' }}>目录路径</td>
-              <td style={{ padding: '10px', borderBottom: '1px solid #e5e5e5' }}>否</td>
-              <td style={{ padding: '10px', borderBottom: '1px solid #e5e5e5' }}>包含场景素材的文件夹</td>
-            </tr>
-          </tbody>
-        </table>
+        <p style={{ margin: 0, color: '#3a3a3c' }}>
+          点击 <strong>开始批量处理</strong> 按钮，系统会自动处理所有场景配置。处理完成后可在任务列表中查看结果。
+        </p>
       </div>
+    </div>
+  );
+}
+
+/**
+ * 文件浏览模块内容
+ */
+function FileBrowserModuleContent() {
+  return (
+    <div style={{ lineHeight: 1.6, color: '#1d1d1f' }}>
+      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', color: '#1d1d1f', display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <Folder size={18} /> 文件浏览模块
+      </h3>
+      <p style={{ marginBottom: '16px', color: '#3a3a3c' }}>
+        文件浏览模块用于管理所有项目文件和素材，支持视频、音频、图片、脚本等文件类型。
+      </p>
+
+      <div
+        style={{
+          backgroundColor: '#f5f5f7',
+          borderRadius: '8px',
+          padding: '16px',
+          marginBottom: '24px',
+        }}
+      >
+        <h4 style={{ margin: '0 0 12px 0', fontSize: '15px', fontWeight: 600 }}>核心功能</h4>
+        <ul style={{ margin: 0, paddingLeft: '20px', color: '#3a3a3c' }}>
+          <li><strong>项目管理</strong> - 按项目组织文件，每个项目包含独立的素材和输出</li>
+          <li><strong>文件预览</strong> - 支持视频、音频、图片、文本文件的在线预览</li>
+          <li><strong>文件操作</strong> - 支持上传、删除、重命名、复制、移动等操作</li>
+          <li><strong>多种视图</strong> - 支持列表视图和网格视图切换</li>
+          <li><strong>文件筛选</strong> - 可按文件类型筛选（视频/音频/图片/文档）</li>
+        </ul>
+      </div>
+
+      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', color: '#1d1d1f', display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <Clipboard size={18} /> 项目结构
+      </h3>
 
       <div style={{ marginBottom: '20px' }}>
         <h4 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '8px', color: '#1d1d1f' }}>
-          4. 验证与提交
+          标准项目目录
         </h4>
-        <ol style={{ margin: 0, paddingLeft: '20px', color: '#3a3a3c' }}>
-          <li>点击 <strong><Search size={12} style={{ display: 'inline', verticalAlign: 'middle' }} /> 验证配置</strong> 检查任务</li>
-          <li>查看验证结果（错误/警告/提示），使用"一键修复"功能</li>
-          <li>验证通过后点击 <strong><Rocket size={12} style={{ display: 'inline', verticalAlign: 'middle' }} /> 提交任务</strong> 开始处理</li>
-        </ol>
+        <ul style={{ margin: 0, paddingLeft: '20px', color: '#3a3a3c' }}>
+          <li><strong>剪辑视频</strong> - 存放数字人视频等原始素材</li>
+          <li><strong>场景</strong> - 存放场景素材文件夹</li>
+          <li><strong>脚本</strong> - 存放 JSON 格式脚本文件</li>
+          <li><strong>音频</strong> - 存放背景音乐等音频文件</li>
+          <li><strong>输出</strong> - 存放最终生成的视频文件</li>
+        </ul>
       </div>
 
       <div
         style={{
-          backgroundColor: '#fff3cd',
-          border: '1px solid #ffc107',
+          backgroundColor: '#e7f3ff',
+          border: '1px solid #0071e3',
           borderRadius: '8px',
-          padding: '12px 16px',
-          marginTop: '20px',
+          padding: '16px',
+          marginTop: '24px',
         }}
       >
-        <strong style={{ color: '#856404', display: 'flex', alignItems: 'center', gap: '4px' }}><Lightbulb size={14} style={{ display: 'inline' }} /> 提示：</strong>
-        <span style={{ color: '#856404' }}> 建议将并发数设置为 3-5，避免服务器资源紧张。</span>
+        <h4 style={{ margin: '0 0 8px 0', fontSize: '14px', fontWeight: 600, color: '#0071e3', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <Lightbulb size={14} /> 使用提示
+        </h4>
+        <ul style={{ margin: 0, paddingLeft: '20px', color: '#0071e3', fontSize: '13px' }}>
+          <li>双击文件夹可进入，双击文件可预览</li>
+          <li>右键点击文件可进行复制、剪切、删除等操作</li>
+          <li>使用顶部工具栏可快速导航和搜索文件</li>
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 数字人创作模块内容
+ */
+function DigitalHumanModuleContent() {
+  return (
+    <div style={{ lineHeight: 1.6, color: '#1d1d1f' }}>
+      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', color: '#1d1d1f', display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <Sparkles size={18} /> 数字人创作模块
+      </h3>
+      <p style={{ marginBottom: '16px', color: '#3a3a3c' }}>
+        数字人创作模块用于生成数字人播报视频，支持批量文案和多种高级设置。
+      </p>
+
+      <div
+        style={{
+          backgroundColor: '#f5f5f7',
+          borderRadius: '8px',
+          padding: '16px',
+          marginBottom: '24px',
+        }}
+      >
+        <h4 style={{ margin: '0 0 12px 0', fontSize: '15px', fontWeight: 600 }}>核心功能</h4>
+        <ul style={{ margin: 0, paddingLeft: '20px', color: '#3a3a3c' }}>
+          <li><strong>数字人选择</strong> - 从公共或自定义数字人库中选择出镜形象</li>
+          <li><strong>批量文案</strong> - 一次输入多条文案，批量生成多个视频</li>
+          <li><strong>声音选择</strong> - 可选择不同的配音角色</li>
+          <li><strong>高级设置</strong> - 支持语速、语调、音量、背景等精细调节</li>
+          <li><strong>项目保存</strong> - 生成的视频自动保存到指定项目的剪辑视频目录</li>
+        </ul>
+      </div>
+
+      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', color: '#1d1d1f', display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <Clipboard size={18} /> 使用步骤
+      </h3>
+
+      <div style={{ marginBottom: '20px' }}>
+        <h4 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '8px', color: '#1d1d1f' }}>
+          1. 选择数字人
+        </h4>
+        <p style={{ margin: 0, color: '#3a3a3c' }}>
+          在左侧 9 宫格中选择一位数字人。支持公共数字人和自定义数字人。
+        </p>
+      </div>
+
+      <div style={{ marginBottom: '20px' }}>
+        <h4 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '8px', color: '#1d1d1f' }}>
+          2. 输入文案
+        </h4>
+        <p style={{ margin: 0, color: '#3a3a3c' }}>
+          在中间区域输入播报文案，可添加多条文案批量生成。
+        </p>
+      </div>
+
+      <div style={{ marginBottom: '20px' }}>
+        <h4 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '8px', color: '#1d1d1f' }}>
+          3. 高级设置（可选）
+        </h4>
+        <p style={{ margin: 0, color: '#3a3a3c' }}>
+          展开高级设置面板，可调节：
+        </p>
+        <ul style={{ margin: '8px 0 0 20px', color: '#3a3a3c' }}>
+          <li><strong>语速/语调/音量</strong> - 调节播报效果</li>
+          <li><strong>背景类型</strong> - 选择纯色、图片或视频背景</li>
+          <li><strong>形象类型</strong> - 全身、坐姿、半身像等</li>
+          <li><strong>动作选择</strong> - 选择数字人的动作姿态</li>
+          <li><strong>驱动模式</strong> - 正常驱动或随机自然驱动</li>
+        </ul>
+      </div>
+
+      <div style={{ marginBottom: '20px' }}>
+        <h4 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '8px', color: '#1d1d1f' }}>
+          4. 选择保存项目并生成
+        </h4>
+        <p style={{ margin: 0, color: '#3a3a3c' }}>
+          在右侧选择要保存到的项目，点击 <strong>生成数字人视频</strong> 按钮。生成完成后，视频会自动保存到项目的 <strong>剪辑视频</strong> 目录。
+        </p>
+      </div>
+
+      <div
+        style={{
+          backgroundColor: '#e7f3ff',
+          border: '1px solid #0071e3',
+          borderRadius: '8px',
+          padding: '16px',
+          marginTop: '24px',
+        }}
+      >
+        <h4 style={{ margin: '0 0 8px 0', fontSize: '14px', fontWeight: 600, color: '#0071e3', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <Lightbulb size={14} /> 使用提示
+        </h4>
+        <ul style={{ margin: 0, paddingLeft: '20px', color: '#0071e3', fontSize: '13px' }}>
+          <li>生成的数字人视频可直接在 <strong>批量处理</strong> 模块中使用</li>
+          <li>建议先创建项目，再生成数字人视频，方便文件管理</li>
+          <li>可在数字人管理模块中创建自定义数字人</li>
+        </ul>
       </div>
     </div>
   );

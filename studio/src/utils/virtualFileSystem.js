@@ -1362,7 +1362,16 @@ export class VirtualFileSystem {
   // 获取视频项目列表
   async getVideoProjects() {
     const projects = []
-    const projectsDir = this.getDirectory('/projects')
+    
+    // 获取项目根目录（支持 /projects 前缀或直接根目录）
+    let projectsDir = this.getDirectory('/projects')
+    let basePath = '/projects'
+    
+    // 如果/projects 不存在，尝试直接在根目录下查找项目
+    if (!projectsDir) {
+      projectsDir = this.getDirectory('/')
+      basePath = '/'
+    }
     
     if (projectsDir) {
       for (const childPath of projectsDir.children) {

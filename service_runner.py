@@ -69,6 +69,67 @@ def calc_actual_margin_v(position: str, margin_v: int, offset_y: int) -> int:
             actual_margin_v = max(0, margin_v - offset_y)
     return actual_margin_v
 
+def hex_to_ass_color(hex_color: str) -> str:
+    """
+    将 HEX 颜色 (#RRGGBB) 转换为 ASS 格式 (&H00BBGGRR)
+    ASS 格式：&H00BBGGRR (BGR 顺序，前两位是透明度)
+    """
+    if not hex_color:
+        return "&H0000DDFF"  # 默认金色
+    if hex_color.startswith("#"):
+        hex_color = hex_color[1:]
+    if len(hex_color) == 6:
+        r = hex_color[0:2]
+        g = hex_color[2:4]
+        b = hex_color[4:6]
+        return f"&H00{b}{g}{r}"
+    return "&H0000DDFF"  # 默认金色
+
+
+def convert_subtitle_params(subtitle: dict, video_width: int = 1920, video_height: int = 1080) -> dict:
+    """
+    将前端字幕参数转换为后端 burn_whisper_subtitle 接受的参数
+    
+    参数映射：
+    - position → alignment (bottom→2, center→5, top→8)
+    - x_offset (百分比) → offset_x (像素)
+    - y_offset (百分比) → offset_y + margin_v (结合 position 计算)
+    - color (HEX) → highlight_color (ASS 格式)
+    """
+    # 1. position → alignment
+    position = subtitle.get("position", "bottom")
+    alignment = resolve_position_to_alignment(position)
+
+    # 2. 百分比偏移 → 像素偏移
+    x_offset_pct = float(subtitle.get("x_offset", 0))
+    y_offset_pct = float(subtitle.get("y_offset", 0))
+
+    # x_offset: -100~100 → 像素（0 为中心）
+    offset_x = int(x_offset_pct * video_width / 200)
+
+    # y_offset: -100~100 → 像素（正数向上）
+    # 根据 position 计算实际 margin_v 和 offset_y
+    base_margin_v = int(subtitle.get("margin_v", 50))
+    
+    # y_offset 百分比转像素（正数表示向上偏移）
+    offset_y = int(-y_offset_pct * video_height / 200)
+
+    # 3. color → highlight_color (前端 HEX → 后端 ASS 格式)
+    color = subtitle.get("color", "#FFFF00")
+    highlight_color = hex_to_ass_color(color)
+
+    return {
+        "alignment": alignment,
+        "margin_v": base_margin_v,
+        "margin_l": int(subtitle.get("margin_l", 10)),
+        "margin_r": int(subtitle.get("margin_r", 10)),
+        "offset_x": offset_x,
+        "offset_y": offset_y,
+        "highlight_color": highlight_color,
+        "font_size": int(subtitle.get("font_size", 52)),
+        "effect": subtitle.get("effect", "karaoke"),
+    }
+
 
 def build_file_entry(task_id: str, file_key: str, path: str):
     exists = bool(path and os.path.isfile(path))
@@ -197,16 +258,8 @@ def run_agent_compose_task(task_id: str, payload: dict, trace_id: str):
         if script_path and os.path.isfile(timeline_json):
             update_task(task_id, progress=60, stage="compose_timeline")
 
-            subtitle = req.get("subtitle", {})
-            position = subtitle.get("position", "bottom")
-            alignment = resolve_position_to_alignment(position)
-            actual_margin_v = calc_actual_margin_v(
-                position=position,
-                margin_v=int(subtitle.get("margin_v", 50)),
-                offset_y=int(subtitle.get("offset_y", 0)),
-            )
 
-            # 🆕 Task 1: 支持 pipeline.mode 参数
+# 🆕 Task 1: 支持 pipeline.mode 参数
             pipeline_mode = req.get("pipeline", {}).get("mode", "normal")
             subtitle_json = None
             
@@ -219,6 +272,10 @@ def run_agent_compose_task(task_id: str, payload: dict, trace_id: str):
                 else:
                     raise ValueError("纯场景模式 (mode=scene_only) 需要提供 input.subtitle_json_url")
 
+            # 🆕 使用转换函数处理字幕参数（支持前端百分比偏移）
+            subtitle = req.get("subtitle", {})
+            subtitle_params = convert_subtitle_params(subtitle)
+
             compose_from_timeline(
                 timeline_path=timeline_json,
                 output_video=final_output,
@@ -230,17 +287,17 @@ def run_agent_compose_task(task_id: str, payload: dict, trace_id: str):
                 model_size=req.get("asr", {}).get("model", "large-v3"),
                 device=req.get("asr", {}).get("device", "cpu"),
                 language=req.get("asr", {}).get("language", "zh"),
-                effect=subtitle.get("effect", "ad"),
+                effect=subtitle_params["effect"],
                 font_file=font_path,
-                font_size=int(subtitle.get("font_size", 88)),
-                highlight_color=subtitle.get("highlight_color", "gold"),
+                font_size=subtitle_params["font_size"],
+                highlight_color=subtitle_params["highlight_color"],
                 max_chars_per_line=int(subtitle.get("max_chars_per_line", 18)),
-                alignment=alignment,
-                margin_v=actual_margin_v,
-                margin_l=int(subtitle.get("margin_l", 10)),
-                margin_r=int(subtitle.get("margin_r", 10)),
-                offset_x=int(subtitle.get("offset_x", 0)),
-                offset_y=int(subtitle.get("offset_y", 0)),
+                alignment=subtitle_params["alignment"],
+                margin_v=subtitle_params["margin_v"],
+                margin_l=subtitle_params["margin_l"],
+                margin_r=subtitle_params["margin_r"],
+                offset_x=subtitle_params["offset_x"],
+                offset_y=subtitle_params["offset_y"],
                 corrections_file=corrections_path,
                 # 🆕 Task 1: 纯场景模式参数
                 mode=pipeline_mode,

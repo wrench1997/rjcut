@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { VideoPreview } from './FileBrowser'
 import { DigitalHumanVFSImporter } from './DigitalHumanVFSImporter'
 import { Film, Trash2, Copy, Settings, Upload, FileText, Video, AlertTriangle, Check, X, FolderOpen, Scissors, Clapperboard, Send, Folder, Music, Download } from 'lucide-react'
+import { PROJECT_ROOT_PREFIX } from '../utils/project-structure'
 
 // =====================================================
 // 项目卡片组件

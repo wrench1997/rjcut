@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { getCommonPersons, getCustomPersons, getCommonPersonDetail, getCustomPersonDetail, getVoices, createDhGenerateTask, getDhTaskDetail, getDhVideoUrl } from '../api/api'
 import { getVFS } from '../utils/vfsClient'
 import { PROJECT_FOLDERS, buildVFSPath } from '../utils/project-structure'
 import { User, Mic, Check, X, Film, Download, AlertCircle, Loader2, Book, Inbox, Folder, AlertTriangle, Rocket, Settings, Sliders, Volume2, Type, Image, ChevronDown, ChevronUp, Palette, Maximize } from 'lucide-react'
+import Tooltip from './Tooltip'
 
 // =====================================================
 // 左侧：资产选择 (数字人与声音) - 9 宫格布局
@@ -12,7 +13,9 @@ function AvatarPicker({ persons, voices, selectedPerson, onSelectPerson, selecte
     <div className="w-[420px] bg-white border-r border-slate-200 flex flex-col h-full z-10 flex-shrink-0">
       {/* 标题区 */}
       <div className="p-4 border-b border-slate-100 flex-shrink-0 bg-gradient-to-r from-blue-50 to-white">
-        <h2 className="text-base font-bold text-slate-800">1. 选择出镜数字人</h2>
+        <Tooltip tip="从库中选择一位数字人作为视频出镜角色" delay={1000}>
+          <h2 className="text-base font-bold text-slate-800">1. 选择出镜数字人</h2>
+        </Tooltip>
         <p className="text-xs text-slate-500 mt-1">点击选择一位数字人进行视频创作</p>
       </div>
       
@@ -59,10 +62,12 @@ function AvatarPicker({ persons, voices, selectedPerson, onSelectPerson, selecte
       
       {/* 配音选择区 */}
       <div className="p-4 border-t border-slate-100 bg-slate-50 flex-shrink-0">
-        <label className="block text-xs font-bold text-slate-600 mb-2 flex items-center gap-1">
-          <Mic size={14} strokeWidth={2} />
-          <span>配音角色 (可选)</span>
-        </label>
+        <Tooltip tip="为数字人视频选择配音角色，留空则使用数字人原声" delay={1000}>
+          <label className="block text-xs font-bold text-slate-600 mb-2 flex items-center gap-1">
+            <Mic size={14} strokeWidth={2} />
+            <span>配音角色 (可选)</span>
+          </label>
+        </Tooltip>
         <select 
           className="w-full text-sm p-2.5 rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all cursor-pointer"
           value={selectedVoice}
@@ -83,18 +88,24 @@ function AdvancedSettings({ settings, setSettings, isOpen, onToggle, personDetai
     setSettings(prev => ({ ...prev, [key]: value }))
   }
 
-  // 当数字人变化时，同步更新动作选择
+  // 当数字人变化时，同步更新动作选择和形象类型
   useEffect(() => {
-    if (personDetails?.actions && personDetails.actions.length > 0) {
-      // 如果当前选择的 action_id 不在可用动作列表中，重置为第一个动作
-      const currentActionId = settings.action_id
-      const availableIds = personDetails.actions.map(a => a.id)
-      if (!currentActionId || !availableIds.includes(currentActionId)) {
-        setSettings(prev => ({ ...prev, action_id: personDetails.actions[0].id }))
+    if (personDetails) {
+      // 同步动作选择
+      if (personDetails.actions && personDetails.actions.length > 0) {
+        const currentActionId = settings.action_id
+        const availableIds = personDetails.actions.map(a => a.id)
+        if (!currentActionId || !availableIds.includes(currentActionId)) {
+          setSettings(prev => ({ ...prev, action_id: personDetails.actions[0].id }))
+        }
+      } else {
+        setSettings(prev => ({ ...prev, action_id: null }))
       }
-    } else {
-      // 没有可用动作时，清空 action_id
-      setSettings(prev => ({ ...prev, action_id: null }))
+      
+      // 同步形象类型：如果数字人有 figure_type，则使用它
+      if (personDetails.figure_type) {
+        setSettings(prev => ({ ...prev, figure_type: personDetails.figure_type }))
+      }
     }
   }, [personDetails, settings.action_id])
 
@@ -266,16 +277,27 @@ function AdvancedSettings({ settings, setSettings, isOpen, onToggle, personDetai
             <div className="bg-white p-3 rounded-lg border border-slate-200">
               <label className="block text-xs font-bold text-slate-600 mb-2 flex items-center gap-1">
                 <Maximize size={12} /> 形象类型
+                {personDetails?.figure_type && <span className="text-[10px] text-slate-400 ml-auto">当前数字人：{personDetails.figure_type}</span>}
               </label>
               <select
                 value={settings.figure_type}
                 onChange={(e) => handleChange('figure_type', e.target.value)}
                 className="w-full text-xs p-2 rounded border border-slate-200 bg-white"
               >
+                {/* 优先显示当前数字人的 figure_type */}
+                {personDetails?.figure_type && (
+                  <option value={personDetails.figure_type}>{personDetails.figure_type}</option>
+                )}
+                {/* 通用选项 */}
                 <option value="whole_body">全身 (1080x1920)</option>
+                <option value="sit_body">坐姿</option>
                 <option value="waist_shot">半身像</option>
                 <option value="head_shot">头像</option>
+                <option value="circle_view">环视</option>
               </select>
+              {personDetails?.figure_type && settings.figure_type !== personDetails.figure_type && (
+                <p className="text-[10px] text-amber-600 mt-1">⚠️ 当前选择与数字人默认形象类型不一致，可能导致 API 报错</p>
+              )}
             </div>
 
             {/* 字幕开关 */}
@@ -310,20 +332,30 @@ function AdvancedSettings({ settings, setSettings, isOpen, onToggle, personDetai
           <div className="bg-white p-3 rounded-lg border border-slate-200">
             <label className="block text-xs font-bold text-slate-600 mb-2 flex items-center gap-1">
               <Film size={12} /> 动作选择
+              {personDetails?.actions && personDetails.actions.length > 0 && (
+                <span className="text-[10px] text-slate-400 ml-auto">
+                  当前：{settings.action_id ? '手动选定' : '自动（数字人默认动作）'}
+                </span>
+              )}
             </label>
             {personDetails?.actions && personDetails.actions.length > 0 ? (
-              <select
-                value={settings.action_id || ''}
-                onChange={(e) => handleChange('action_id', e.target.value)}
-                className="w-full text-xs p-2 rounded border border-slate-200 bg-white"
-              >
-                <option value="">自动（根据驱动模式）</option>
-                {personDetails.actions.map((action, idx) => (
-                  <option key={action.id} value={action.id}>
-                    {action.name || `动作 ${idx + 1}`} (ID: {action.id.substring(0, 8)}...)
-                  </option>
-                ))}
-              </select>
+              <>
+                <select
+                  value={settings.action_id || ''}
+                  onChange={(e) => handleChange('action_id', e.target.value)}
+                  className="w-full text-xs p-2 rounded border border-slate-200 bg-white"
+                >
+                  <option value="">自动（使用数字人默认动作）</option>
+                  {personDetails.actions.map((action, idx) => (
+                    <option key={action.id} value={action.id}>
+                      {action.name || `动作 ${idx + 1}`} (ID: {action.id.substring(0, 8)}...)
+                    </option>
+                  ))}
+                </select>
+                {settings.action_id === personDetails.actions[0]?.id && (
+                  <p className="text-[10px] text-green-600 mt-1">✅ 当前使用数字人默认动作：{personDetails.actions[0].name || '动作 1'}</p>
+                )}
+              </>
             ) : (
               <div className="text-xs text-slate-500 p-2 bg-slate-50 rounded">
                 ℹ️ 该数字人没有可用动作，将使用默认驱动
@@ -380,11 +412,15 @@ function BatchScriptInput({ scripts, setScripts }) {
   return (
     <>
       <div className="p-4 border-b border-slate-200 bg-white flex justify-between items-center">
-        <h2 className="text-sm font-bold text-slate-800">2. 输入批量文案 ({scripts.length} 条)</h2>
+        <Tooltip tip="为每个视频输入不同的播报文案" delay={1000}>
+          <h2 className="text-sm font-bold text-slate-800">2. 输入批量文案 ({scripts.length} 条)</h2>
+        </Tooltip>
         <p className="text-xs text-slate-500 mt-1">每条文案将生成一个独立的数字人视频</p>
-        <button onClick={handleAdd} className="text-xs bg-blue-100 text-blue-700 px-3 py-1.5 rounded-md hover:bg-blue-200">
-          + 新增文案
-        </button>
+        <Tooltip tip="添加新的文案条目" delay={1000}>
+          <button onClick={handleAdd} className="text-xs bg-blue-100 text-blue-700 px-3 py-1.5 rounded-md hover:bg-blue-200">
+            + 新增文案
+          </button>
+        </Tooltip>
       </div>
       <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
         {scripts.map((script, idx) => (
@@ -461,7 +497,7 @@ function SavePathConfig({ selectedProject, setSelectedProject, projects, onGener
           )}
           {selectedProject && (
             <p className="text-[10px] text-slate-500 mt-2">
-              📂 视频将保存到：<code className="bg-slate-100 px-1 rounded">{selectedProject.path}/{PROJECT_FOLDERS.OUTPUT}</code>
+              📂 视频将保存到：<code className="bg-slate-100 px-1 rounded">{selectedProject.path}/{PROJECT_FOLDERS.EDITED_VIDEO}</code>
             </p>
           )}
         </div>
@@ -473,29 +509,31 @@ function SavePathConfig({ selectedProject, setSelectedProject, projects, onGener
             <li>选择数字人和声音</li>
             <li>输入批量文案</li>
             <li>选择要保存到的项目</li>
-            <li>点击生成，视频保存到项目 输出 目录</li>
+            <li>点击生成，视频保存到项目 剪辑视频 目录</li>
             <li>前往【批量处理】进行后期合成</li>
           </ol>
         </div>
       </div>
 
       <div className="p-4 border-t border-slate-100 bg-slate-50">
-        <button
-          onClick={onGenerate}
-          disabled={isGenerating || !selectedProject}
-          className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg disabled:opacity-50 flex justify-center items-center gap-2 transition-all"
-        >
-          {isGenerating ? (
-            <>
-              <span className="animate-spin border-2 border-white border-t-transparent rounded-full w-4 h-4"></span>
-              生成中...
-            </>
-          ) : (
-            <><Rocket size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} /> 生成数字人视频</>
-          )}
-        </button>
+        <Tooltip tip="开始生成数字人视频，视频将保存到所选项目的剪辑视频目录" delay={1000}>
+          <button
+            onClick={onGenerate}
+            disabled={isGenerating || !selectedProject}
+            className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg disabled:opacity-50 flex justify-center items-center gap-2 transition-all"
+          >
+            {isGenerating ? (
+              <>
+                <span className="animate-spin border-2 border-white border-t-transparent rounded-full w-4 h-4"></span>
+                生成中...
+              </>
+            ) : (
+              <><Rocket size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} /> 生成数字人视频</>
+            )}
+          </button>
+        </Tooltip>
         <p className="text-[10px] text-slate-400 text-center mt-2">
-          视频将保存到所选项目的 输出 目录
+          视频将保存到所选项目的 剪辑视频 目录
         </p>
       </div>
     </div>
@@ -505,7 +543,7 @@ function SavePathConfig({ selectedProject, setSelectedProject, projects, onGener
 // =====================================================
 // 流水线进度面板 (覆盖层)
 // =====================================================
-function PipelineProgress({ tasks, onClose, onMinimize }) {
+function PipelineProgress({ tasks, generatedVideos, onClose, onMinimize, onPreviewVideo }) {
   if (tasks.length === 0) return null
 
   const runningCount = tasks.filter(t => t.stage !== 'done' && t.stage !== 'failed').length
@@ -536,46 +574,144 @@ function PipelineProgress({ tasks, onClose, onMinimize }) {
           </div>
         </div>
         <div className="p-4 space-y-3 max-h-96 overflow-y-auto custom-scrollbar">
-          {tasks.map((task, idx) => (
-            <div key={task.id} className="border border-slate-200 rounded-lg p-3">
-              <div className="flex justify-between items-center mb-2">
-                <span className="text-xs font-bold text-slate-600">
-                  视频 {idx + 1}: {task.text}
-                </span>
-                <span className={`text-[10px] px-2 py-0.5 rounded-full ${
-                  task.stage === 'done' ? 'bg-green-100 text-green-700' :
-                  task.stage === 'failed' ? 'bg-red-100 text-red-700' :
-                  'bg-blue-100 text-blue-700'
-                }`}>
-                  {task.stage === 'dh_generating' && <><Film size={10} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '2px' }} /> 数字人生成中</>}
-                  {task.stage === 'downloading' && <><Download size={10} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '2px' }} /> 下载视频中</>}
-                  {task.stage === 'done' && <><Check size={10} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '2px' }} /> 完成</>}
-                  {task.stage === 'failed' && <><X size={10} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '2px' }} /> 失败</>}
-                </span>
+          {tasks.map((task, idx) => {
+            const video = generatedVideos?.find(v => v.id === task.id)
+            return (
+              <div key={task.id} className="border border-slate-200 rounded-lg p-3">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-xs font-bold text-slate-600">
+                    视频 {idx + 1}: {task.text}
+                  </span>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full ${
+                    task.stage === 'done' ? 'bg-green-100 text-green-700' :
+                    task.stage === 'failed' ? 'bg-red-100 text-red-700' :
+                    'bg-blue-100 text-blue-700'
+                  }`}>
+                    {task.stage === 'dh_generating' && <><Film size={10} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '2px' }} /> 数字人生成中</>}
+                    {task.stage === 'downloading' && <><Download size={10} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '2px' }} /> 下载视频中</>}
+                    {task.stage === 'done' && <><Check size={10} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '2px' }} /> 完成</>}
+                    {task.stage === 'failed' && <><X size={10} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '2px' }} /> 失败</>}
+                  </span>
+                </div>
+                <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                  <div 
+                    className={`h-full transition-all duration-300 ${
+                      task.stage === 'failed' ? 'bg-red-500' : 
+                      task.stage === 'done' ? 'bg-green-500' :
+                      'bg-blue-500'
+                    }`}
+                    style={{ width: `${task.progress}%` }}
+                  />
+                </div>
+                {task.error && (
+                  <p className="text-[10px] text-red-500 mt-1">{task.error}</p>
+                )}
+                {task.stage === 'done' && video && (
+                  <button
+                    onClick={() => onPreviewVideo(video)}
+                    className="mt-2 w-full py-1.5 bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium rounded transition-colors flex items-center justify-center gap-1"
+                  >
+                    <Film size={12} /> 预览视频
+                  </button>
+                )}
               </div>
-              <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-                <div 
-                  className={`h-full transition-all duration-300 ${
-                    task.stage === 'failed' ? 'bg-red-500' : 
-                    task.stage === 'done' ? 'bg-green-500' :
-                    'bg-blue-500'
-                  }`}
-                  style={{ width: `${task.progress}%` }}
-                />
-              </div>
-              {task.error && (
-                <p className="text-[10px] text-red-500 mt-1">{task.error}</p>
-              )}
-            </div>
-          ))}
+            )
+          })}
         </div>
         {allDone && (
           <div className="p-4 border-t border-slate-100 bg-green-50">
             <p className="text-sm text-green-700 text-center">
-              ✓ 所有视频已生成完成，已保存到项目的 <strong>输出</strong> 目录
+              ✓ 所有视频已生成完成，已保存到项目的 <strong>剪辑视频</strong> 目录
             </p>
           </div>
         )}
+      </div>
+    </div>
+  )
+}
+
+// =====================================================
+// 视频预览弹窗
+// =====================================================
+function VideoPreviewModal({ video, onClose, vfs }) {
+  const [videoUrl, setVideoUrl] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    const loadVideo = async () => {
+      try {
+        if (!vfs) {
+          setError('VFS 未初始化')
+          setLoading(false)
+          return
+        }
+        
+        // 从 VFS 读取视频文件
+        const blob = await vfs.readFile(video.path)
+        const url = URL.createObjectURL(blob)
+        setVideoUrl(url)
+        setLoading(false)
+      } catch (err) {
+        console.error('[VideoPreviewModal] 加载视频失败:', err)
+        setError('加载视频失败：' + err.message)
+        setLoading(false)
+      }
+    }
+    
+    loadVideo()
+    
+    return () => {
+      if (videoUrl) {
+        URL.revokeObjectURL(videoUrl)
+      }
+    }
+  }, [video.path, vfs])
+
+  return (
+    <div className="absolute inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="p-4 border-b border-slate-100 flex justify-between items-center">
+          <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+            <Film size={18} className="text-blue-500" />
+            预览：{video.fileName}
+          </h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-sm px-3 py-1.5 rounded hover:bg-slate-100 transition-colors">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="p-6">
+          {loading ? (
+            <div className="aspect-video bg-slate-100 rounded-lg flex items-center justify-center">
+              <div className="flex flex-col items-center gap-3">
+                <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                <p className="text-sm text-slate-500">加载视频中...</p>
+              </div>
+            </div>
+          ) : error ? (
+            <div className="aspect-video bg-red-50 rounded-lg flex items-center justify-center">
+              <div className="flex flex-col items-center gap-2 text-red-500">
+                <AlertCircle size={32} />
+                <p className="text-sm">{error}</p>
+              </div>
+            </div>
+          ) : (
+            <video 
+              src={videoUrl} 
+              controls 
+              autoPlay 
+              className="w-full aspect-video bg-black rounded-lg"
+            />
+          )}
+          <div className="mt-4 p-3 bg-slate-50 rounded-lg">
+            <p className="text-xs text-slate-500">
+              <span className="font-medium">文案：</span>{video.text}
+            </p>
+            <p className="text-xs text-slate-500 mt-1">
+              <span className="font-medium">路径：</span><code className="bg-slate-200 px-1 rounded">{video.path}</code>
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   )
@@ -633,7 +769,7 @@ function MinimizedProgress({ tasks, onExpand, onClose }) {
 // =====================================================
 // 主组件
 // =====================================================
-export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPerson }) {
+export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPerson, vfs, onPreselectedPersonUsed }) {
   const [persons, setPersons] = useState([])
   const [voices, setVoices] = useState([])
   const [selectedPerson, setSelectedPerson] = useState(null)
@@ -666,6 +802,232 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
   const [pipelineTasks, setPipelineTasks] = useState([])
   const [showProgress, setShowProgress] = useState(false)
   const [minimizedProgress, setMinimizedProgress] = useState(false)
+  const [generatedVideos, setGeneratedVideos] = useState([]) // 存储已生成的视频路径
+  const [previewVideo, setPreviewVideo] = useState(null) // 当前预览的视频
+  
+  // 从 localStorage 恢复之前的任务状态
+  useEffect(() => {
+    try {
+      const savedTasks = localStorage.getItem('dh_pipeline_tasks')
+      const savedVideos = localStorage.getItem('dh_generated_videos')
+      const savedMinimized = localStorage.getItem('dh_minimized_progress')
+      
+      if (savedTasks) {
+        const parsedTasks = JSON.parse(savedTasks)
+        // 只恢复未完成的任务
+        const hasRunningTasks = parsedTasks.some(t => t.stage !== 'done' && t.stage !== 'failed')
+        if (hasRunningTasks) {
+          setPipelineTasks(parsedTasks)
+          // 🔴 不自动显示进度窗口，让用户自己决定何时查看
+          // setShowProgress(true)
+          
+          // 如果之前是最小化状态，恢复最小化悬浮窗
+          if (savedMinimized === 'true') {
+            setMinimizedProgress(true)
+          }
+        }
+      }
+      
+      if (savedVideos) {
+        setGeneratedVideos(JSON.parse(savedVideos))
+      }
+    } catch (err) {
+      console.error('[DigitalHumanStudio] 恢复任务状态失败:', err)
+    }
+  }, [])
+  
+  // 保存任务状态到 localStorage
+  useEffect(() => {
+    if (pipelineTasks.length > 0) {
+      localStorage.setItem('dh_pipeline_tasks', JSON.stringify(pipelineTasks))
+    } else {
+      localStorage.removeItem('dh_pipeline_tasks')
+    }
+  }, [pipelineTasks])
+  
+  // 保存已生成视频列表到 localStorage
+  useEffect(() => {
+    if (generatedVideos.length > 0) {
+      localStorage.setItem('dh_generated_videos', JSON.stringify(generatedVideos))
+    } else {
+      localStorage.removeItem('dh_generated_videos')
+    }
+  }, [generatedVideos])
+  
+  // 保存最小化状态到 localStorage
+  useEffect(() => {
+    localStorage.setItem('dh_minimized_progress', minimizedProgress.toString())
+  }, [minimizedProgress])
+
+  // 🔴 恢复轮询：当组件重新挂载时，如果有未完成的任务，继续轮询
+  useEffect(() => {
+    // 如果正在生成中，跳过（说明是正常流程，不需要恢复）
+    if (isGenerating) {
+      return
+    }
+    
+    const resumePolling = async () => {
+      if (pipelineTasks.length === 0) {
+        return
+      }
+      
+      // 查找所有正在运行中的任务（dh_generating 或 downloading 状态）
+      const runningTasks = pipelineTasks.filter(t => 
+        t.stage === 'dh_generating' || t.stage === 'downloading'
+      )
+      
+      if (runningTasks.length === 0) {
+        console.log('[DigitalHumanStudio] 没有需要恢复轮询的任务')
+        return
+      }
+      
+      console.log('[DigitalHumanStudio] 🔄 检测到未完成的任务，恢复轮询:', runningTasks.length, '个')
+      
+      // 等待项目列表加载完成
+      if (loadingProjects) {
+        console.log('[DigitalHumanStudio] 等待项目列表加载...')
+        return
+      }
+      
+      // 如果没有选择项目，使用默认路径
+      const projectName = selectedProject?.name || selectedProject?.path?.replace('/projects/', '').split('/')[0] || 'default'
+      const savePath = buildVFSPath(projectName, PROJECT_FOLDERS.EDITED_VIDEO)
+      
+      console.log('[DigitalHumanStudio] 保存路径:', savePath)
+      
+      // 为每个任务启动独立的轮询协程
+      runningTasks.forEach((task) => {
+        const dhTaskId = task.dhTaskId
+        if (!dhTaskId) {
+          console.warn('[DigitalHumanStudio] 任务缺少 dhTaskId，标记为失败:', task.id)
+          setPipelineTasks(prev => prev.map(t => 
+            t.id === task.id ? { ...t, stage: 'failed', error: '任务 ID 丢失' } : t
+          ))
+          return
+        }
+        
+        console.log('[DigitalHumanStudio] 启动恢复协程:', task.id, ', stage:', task.stage, ', dhTaskId:', dhTaskId)
+        
+        // 启动独立的异步协程
+        ;(async () => {
+          try {
+            const vfs = getVFS()
+            
+            // 🔴 先检查任务真实状态（蝉镜 API：30=完成，40=失败，10/20=进行中）
+            console.log('[DigitalHumanStudio] 检查任务真实状态:', dhTaskId)
+            const statusRes = await getDhTaskDetail(dhTaskId)
+            const apiStatus = statusRes.data.data.status  // 数字：10,20,30,40
+            const apiProgress = statusRes.data.data.progress
+            
+            console.log('[DigitalHumanStudio] 任务真实状态:', apiStatus, ', progress:', apiProgress)
+            
+            // 蝉镜 API 状态码：30=成功，40=失败
+            if (apiStatus === 30) {
+              console.log('[DigitalHumanStudio] 任务已完成 (status=30)，直接下载:', task.id)
+              setPipelineTasks(prev => prev.map(t => 
+                t.id === task.id ? { ...t, stage: 'downloading', progress: 60 } : t
+              ))
+            } else if (apiStatus === 40) {
+              const errorMsg = statusRes.data.data?.error || statusRes.data.data?.msg || '数字人生成失败'
+              console.log('[DigitalHumanStudio] 任务已失败 (status=40):', task.id, errorMsg)
+              setPipelineTasks(prev => prev.map(t => 
+                t.id === task.id ? { ...t, stage: 'failed', error: errorMsg } : t
+              ))
+              return
+            }
+            
+            // 阶段 1: 轮询数字人生成状态（只有当任务还在进行中）
+            if (task.stage === 'dh_generating' && apiStatus !== 30) {
+              console.log('[DigitalHumanStudio] 开始轮询数字人状态:', dhTaskId)
+              
+              let dhCompleted = false
+              let pollCount = 0
+              const maxPolls = 600 // 最多轮询 600 次 (30 分钟)
+              
+              while (!dhCompleted && pollCount < maxPolls) {
+                pollCount++
+                await new Promise(r => setTimeout(r, 3000))
+                
+                try {
+                  const sRes = await getDhTaskDetail(dhTaskId)
+                  const st = sRes.data.data.status  // 数字状态码
+                  const pr = sRes.data.data.progress
+                  
+                  console.log('[DigitalHumanStudio] 轮询中:', task.id, ', status:', st, ', progress:', pr)
+                  
+                  if (st === 30) {  // 蝉镜 API: 30 = 成功
+                    dhCompleted = true
+                    console.log('[DigitalHumanStudio] ✅ 数字人生成成功 (status=30):', task.id)
+                  } else if (st === 40) {  // 蝉镜 API: 40 = 失败
+                    const errMsg = sRes.data.data?.error || sRes.data.data?.msg || '数字人生成失败'
+                    throw new Error(errMsg)
+                  } else {
+                    // 更新进度 (10,20 等 = 进行中)
+                    setPipelineTasks(prev => prev.map(t => 
+                      t.id === task.id ? { ...t, progress: Math.min(pr * 0.5, 50) } : t
+                    ))
+                  }
+                } catch (err) {
+                  console.error('[DigitalHumanStudio] 轮询出错:', err)
+                  throw err
+                }
+              }
+              
+              if (!dhCompleted) {
+                throw new Error('轮询超时')
+              }
+              
+              // 进入下载阶段
+              setPipelineTasks(prev => prev.map(t => 
+                t.id === task.id ? { ...t, stage: 'downloading', progress: 60 } : t
+              ))
+            }
+            
+            // 阶段 2: 下载视频
+            console.log('[DigitalHumanStudio] 开始下载视频:', dhTaskId)
+            
+            const urlRes = await getDhVideoUrl(dhTaskId)
+            if (urlRes?.data?.code !== 0) {
+              throw new Error('获取下载链接失败')
+            }
+            
+            const downloadUrl = urlRes.data.data.download_url
+            const videoBlob = await (await fetch(downloadUrl)).blob()
+            
+            const timestamp = Date.now()
+            const fileName = `dh_${selectedPerson?.name || 'unknown'}_${timestamp}_${task.id.slice(-6)}.mp4`
+            const vfsVideoPath = `${savePath}/${fileName}`
+            
+            await vfs.createDirectory(savePath, true)
+            const arrayBuffer = await videoBlob.arrayBuffer()
+            await vfs.writeFile(vfsVideoPath, arrayBuffer)
+            
+            // 完成任务
+            setPipelineTasks(prev => prev.map(t => 
+              t.id === task.id ? { ...t, stage: 'done', progress: 100 } : t
+            ))
+            setGeneratedVideos(prev => [...prev, { 
+              id: task.id, 
+              path: vfsVideoPath, 
+              fileName,
+              text: task.scriptText || task.text 
+            }])
+            console.log('[DigitalHumanStudio] ✅ 任务恢复完成:', task.id)
+            
+          } catch (err) {
+            console.error('[DigitalHumanStudio] ❌ 恢复失败:', task.id, err.message)
+            setPipelineTasks(prev => prev.map(t => 
+              t.id === task.id ? { ...t, stage: 'failed', error: err.message } : t
+            ))
+          }
+        })()
+      })
+    }
+    
+    // 延迟执行
+    const timer = setTimeout(resumePolling, 1500)
+    return () => clearTimeout(timer)
+  }, []) // 每次组件挂载都检查是否有未完成的任务
 
   useEffect(() => {
     // 加载数字人、声音和项目列表
@@ -787,6 +1149,10 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
             console.log('[DigitalHumanStudio] 未在列表中找到，直接使用 preselectedPerson')
             setSelectedPerson(preselectedPerson)
           }
+// 通知父组件预选数字人已被使用
+          if (onPreselectedPersonUsed) {
+            onPreselectedPersonUsed()
+          }
         }
       } catch (err) {
         console.error('[DigitalHumanStudio] 加载数据失败:', err)
@@ -824,9 +1190,9 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
       const apiKey = localStorage.getItem('rjcut_api_key')
       const vfs = getVFS()
       
-      // 使用所选项目的 输出 目录作为保存路径
+      // 使用所选项目的 剪辑视频 目录作为保存路径
       const projectName = selectedProject.name || selectedProject.path.replace('/projects/', '').split('/')[0]
-      const savePath = buildVFSPath(projectName, PROJECT_FOLDERS.OUTPUT)
+      const savePath = buildVFSPath(projectName, PROJECT_FOLDERS.EDITED_VIDEO)
       
       console.log('[DigitalHumanStudio] 开始生成流程，保存路径:', savePath)
       
@@ -915,6 +1281,11 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
           const dhTaskId = dhRes.data.data.task_id
           console.log('[DigitalHumanStudio] 任务', index + 1, ': 数字人任务 ID', dhTaskId)
           
+          // 立即更新任务，保存 dhTaskId 以便恢复轮询
+          setPipelineTasks(prev => prev.map(t => 
+            t.id === task.id ? { ...t, dhTaskId } : t
+          ))
+          
           // 轮询数字人状态
           let dhCompleted = false
           while (!dhCompleted) {
@@ -973,6 +1344,13 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
           setPipelineTasks(prev => prev.map(t => 
             t.id === task.id ? { ...t, stage: 'done', progress: 100 } : t
           ))
+          // 添加到已生成视频列表
+          setGeneratedVideos(prev => [...prev, { 
+            id: task.id, 
+            path: vfsVideoPath, 
+            fileName,
+            text: task.text 
+          }])
           console.log('[DigitalHumanStudio] 任务', index + 1, ': 完成')
 
         } catch (err) {
@@ -983,8 +1361,14 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
         }
       }))
 
-      setStatusMsg(`生成完成！视频已保存到 ${savePath}，请前往【批量处理】进行后期合成`)
-      console.log('[DigitalHumanStudio] 所有任务完成')
+      // 检查是否有失败的任务
+      const failedTasks = pipelineTasks.filter(t => t.stage === 'failed')
+      if (failedTasks.length > 0) {
+        setStatusMsg(`生成失败：${failedTasks.length} 个任务出错，请查看进度窗口详情`)
+      } else {
+        setStatusMsg(`生成完成！视频已保存到 ${savePath}，请前往【批量处理】进行后期合成`)
+      }
+      console.log('[DigitalHumanStudio] 所有任务完成，失败数:', failedTasks.length)
       
     } catch (err) {
       console.error('[DigitalHumanStudio] 生成流程失败:', err)
@@ -1069,8 +1453,19 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
       {showProgress && (
         <PipelineProgress 
           tasks={pipelineTasks} 
+          generatedVideos={generatedVideos}
           onClose={() => { setShowProgress(false); setMinimizedProgress(false) }} 
           onMinimize={() => { setShowProgress(false); setMinimizedProgress(true) }}
+          onPreviewVideo={(video) => setPreviewVideo(video)}
+        />
+      )}
+
+      {/* 视频预览弹窗 */}
+      {previewVideo && (
+        <VideoPreviewModal 
+          video={previewVideo} 
+          onClose={() => setPreviewVideo(null)}
+          vfs={vfs}
         />
       )}
 

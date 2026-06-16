@@ -21,6 +21,13 @@ export const PROJECT_FOLDERS = {
 }
 
 /**
+ * 项目根目录路径前缀
+ * 设置为空字符串表示项目直接在根目录下，例如 /项目名/剪辑视频
+ * 设置为 '/projects' 表示项目在 projects 子目录下，例如 /projects/项目名/剪辑视频
+ */
+export const PROJECT_ROOT_PREFIX = '' // 修改为空字符串，项目直接在根目录
+
+/**
  * 项目必需文件
  */
 export const PROJECT_FILES = {
@@ -45,10 +52,10 @@ export function getProjectFileNames() {
  * 构建 VFS 虚拟路径
  * @param {string} projectName - 项目名称
  * @param {string} subPath - 可选的子路径（例如 '原始视频' 或 '剪辑视频/xxx.mp4'）
- * @returns {string} VFS 虚拟路径（例如 /projects/项目名/原始视频）
+ * @returns {string} VFS 虚拟路径（例如 /项目名/原始视频）
  */
 export function buildVFSPath(projectName, subPath = '') {
-  const base = `/projects/${projectName}`
+  const base = PROJECT_ROOT_PREFIX ? `${PROJECT_ROOT_PREFIX}/${projectName}` : `/${projectName}`
   if (subPath) {
     // 确保子路径使用正斜杠
     const normalizedSub = subPath.replace(/\\/g, '/')
@@ -59,18 +66,31 @@ export function buildVFSPath(projectName, subPath = '') {
 
 /**
  * 从 VFS 路径解析项目名称
- * @param {string} vfsPath - VFS 路径（例如 /projects/项目名/xxx）
+ * @param {string} vfsPath - VFS 路径（例如 /项目名/xxx）
  * @returns {string|null} 项目名称，如果路径无效则返回 null
  */
 export function parseProjectNameFromVFS(vfsPath) {
-  if (!vfsPath || !vfsPath.startsWith('/projects/')) {
+  if (!vfsPath) {
     return null
   }
-  // 移除 /projects/ 前缀，获取剩余部分
-  const remaining = vfsPath.replace('/projects/', '')
-  // 获取第一个路径段作为项目名
-  const projectName = remaining.split('/')[0]
-  return projectName || null
+  
+  // 根据 PROJECT_ROOT_PREFIX 解析路径
+  if (PROJECT_ROOT_PREFIX) {
+    // 有前缀的情况：/projects/项目名/xxx
+    if (!vfsPath.startsWith(`${PROJECT_ROOT_PREFIX}/`)) {
+      return null
+    }
+    const remaining = vfsPath.replace(`${PROJECT_ROOT_PREFIX}/`, '')
+    const projectName = remaining.split('/')[0]
+    return projectName || null
+  } else {
+    // 无前缀的情况：/项目名/xxx
+    const parts = vfsPath.split('/').filter(p => p) // 移除空字符串
+    if (parts.length === 0) {
+      return null
+    }
+    return parts[0]
+  }
 }
 
 /**

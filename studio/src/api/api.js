@@ -157,3 +157,10 @@ export const deleteDhVideoTask = (task_id) => apiClient.post(`/v1/dh/tasks/${tas
 
 // 获取视频文件下载 URL
 export const getDhVideoUrl = (task_id) => apiClient.get(`/v1/tasks/${task_id}/files/final_video`);
+
+// 获取数字人示例视频列表（用于预览）
+export const getPersonSampleVideos = (person_id, limit = 10) => {
+  const params = new URLSearchParams({ limit });
+  if (person_id) params.append('person_id', person_id);
+  return apiClient.get(`/v1/tasks?${params.toString()}&type=dh_generate`);
+};

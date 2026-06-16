@@ -1,10 +1,10 @@
 /**
- * RJCut Studio - 项目结构定义模块
+ * 剪辑工作室 - 项目结构定义模块
  * 
  * 统一项目目录结构定义，确保前端组件和 Electron 后端使用相同的路径规则
  * 
  * 项目目录结构：
- * C:\Users\admin\Documents\RJCut\projects\项目名\
+ * C:\Users\admin\Documents\剪辑工作室\项目名\
  * ├── project.json          # 项目配置文件
  * ├── 原始视频/             # human 类型视频（数字人出镜）
  * ├── 剪辑视频/             # scene 类型视频（场景展示）
@@ -45,12 +45,12 @@ function getProjectFileNames() {
 
 /**
  * 构建项目根路径
- * @param {string} baseRoot - 基础根目录（例如：C:\Users\admin\Documents\RJCut）
+ * @param {string} baseRoot - 基础根目录（例如：C:\Users\admin\Documents\剪辑工作室）
  * @param {string} projectName - 项目名称
  * @returns {string} 项目根路径
  */
 function buildProjectPath(baseRoot, projectName) {
-  return path.join(baseRoot, 'projects', projectName)
+  return path.join(baseRoot, projectName)
 }
 
 /**
@@ -72,10 +72,11 @@ function buildProjectSubPath(baseRoot, projectName, folderType) {
  * 构建 VFS 虚拟路径
  * @param {string} projectName - 项目名称
  * @param {string} subPath - 可选的子路径（例如 '原始视频' 或 '剪辑视频/xxx.mp4'）
- * @returns {string} VFS 虚拟路径（例如 /projects/项目名/原始视频）
+ * @returns {string} VFS 虚拟路径（例如 /项目名/原始视频）
  */
 function buildVFSPath(projectName, subPath = '') {
-  const base = `/projects/${projectName}`
+  // 项目直接在根目录下，不需要 /projects 前缀
+  const base = `/${projectName}`
   if (subPath) {
     // 确保子路径使用正斜杠
     const normalizedSub = subPath.replace(/\\/g, '/')
@@ -86,15 +87,15 @@ function buildVFSPath(projectName, subPath = '') {
 
 /**
  * 从 VFS 路径解析项目名称
- * @param {string} vfsPath - VFS 路径（例如 /projects/项目名/xxx）
+ * @param {string} vfsPath - VFS 路径（例如 /项目名/xxx）
  * @returns {string|null} 项目名称，如果路径无效则返回 null
  */
 function parseProjectNameFromVFS(vfsPath) {
-  if (!vfsPath || !vfsPath.startsWith('/projects/')) {
+  if (!vfsPath || vfsPath === '/' || vfsPath.startsWith('/projects/')) {
     return null
   }
-  // 移除 /projects/ 前缀，获取剩余部分
-  const remaining = vfsPath.replace('/projects/', '')
+  // 移除前导斜杠，获取剩余部分
+  const remaining = vfsPath.replace(/^\//, '')
   // 获取第一个路径段作为项目名
   const projectName = remaining.split('/')[0]
   return projectName || null
@@ -111,12 +112,12 @@ function validateVFSProjectPath(vfsPath) {
   if (!projectName) {
     return {
       isValid: false,
-      error: '路径必须以 /projects/项目名 格式开头',
+      error: '路径必须以 /项目名 格式开头，不能是 /projects/ 前缀',
     }
   }
   
   // 获取子路径（如果有）
-  const subPath = vfsPath.replace(`/projects/${projectName}`, '')
+  const subPath = vfsPath.replace(`/${projectName}`, '')
   
   // 检查是否是项目根目录或有效的子目录
   if (!subPath || subPath === '' || subPath === '/') {
@@ -139,8 +140,8 @@ function validateVFSProjectPath(vfsPath) {
 
 /**
  * 将 VFS 项目路径转换为物理路径
- * @param {string} vfsPath - VFS 路径（例如 /projects/项目名/原始视频）
- * @param {string} baseRoot - 基础根目录（例如 C:\Users\admin\Documents\RJCut）
+ * @param {string} vfsPath - VFS 路径（例如 /项目名/原始视频）
+ * @param {string} baseRoot - 基础根目录（例如 C:\Users\admin\Documents\剪辑工作室）
  * @returns {string} 物理路径
  */
 function vfsToPhysicalPath(vfsPath, baseRoot) {

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { getSharedFileSystem } from '../src/utils/virtualFileSystem'
 import { setApiKey } from '../src/api/api'
 import { FolderOpen, Folder, Layers, Sparkles, Settings, HelpCircle, Gem, Users, Scissors } from 'lucide-react'
+import Tooltip from '../src/components/Tooltip'
 
 // 导入你的各个组件
 import FileBrowser from '../src/components/FileBrowser'
@@ -34,14 +35,14 @@ const apiRequest = async (endpoint, options = {}, apiKey = DEFAULT_API_KEY, base
 
 // 导航菜单配置
 const NAV_ITEMS = [
-  { id: 'batch', label: '批量处理', icon: Layers },
-  { id: 'projects', label: '项目管理', icon: FolderOpen },
-  { id: 'files', label: '文件浏览', icon: Folder },
+  { id: 'batch', label: '批量处理', icon: Layers, tip: '批量上传视频或指定参数，并行处理多个生成任务' },
+  { id: 'projects', label: '项目管理', icon: FolderOpen, tip: '管理您的视频项目，创建、编辑和删除项目' },
+  { id: 'files', label: '文件浏览', icon: Folder, tip: '浏览和管理虚拟文件系统中的所有文件' },
   
-  { id: 'digital-human-studio', label: '数字人创作平台', icon: Sparkles },
-  { id: 'digital-human', label: '数字人管理', icon: Users },
-  { id: 'advanced-editor', label: '高级视频剪辑(开发中)', icon: Scissors },
-  { id: 'settings', label: '系统设置', icon: Settings },
+  { id: 'digital-human-studio', label: '数字人创作平台', icon: Sparkles, tip: '选择数字人和场景，创作专属数字人视频' },
+  { id: 'digital-human', label: '数字人管理', icon: Users, tip: '管理数字人形象，查看已创建的 digital human' },
+  { id: 'advanced-editor', label: '高级视频剪辑 (开发中)', icon: Scissors, tip: '专业视频剪辑功能（正在开发中）' },
+  { id: 'settings', label: '系统设置', icon: Settings, tip: '配置 API 连接参数和系统偏好设置' },
 ]
 
 export default function Home() {
@@ -56,6 +57,19 @@ export default function Home() {
   )
   
   const [activeTab, setActiveTab] = useState('batch')
+  const [preselectedPerson, setPreselectedPerson] = useState(null)
+  
+  // 🔴 处理数字人管理平台的创作视频回调
+  const handleCreateVideoFromManager = useCallback((person) => {
+    console.log('========================================')
+    console.log('[index.js] ✅ 收到 onCreateVideo 回调，数字人:', person.name, person.id)
+    console.log('[index.js] 🚀 设置预选数字人:', person.id)
+    setPreselectedPerson(person)
+    console.log('[index.js] 🚀 切换到 digital-human-studio')
+    setActiveTab('digital-human-studio')
+    console.log('[index.js] ✅ 已切换到 digital-human-studio')
+    console.log('========================================')
+  }, [])
   const [merchantInfo, setMerchantInfo] = useState(null)
   const [showHelp, setShowHelp] = useState(false)
   const [toast, setToast] = useState({ show: false, msg: '', type: 'success' })
@@ -114,29 +128,32 @@ export default function Home() {
         {NAV_ITEMS.map(item => {
           const IconComponent = item.icon
           return (
-            <button
-              key={item.id}
-              onClick={() => setActiveTab(item.id)}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition-all ${
-                activeTab === item.id 
-                  ? 'bg-blue-50 text-blue-700' 
-                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-              }`}
-            >
-              <IconComponent size={18} strokeWidth={2} />
-              <span className="text-sm">{item.label}</span>
-            </button>
+            <Tooltip key={item.id} tip={item.tip} delay={1000}>
+              <button
+                onClick={() => setActiveTab(item.id)}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition-all ${
+                  activeTab === item.id 
+                    ? 'bg-blue-50 text-blue-700' 
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                }`}
+              >
+                <IconComponent size={18} strokeWidth={2} />
+                <span className="text-sm">{item.label}</span>
+              </button>
+            </Tooltip>
           )
         })}
       </nav>
       <div className="p-4 border-t border-slate-100">
-        <button 
-          onClick={() => setShowHelp(true)}
-          className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-medium transition-colors"
-        >
-          <HelpCircle size={18} strokeWidth={2} />
-          <span>帮助指南</span>
-        </button>
+        <Tooltip tip="查看系统使用帮助和快捷键说明" delay={1000}>
+          <button 
+            onClick={() => setShowHelp(true)}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-medium transition-colors"
+          >
+            <HelpCircle size={18} strokeWidth={2} />
+            <span>帮助指南</span>
+          </button>
+        </Tooltip>
       </div>
     </aside>
   )
@@ -188,8 +205,16 @@ export default function Home() {
             {activeTab === 'projects' && <VideoProjectManager vfs={vfs} onOpenProject={() => setActiveTab('files')} onNavigate={() => setActiveTab('files')} />}
             {activeTab === 'files' && <FileBrowser vfs={vfs} />}
             
-            {activeTab === 'digital-human-studio' && <DigitalHumanStudio apiKey={apiKey} apiBaseUrl={apiBaseUrl} />}
-            {activeTab === 'digital-human' && <DigitalHumanManager apiKey={apiKey} apiBaseUrl={apiBaseUrl} />}
+            {activeTab === 'digital-human-studio' && (
+  <DigitalHumanStudio 
+    apiKey={apiKey} 
+    apiBaseUrl={apiBaseUrl} 
+    preselectedPerson={preselectedPerson}
+    onPreselectedPersonUsed={() => setPreselectedPerson(null)}
+    vfs={vfs}
+  />
+)}
+            {activeTab === 'digital-human' && <DigitalHumanManager apiKey={apiKey} apiBaseUrl={apiBaseUrl} onCreateVideo={handleCreateVideoFromManager} />}
             {activeTab === 'advanced-editor' && !vfsLoading && vfs && <AdvancedVideoEditor vfs={vfs} />}
             
             {activeTab === 'settings' && (
@@ -200,7 +225,9 @@ export default function Home() {
                   </div>
                   <div className="p-6 space-y-5">
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1.5">API Key</label>
+                      <Tooltip tip="您的 API 密钥，用于身份验证和配额管理" delay={1000}>
+                        <label className="block text-sm font-medium text-slate-700 mb-1.5">API Key</label>
+                      </Tooltip>
                       <input
                         type="text"
                         className="w-full bg-white border border-slate-300 rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
@@ -210,7 +237,9 @@ export default function Home() {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1.5">API 基础地址</label>
+                      <Tooltip tip="API 服务器的基础 URL 地址" delay={1000}>
+                        <label className="block text-sm font-medium text-slate-700 mb-1.5">API 基础地址</label>
+                      </Tooltip>
                       <input
                         type="text"
                         className="w-full bg-white border border-slate-300 rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
@@ -218,15 +247,17 @@ export default function Home() {
                         onChange={(e) => setApiBaseUrlState(e.target.value)}
                       />
                     </div>
-                    <button 
-                      className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
-                      onClick={() => {
-                        fetchMerchantInfo();
-                        showToast('已保存并尝试连接');
-                      }}
-                    >
-                      保存并测试连接
-                    </button>
+                    <Tooltip tip="保存 API 配置并测试连接是否成功" delay={1000}>
+                      <button 
+                        className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
+                        onClick={() => {
+                          fetchMerchantInfo();
+                          showToast('已保存并尝试连接');
+                        }}
+                      >
+                        保存并测试连接
+                      </button>
+                    </Tooltip>
                   </div>
                 </div>
               </div>

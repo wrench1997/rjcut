@@ -1,5 +1,5 @@
 /**
- * RJCut Studio - 文件系统工具模块
+ * 剪辑工作室 - 文件系统工具模块
  * 
  * 提供可重用的文件系统操作函数，供 main.js 和 MCP 服务器共享使用
  */
@@ -483,8 +483,8 @@ async function getStorageInfo() {
  * 创建视频项目
  */
 async function createVideoProject(projectName, config = {}) {
-  // allowedRoots[0] 已经是 RJCut 目录，直接拼接 projects 即可
-  const projectPath = path.join(allowedRoots[0] || app.getPath('documents'), 'projects', projectName)
+  // allowedRoots[0] 已经是 剪辑工作室 目录，直接创建项目文件夹
+  const projectPath = path.join(allowedRoots[0] || app.getPath('documents'), projectName)
   
   await fs.mkdir(path.join(projectPath, '原始视频'), { recursive: true })
   await fs.mkdir(path.join(projectPath, '剪辑视频'), { recursive: true })
@@ -521,8 +521,8 @@ async function createVideoProject(projectName, config = {}) {
  * 获取视频项目列表
  */
 async function getVideoProjects() {
-  // allowedRoots[0] 已经是 RJCut 目录，直接拼接 projects 即可
-  const projectsRoot = path.join(allowedRoots[0] || app.getPath('documents'), 'projects')
+  // allowedRoots[0] 已经是 剪辑工作室 目录，直接读取项目文件夹
+  const projectsRoot = allowedRoots[0] || app.getPath('documents')
   
   try {
     const items = await fs.readdir(projectsRoot, { withFileTypes: true })
@@ -534,7 +534,7 @@ async function getVideoProjects() {
         try {
           const configContent = await fs.readFile(projectConfigPath, 'utf-8')
           const config = JSON.parse(configContent)
-          // 使用 toVirtualPath 转换项目路径为虚拟路径格式（如 /projects/123）
+          // 使用 toVirtualPath 转换项目路径为虚拟路径格式（如 /项目名）
           const virtualPath = toVirtualPath(path.join(projectsRoot, item.name))
           projects.push({
             name: config.name || item.name,
@@ -675,28 +675,24 @@ async function importExternalFolder(externalPath, vfsTargetPath, options = {}) {
     maxFileSize = 500 * 1024 * 1024, // 最大文件大小（500MB）
   } = options
   
-  // ========== 强制路径验证：必须指向 RJCut/projects/项目名 目录 ==========
+  // ========== 强制路径验证：必须指向 剪辑工作室/项目名 目录 ==========
   const documentsPath = app.getPath('documents')
-  const rjcutRoot = path.join(documentsPath, 'RJCut')
+  const studioRoot = path.join(documentsPath, '剪辑工作室')
   
-  // 解析 vfsTargetPath（支持 VFS 路径格式 /projects/项目名/xxx）
+  // 解析 vfsTargetPath（支持 VFS 路径格式 /项目名/xxx）
   let resolvedTargetPath
-  if (vfsTargetPath && vfsTargetPath.startsWith('/projects/')) {
-    // VFS 路径格式，使用统一模块转换
-    const validation = projectStructure.validateVFSProjectPath(vfsTargetPath)
-    if (!validation.isValid) {
-      throw new Error(`❌ 无效的导入路径格式：${vfsTargetPath}。${validation.error}`)
-    }
-    resolvedTargetPath = projectStructure.vfsToPhysicalPath(vfsTargetPath, rjcutRoot)
-  } else if (vfsTargetPath && vfsTargetPath.startsWith('/')) {
-    // 其他 VFS 路径，拒绝
-    throw new Error(`❌ 无效的导入路径格式：${vfsTargetPath}。导入路径必须是 /projects/项目名/xxx 格式，例如 /projects/我的视频项目/原始视频`)
+  if (vfsTargetPath && vfsTargetPath.startsWith('/') && !vfsTargetPath.startsWith('/projects/')) {
+    // VFS 路径格式，项目直接在根目录下
+    resolvedTargetPath = path.join(studioRoot, vfsTargetPath)
+  } else if (vfsTargetPath && vfsTargetPath.startsWith('/projects/')) {
+    // 旧的 /projects/ 格式，拒绝
+    throw new Error(`❌ 无效的导入路径格式：${vfsTargetPath}。导入路径必须是 /项目名/xxx 格式，例如 /我的视频项目/原始视频（不再使用/projects/前缀）`)
   } else {
-    // 绝对路径，验证是否在 RJCut/projects 目录下
+    // 绝对路径，验证是否在 剪辑工作室 目录下
     const normalizedTarget = path.normalize(vfsTargetPath)
-    const normalizedRoot = path.normalize(path.join(rjcutRoot, 'projects'))
+    const normalizedRoot = path.normalize(studioRoot)
     if (!normalizedTarget.startsWith(normalizedRoot)) {
-      throw new Error(`❌ 导入路径必须在 ${path.join(rjcutRoot, 'projects')} 目录下。当前路径：${normalizedTarget}`)
+      throw new Error(`❌ 导入路径必须在 ${studioRoot} 目录下。当前路径：${normalizedTarget}`)
     }
     resolvedTargetPath = normalizedTarget
   }
@@ -824,29 +820,29 @@ async function smartOrganizeToProject(externalPath, projectPath, options = {}) {
     useScriptAnalysis = true, // 是否使用脚本文件分析（根据 script.json 分类视频）
   } = options
   
-  // ========== 强制路径验证：必须指向 RJCut/projects/项目名 目录 ==========
+  // ========== 强制路径验证：必须指向 剪辑工作室/项目名 目录 ==========
   const documentsPath = app.getPath('documents')
-  const rjcutRoot = path.join(documentsPath, 'RJCut')
+  const studioRoot = path.join(documentsPath, '剪辑工作室')
   
-  // 解析 projectPath（支持 VFS 路径格式 /projects/项目名）
+  // 解析 projectPath（支持 VFS 路径格式 /项目名）
   let resolvedProjectPath
   let projectName
-  if (projectPath && projectPath.startsWith('/projects/')) {
-    // VFS 路径格式，使用统一模块转换
-    projectName = projectStructure.parseProjectNameFromVFS(projectPath)
+  if (projectPath && projectPath.startsWith('/') && !projectPath.startsWith('/projects/')) {
+    // VFS 路径格式，项目直接在根目录下
+    projectName = projectPath.split('/')[1] // 获取 /项目名 中的项目名
     if (!projectName) {
-      throw new Error(`❌ 无效的项目路径格式：${projectPath}。项目路径必须是 /projects/项目名 格式，例如 /projects/我的视频项目`)
+      throw new Error(`❌ 无效的项目路径格式：${projectPath}。项目路径必须是 /项目名 格式，例如 /我的视频项目`)
     }
-    resolvedProjectPath = projectStructure.vfsToPhysicalPath(projectPath, rjcutRoot)
-  } else if (projectPath && projectPath.startsWith('/')) {
-    // 其他 VFS 路径，拒绝
-    throw new Error(`❌ 无效的项目路径格式：${projectPath}。项目路径必须是 /projects/项目名 格式，例如 /projects/我的视频项目`)
+    resolvedProjectPath = path.join(studioRoot, projectName)
+  } else if (projectPath && projectPath.startsWith('/projects/')) {
+    // 旧的 /projects/ 格式，拒绝
+    throw new Error(`❌ 无效的项目路径格式：${projectPath}。项目路径必须是 /项目名 格式，例如 /我的视频项目（不再使用/projects/前缀）`)
   } else {
-    // 绝对路径，验证是否在 RJCut/projects 目录下
+    // 绝对路径，验证是否在 剪辑工作室 目录下
     const normalizedProject = path.normalize(projectPath)
-    const normalizedRoot = path.normalize(path.join(rjcutRoot, 'projects'))
+    const normalizedRoot = path.normalize(studioRoot)
     if (!normalizedProject.startsWith(normalizedRoot)) {
-      throw new Error(`❌ 项目路径必须在 ${path.join(rjcutRoot, 'projects')} 目录下。当前路径：${normalizedProject}`)
+      throw new Error(`❌ 项目路径必须在 ${studioRoot} 目录下。当前路径：${normalizedProject}`)
     }
     resolvedProjectPath = normalizedProject
     // 从路径提取项目名
