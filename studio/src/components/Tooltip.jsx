@@ -25,11 +25,11 @@ export default function Tooltip({ children, tip, position = 'bottom', delay = 10
   const handleMouseEnter = (e) => {
     if (!tip) return
     
-    // 记录鼠标位置
+    // 记录元素中心位置（而不是鼠标位置），让 tooltip 始终居中显示
     const rect = e.currentTarget.getBoundingClientRect()
     setPositionCoords({
-      x: e.clientX,
-      y: e.clientY
+      x: rect.left + rect.width / 2,
+      y: rect.bottom
     })
 
     // 延迟显示提示
@@ -104,7 +104,6 @@ export default function Tooltip({ children, tip, position = 'bottom', delay = 10
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
         onMouseMove={handleMouseMove}
-        style={{ display: 'block', width: '100%' }}
       >
         {children}
       </div>

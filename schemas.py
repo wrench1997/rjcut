@@ -43,8 +43,12 @@ class SubtitleConfig(BaseModel):
     margin_v: int = 50
     margin_l: int = 10
     margin_r: int = 10
-    offset_x: int = 0
-    offset_y: int = 0
+    # 支持前端字段名 x_offset/y_offset（使用 alias 兼容两种命名）
+    offset_x: int = Field(0, alias="x_offset")
+    offset_y: int = Field(0, alias="y_offset")
+    
+    class Config:
+        populate_by_name = True  # 允许使用字段名或别名
 
 # 在 SubtitleConfig 类后面添加 AudioConfig 类
 class AudioConfig(BaseModel):

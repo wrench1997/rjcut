@@ -23,6 +23,40 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
+// 测试音源数据
+const TEST_BGM_TRACKS = [
+  {
+    id: 'lofi',
+    name: '温馨 Lofi',
+    url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',
+    genre: 'Lofi / Chill',
+  },
+  {
+    id: 'tech',
+    name: '科技电子',
+    url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3',
+    genre: 'Synthwave',
+  },
+  {
+    id: 'epic',
+    name: '史诗交响',
+    url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3',
+    genre: 'Orchestral',
+  },
+  {
+    id: 'ambient',
+    name: '空灵极简',
+    url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3',
+    genre: 'Ambient',
+  },
+  {
+    id: 'jazz',
+    name: '休闲爵士',
+    url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-6.mp3',
+    genre: 'Jazz-funk',
+  },
+];
+
 // Configuration shape documentation (for reference only - JS doesn't use interfaces)
 /**
  * @typedef {Object} SubtitleConfig
@@ -89,7 +123,7 @@ export const DEFAULT_CONFIG = {
     font_size: 72,
     position: 'bottom',
     x_offset: 0,
-    y_offset: -60,
+    y_offset: -80,
     color: '#FFFF00',
     stroke_color: '#000000',
     stroke_width: 3,
@@ -197,7 +231,7 @@ export const POSITION_PRESETS = [
   { name: '中上挂载', position: 'custom', y_offset: 30 },
   { name: '绝对居中', position: 'center', y_offset: 0 },
   { name: '中下排列', position: 'custom', y_offset: -30 },
-  { name: '底部排版', position: 'bottom', y_offset: -65 },
+  { name: '底部排版', position: 'bottom', y_offset: -80 },
 ];
 
 // Helper Tooltip Component that is absolutely reliable, stylish, and doesn't load external dependencies
@@ -260,6 +294,76 @@ export default function GlobalParamsVisualEditor({
   const [previewSize, setPreviewSize] = useState({ width: 360, height: 640 });
   const [bgStyle, setBgStyle] = useState('cyber');
 
+  // 音频试听状态
+  const [playingTrackUrl, setPlayingTrackUrl] = useState(null);
+  const [isPlayingBgm, setIsPlayingBgm] = useState(false);
+  const audioRef = useRef(null);
+
+  // 音频播放核心逻辑
+  useEffect(() => {
+    if (playingTrackUrl) {
+      if (!audioRef.current) {
+        audioRef.current = new Audio(playingTrackUrl);
+      } else if (audioRef.current.src !== playingTrackUrl) {
+        audioRef.current.src = playingTrackUrl;
+      }
+      
+      audioRef.current.volume = config.audio.bgm_volume;
+      audioRef.current.loop = config.audio.bgm_loop;
+      
+      const handleEnded = () => {
+        if (!config.audio.bgm_loop) {
+          setIsPlayingBgm(false);
+        }
+      };
+      
+      audioRef.current.addEventListener('ended', handleEnded);
+      
+      if (isPlayingBgm) {
+        audioRef.current.play().catch(err => {
+          console.warn('音频播放失败:', err);
+          setIsPlayingBgm(false);
+        });
+      } else {
+        audioRef.current.pause();
+      }
+      
+      return () => {
+        if (audioRef.current) {
+          audioRef.current.removeEventListener('ended', handleEnded);
+        }
+      };
+    } else {
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+    }
+  }, [playingTrackUrl, isPlayingBgm]);
+
+  // 音量同步
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.volume = config.audio.bgm_volume;
+    }
+  }, [config.audio.bgm_volume]);
+
+  // 循环同步
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.loop = !!config.audio.bgm_loop;
+    }
+  }, [config.audio.bgm_loop]);
+
+  // 组件卸载清理
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+    };
+  }, []);
+
   // Synchronize aspect choices to standard coordinate boxes
   useEffect(() => {
     if (aspectRatio === '9/16') {
@@ -283,21 +387,13 @@ export default function GlobalParamsVisualEditor({
     { zh: "电影画质，声画完美", en: "Cinematic Sync" }
   ];
 
-  // Auto alternation of subtitles
-  useEffect(() => {
-    let interval = null;
-    if (isPlaying) {
-      interval = setInterval(() => {
-        setTransitionTrigger(prev => prev + 1);
-        setTimeout(() => {
-          setCurrentSubtitleIndex(prev => (prev + 1) % sampleSubtitles.length);
-        }, (config.pipeline.transition_duration * 1000) / 2);
-      }, 4500);
-    }
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [isPlaying, config.pipeline.transition_duration]);
+  // 自定义字幕文字输入
+  const [customSubtitleText, setCustomSubtitleText] = useState('高能转场！瞬间拉满');
+
+  // 获取当前显示的字幕内容（优先使用自定义文字）
+  const getCurrentSubtitle = () => {
+    return customSubtitleText || sampleSubtitles[currentSubtitleIndex].zh;
+  };
 
   // Synchronize external value overrides
   useEffect(() => {
@@ -452,17 +548,19 @@ export default function GlobalParamsVisualEditor({
     let baseYPercent = 50; // default represents center
     const baseXPercent = 50;
 
+    // position 预设位置的基础百分比（针对 9:16 竖屏优化）
+    // 注意：transform: translate(-50%, -50%) 会让元素中心对准计算点
     if (position === 'top') {
-      baseYPercent = 16;
+      baseYPercent = 25;
     } else if (position === 'bottom') {
-      baseYPercent = 84;
+      baseYPercent = 50;  // 基准位置与 custom 一致，y_offset=-80 时：50-(-80/2)=90%（底部可见区域）
     } else if (position === 'center') {
       baseYPercent = 50;
     }
 
-    // Offset is -100 to 100, mapping to -50% to +50% range limit
+    // Offset 是 -100 到 100，映射到 -50% 到 +50% 范围
     const leftPercent = baseXPercent + (x_offset / 2);
-    // y_offset is positive upwards, so subtract it in HTML coordinate spaces
+    // y_offset: 正值向上（top 减小），负值向下（top 增加）
     const topPercent = baseYPercent - (y_offset / 2);
 
     return {
@@ -574,33 +672,33 @@ export default function GlobalParamsVisualEditor({
   };
 
   return (
-    <div className={`w-full bg-[#0d1321] border border-slate-800/80 rounded-2xl shadow-2xl overflow-hidden ${className || ''}`} id="params-visual-editor-root">
+    <div className={`w-full bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden ${className || ''}`} id="params-visual-editor-root">
       
       {/* Visual Header */}
-      <div className="flex md:flex-row flex-col items-start md:items-center justify-between border-b border-slate-800/70 bg-slate-900/40 px-6 py-4 gap-4">
+      <div className="flex md:flex-row flex-col items-start md:items-center justify-between border-b border-slate-100 bg-slate-50 px-5 py-3.5 gap-4">
         <div className="flex items-center gap-3">
-          <div className="p-2.5 bg-indigo-500/10 border border-indigo-500/20 rounded-xl text-indigo-400">
-            <Film className="w-5 h-5 animate-pulse" />
+          <div className="p-2 bg-blue-100 rounded-lg text-blue-600">
+            <Film className="w-4 h-4" />
           </div>
           <div>
-            <h2 className="text-base font-semibold text-white tracking-wide">全局渲染参数编辑器</h2>
-            <p className="text-xs text-slate-400 mt-0.5">可视调节字幕外观、音频通道淡入淡出及转场效果</p>
+            <h2 className="text-sm font-semibold text-slate-800">全局渲染参数编辑器</h2>
+            <p className="text-xs text-slate-500 mt-0.5">可视调节字幕外观、音频及转场效果</p>
           </div>
         </div>
 
         {/* Global Toolbar */}
         <div className="flex items-center gap-2 self-stretch md:self-auto justify-between md:justify-end">
-          <div className="flex items-center bg-slate-950/70 border border-slate-800/80 p-0.5 rounded-lg">
+          <div className="flex items-center bg-white border border-slate-200 p-0.5 rounded-lg">
             <button
               onClick={() => setShowPreview(true)}
-              className={`p-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-all ${showPreview ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
+              className={`p-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-all ${showPreview ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
             >
               <Eye className="w-3.5 h-3.5" />
               <span>显示预览</span>
             </button>
             <button
               onClick={() => setShowPreview(false)}
-              className={`p-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-all ${!showPreview ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
+              className={`p-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-all ${!showPreview ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
             >
               <EyeOff className="w-3.5 h-3.5" />
               <span>隐藏预览</span>
@@ -611,7 +709,7 @@ export default function GlobalParamsVisualEditor({
             <CustomTooltip tip="重置全部配置">
               <button 
                 onClick={resetToDefault}
-                className="p-2 bg-rose-950/20 hover:bg-rose-950/40 border border-rose-900/30 text-rose-400 hover:text-rose-300 rounded-lg transition-colors"
+                className="p-2 bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 hover:text-red-700 rounded-lg transition-colors"
                 id="reset-config-button"
               >
                 <RotateCcw className="w-4 h-4" />
@@ -625,14 +723,14 @@ export default function GlobalParamsVisualEditor({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-0">
         
         {/* Left Side Settings Sidebar */}
-        <div className="col-span-1 lg:col-span-5 border-r border-slate-800/40 flex flex-col h-[650px] overflow-hidden bg-slate-950/20">
+        <div className="col-span-1 lg:col-span-5 border-r border-slate-100 flex flex-col h-[600px] overflow-hidden bg-white">
           
           {/* Navigation Tabs bar */}
-          <div className="flex border-b border-slate-800/60 bg-slate-950/40 p-1">
+          <div className="flex border-b border-slate-100 bg-slate-50 p-1">
             {[
-              { id: 'subtitle', label: '字幕视觉', icon: Type, hue: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/10' },
-              { id: 'audio', label: '声学增益', icon: Music, hue: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/10' },
-              { id: 'pipeline', label: '转场机制', icon: Sliders, hue: 'text-amber-400 bg-amber-500/10 border-amber-500/10' },
+              { id: 'subtitle', label: '字幕视觉', icon: Type },
+              { id: 'audio', label: '声学增益', icon: Music },
+              { id: 'pipeline', label: '转场机制', icon: Sliders },
             ].map(tab => {
               const IconComponent = tab.icon;
               const isSelected = activeTab === tab.id;
@@ -640,14 +738,14 @@ export default function GlobalParamsVisualEditor({
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`flex-1 flex items-center justify-center gap-2 py-3 px-1 text-xs font-medium transition-all duration-200 border-b-2 ${
+                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-1 text-xs font-medium transition-all duration-200 ${
                     isSelected 
-                      ? 'border-indigo-500 text-white bg-slate-900/50' 
-                      : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-900/20'
+                      ? 'text-blue-600 bg-white shadow-sm rounded-lg' 
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg'
                   }`}
                   id={`tab-button-${tab.id}`}
                 >
-                  <IconComponent className={`w-4 h-4 ${isSelected ? 'text-indigo-400' : 'text-slate-500'}`} />
+                  <IconComponent className={`w-4 h-4 ${isSelected ? 'text-blue-600' : 'text-slate-400'}`} />
                   {tab.label}
                 </button>
               );
@@ -655,18 +753,37 @@ export default function GlobalParamsVisualEditor({
           </div>
 
           {/* Tab Content Panel (Scrollable content) */}
-          <div className="flex-1 overflow-y-auto p-5 space-y-6">
+          <div className="flex-1 overflow-y-auto p-4 space-y-5">
             
             {/* SUBTITLES TAB */}
             {activeTab === 'subtitle' && (
-              <div className="space-y-6" id="subtitle-config-group">
+              <div className="space-y-5" id="subtitle-config-group">
                 
+                {/* 自定义字幕文字输入 */}
+                <div className="p-3.5 bg-gradient-to-br from-indigo-50 to-purple-50 border border-indigo-100 rounded-lg">
+                  <div className="flex items-center gap-1.5 mb-2.5">
+                    <Type className="w-3.5 h-3.5 text-indigo-500" />
+                    <span className="text-xs font-semibold text-slate-700">预览字幕文字</span>
+                    <span className="text-[9px] text-slate-500 ml-auto">修改后即时刷新</span>
+                  </div>
+                  
+                  <div>
+                    <input
+                      type="text"
+                      value={customSubtitleText}
+                      onChange={(e) => setCustomSubtitleText(e.target.value)}
+                      placeholder="输入预览字幕内容，修改后即时刷新..."
+                      className="w-full bg-white border border-slate-200 rounded-md px-3 py-2 text-sm text-slate-700 placeholder-slate-400 focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 transition-all"
+                    />
+                  </div>
+                </div>
+
                 {/* Style Presets */}
                 <div>
                   <div className="flex items-center justify-between mb-3">
-                    <span className="text-xs font-semibold text-indigo-300 uppercase tracking-widest flex items-center gap-1.5">
-                      <Palette className="w-3.5 h-3.5 text-indigo-400" />
-                      艺术化设计预设
+                    <span className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+                      <Palette className="w-3.5 h-3.5 text-blue-500" />
+                      设计预设
                     </span>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -674,20 +791,20 @@ export default function GlobalParamsVisualEditor({
                       <button
                         key={preset.name}
                         onClick={() => applyPreset(preset)}
-                        className="group flex flex-col items-start p-3 bg-slate-900/40 hover:bg-indigo-950/10 border border-slate-800/60 hover:border-indigo-900/40 rounded-xl transition-all duration-200 text-left cursor-pointer"
+                        className="group flex flex-col items-start p-2.5 bg-slate-50 hover:bg-blue-50 border border-slate-200 hover:border-blue-300 rounded-lg transition-all duration-200 text-left cursor-pointer"
                       >
-                        <span className="text-xs font-semibold text-slate-200 group-hover:text-indigo-300 transition-colors">{preset.name}</span>
-                        <span className="text-[10px] text-slate-400 mt-1 line-clamp-1 leading-snug">{preset.description}</span>
+                        <span className="text-xs font-semibold text-slate-700 group-hover:text-blue-700 transition-colors">{preset.name}</span>
+                        <span className="text-[10px] text-slate-500 mt-0.5 line-clamp-1 leading-snug">{preset.description}</span>
                       </button>
                     ))}
                   </div>
                 </div>
 
                 {/* Subtitle Positioning Layout Nodes */}
-                <div className="pt-2 border-t border-slate-850">
-                  <span className="text-xs font-semibold text-indigo-300 uppercase tracking-widest flex items-center gap-1.5 mb-3">
-                    <Move className="w-3.5 h-3.5 text-indigo-400" />
-                    位置排版预设
+                <div className="pt-3 border-t border-slate-100">
+                  <span className="text-xs font-semibold text-slate-700 flex items-center gap-1.5 mb-3">
+                    <Move className="w-3.5 h-3.5 text-blue-500" />
+                    位置预设
                   </span>
                   <div className="flex flex-wrap gap-1.5">
                     {POSITION_PRESETS.map((preset) => {
@@ -698,8 +815,8 @@ export default function GlobalParamsVisualEditor({
                           onClick={() => applyPositionPreset(preset)}
                           className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all border ${
                             isActive 
-                              ? 'bg-indigo-600/20 border-indigo-500/40 text-indigo-300 shadow-sm shadow-indigo-950/20 font-semibold' 
-                              : 'bg-slate-900/40 hover:bg-slate-900/80 border-slate-800/80 text-slate-400 hover:text-slate-200'
+                              ? 'bg-blue-600 border-blue-600 text-white shadow-sm font-semibold' 
+                              : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-600 hover:text-slate-900'
                           }`}
                         >
                           {preset.name}
@@ -710,23 +827,23 @@ export default function GlobalParamsVisualEditor({
                 </div>
 
                 {/* Font Size & Box Controls */}
-                <div className="space-y-4 pt-4 border-t border-slate-850">
+                <div className="space-y-4 pt-4 border-t border-slate-100">
                   
                   {/* Slider: Font Size */}
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
-                      <label className="text-xs font-medium text-slate-300 flex items-center gap-1.5">
+                      <label className="text-xs font-medium text-slate-700 flex items-center gap-1.5">
                         <Type className="w-3.5 h-3.5 text-slate-400" />
-                        字体字号 (Standard Scale)
+                        字体字号
                       </label>
-                      <span className="font-mono text-xs font-bold text-indigo-400 bg-indigo-950/30 border border-indigo-900/30 px-1.5 py-0.5 rounded">
+                      <span className="font-mono text-xs font-bold text-blue-600 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded">
                         {config.subtitle.font_size}px
                       </span>
                     </div>
                     <div className="flex items-center gap-3">
                       <button 
                         onClick={() => updateConfig('subtitle', 'font_size', Math.max(40, config.subtitle.font_size - 4))}
-                        className="p-1.5 bg-slate-900 border border-slate-800 hover:bg-slate-850 rounded-lg text-slate-400 hover:text-slate-200 transition-colors"
+                        className="p-1.5 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg text-slate-600 transition-colors"
                       >
                         <Minus className="w-3.5 h-3.5" />
                       </button>
@@ -736,11 +853,11 @@ export default function GlobalParamsVisualEditor({
                         max="140"
                         value={config.subtitle.font_size}
                         onChange={(e) => updateConfig('subtitle', 'font_size', parseInt(e.target.value))}
-                        className="flex-1 accent-indigo-500 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer"
+                        className="flex-1 accent-blue-500 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer"
                       />
                       <button 
                         onClick={() => updateConfig('subtitle', 'font_size', Math.min(140, config.subtitle.font_size + 4))}
-                        className="p-1.5 bg-slate-900 border border-slate-800 hover:bg-slate-850 rounded-lg text-slate-400 hover:text-slate-200 transition-colors"
+                        className="p-1.5 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg text-slate-600 transition-colors"
                       >
                         <Plus className="w-3.5 h-3.5" />
                       </button>
@@ -750,18 +867,18 @@ export default function GlobalParamsVisualEditor({
                   {/* Slider: Max Width (Auto-wrap) */}
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
-                      <label className="text-xs font-medium text-slate-300 flex items-center gap-1.5">
+                      <label className="text-xs font-medium text-slate-700 flex items-center gap-1.5">
                         <Move className="w-3.5 h-3.5 text-slate-400" />
-                        单行文字最大宽度占比 (满足此长度自动换行/回车)
+                        单行最大宽度
                       </label>
-                      <span className="font-mono text-xs font-bold text-indigo-400 bg-indigo-950/30 border border-indigo-900/30 px-1.5 py-0.5 rounded">
+                      <span className="font-mono text-xs font-bold text-blue-600 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded">
                         {config.subtitle.max_width}%
                       </span>
                     </div>
                     <div className="flex items-center gap-3">
                       <button 
                         onClick={() => updateConfig('subtitle', 'max_width', Math.max(20, config.subtitle.max_width - 5))}
-                        className="p-1.5 bg-slate-900 border border-slate-800 hover:bg-slate-850 rounded-lg text-slate-400 hover:text-slate-200 transition-colors"
+                        className="p-1.5 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg text-slate-600 transition-colors"
                       >
                         <Minus className="w-3.5 h-3.5" />
                       </button>
@@ -772,11 +889,11 @@ export default function GlobalParamsVisualEditor({
                         step="5"
                         value={config.subtitle.max_width}
                         onChange={(e) => updateConfig('subtitle', 'max_width', parseInt(e.target.value))}
-                        className="flex-1 accent-indigo-500 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer"
+                        className="flex-1 accent-blue-500 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer"
                       />
                       <button 
                         onClick={() => updateConfig('subtitle', 'max_width', Math.min(100, config.subtitle.max_width + 5))}
-                        className="p-1.5 bg-slate-900 border border-slate-800 hover:bg-slate-850 rounded-lg text-slate-400 hover:text-slate-200 transition-colors"
+                        className="p-1.5 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg text-slate-600 transition-colors"
                       >
                         <Plus className="w-3.5 h-3.5" />
                       </button>
@@ -786,18 +903,18 @@ export default function GlobalParamsVisualEditor({
                   {/* Slider: Line Spacing */}
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
-                      <label className="text-xs font-medium text-slate-300 flex items-center gap-1.5">
+                      <label className="text-xs font-medium text-slate-700 flex items-center gap-1.5">
                         <Sliders className="w-3.5 h-3.5 text-slate-400" />
-                        多行文字行间距
+                        行间距
                       </label>
-                      <span className="font-mono text-xs font-bold text-indigo-400 bg-indigo-950/30 border border-indigo-900/30 px-1.5 py-0.5 rounded">
+                      <span className="font-mono text-xs font-bold text-blue-600 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded">
                         {config.subtitle.line_spacing}x
                       </span>
                     </div>
                     <div className="flex items-center gap-3">
                       <button 
                         onClick={() => updateConfig('subtitle', 'line_spacing', parseFloat(Math.max(1.0, config.subtitle.line_spacing - 0.1).toFixed(1)))}
-                        className="p-1.5 bg-slate-900 border border-slate-800 hover:bg-slate-850 rounded-lg text-slate-400 hover:text-slate-200 transition-colors"
+                        className="p-1.5 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg text-slate-600 transition-colors"
                       >
                         <Minus className="w-3.5 h-3.5" />
                       </button>
@@ -808,11 +925,11 @@ export default function GlobalParamsVisualEditor({
                         step="0.1"
                         value={config.subtitle.line_spacing}
                         onChange={(e) => updateConfig('subtitle', 'line_spacing', parseFloat(e.target.value))}
-                        className="flex-1 accent-indigo-500 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer"
+                        className="flex-1 accent-blue-500 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer"
                       />
                       <button 
                         onClick={() => updateConfig('subtitle', 'line_spacing', parseFloat(Math.min(2.5, config.subtitle.line_spacing + 0.1).toFixed(1)))}
-                        className="p-1.5 bg-slate-900 border border-slate-800 hover:bg-slate-850 rounded-lg text-slate-400 hover:text-slate-200 transition-colors"
+                        className="p-1.5 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg text-slate-600 transition-colors"
                       >
                         <Plus className="w-3.5 h-3.5" />
                       </button>
@@ -820,12 +937,12 @@ export default function GlobalParamsVisualEditor({
                   </div>
 
                   {/* Dual Color Picker Blocks */}
-                  <div className="grid grid-cols-2 gap-3.5">
+                  <div className="grid grid-cols-2 gap-3">
                     {/* Color: Subtitle text */}
-                    <div className="bg-slate-900/30 border border-slate-800/40 rounded-xl p-3">
-                      <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block mb-2">文字基色</label>
+                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-2.5">
+                      <label className="text-[10px] font-semibold text-slate-600 block mb-2">文字颜色</label>
                       <div className="flex items-center gap-2">
-                        <div className="relative w-8 h-8 rounded-lg overflow-hidden border border-slate-800 flex-shrink-0 cursor-pointer">
+                        <div className="relative w-7 h-7 rounded-md overflow-hidden border border-slate-300 flex-shrink-0 cursor-pointer shadow-sm">
                           <input
                             type="color"
                             value={config.subtitle.color.startsWith('rgba') ? '#FFFFFF' : config.subtitle.color}
@@ -833,7 +950,7 @@ export default function GlobalParamsVisualEditor({
                             className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
                           />
                           <div 
-                            className="w-full h-full border border-black/10 rounded-lg"
+                            className="w-full h-full border border-black/5 rounded-md"
                             style={{ backgroundColor: config.subtitle.color }}
                           />
                         </div>
@@ -841,16 +958,16 @@ export default function GlobalParamsVisualEditor({
                           type="text"
                           value={config.subtitle.color}
                           onChange={(e) => updateConfig('subtitle', 'color', e.target.value)}
-                          className="w-full min-w-0 bg-slate-950 border border-slate-800/60 rounded px-2 py-1 text-xs font-mono text-slate-300 focus:outline-none focus:border-indigo-500"
+                          className="w-full min-w-0 bg-white border border-slate-200 rounded px-2 py-1 text-xs font-mono text-slate-700 focus:outline-none focus:border-blue-500"
                         />
                       </div>
                     </div>
 
                     {/* Color: Stroke color */}
-                    <div className="bg-slate-900/30 border border-slate-800/40 rounded-xl p-3">
-                      <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block mb-2">描边外廓</label>
+                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-2.5">
+                      <label className="text-[10px] font-semibold text-slate-600 block mb-2">描边颜色</label>
                       <div className="flex items-center gap-2">
-                        <div className="relative w-8 h-8 rounded-lg overflow-hidden border border-slate-800 flex-shrink-0 cursor-pointer">
+                        <div className="relative w-7 h-7 rounded-md overflow-hidden border border-slate-300 flex-shrink-0 cursor-pointer shadow-sm">
                           <input
                             type="color"
                             value={config.subtitle.stroke_color === 'transparent' || config.subtitle.stroke_color === '' ? '#000000' : config.subtitle.stroke_color}
@@ -858,8 +975,8 @@ export default function GlobalParamsVisualEditor({
                             className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
                           />
                           <div 
-                            className="w-full h-full border border-black/10 rounded-lg"
-                            style={{ backgroundColor: config.subtitle.stroke_color === 'transparent' ? '#111827' : config.subtitle.stroke_color }}
+                            className="w-full h-full border border-black/5 rounded-md"
+                            style={{ backgroundColor: config.subtitle.stroke_color === 'transparent' ? '#e5e7eb' : config.subtitle.stroke_color }}
                           />
                         </div>
                         <div className="relative flex-1 min-w-0">
@@ -867,7 +984,7 @@ export default function GlobalParamsVisualEditor({
                             type="text"
                             value={config.subtitle.stroke_color}
                             onChange={(e) => updateConfig('subtitle', 'stroke_color', e.target.value)}
-                            className="w-full bg-slate-950 border border-slate-800/60 rounded px-2 py-1 text-xs font-mono text-slate-300 focus:outline-none focus:border-indigo-500"
+                            className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-xs font-mono text-slate-700 focus:outline-none focus:border-blue-500"
                           />
                         </div>
                       </div>
@@ -877,10 +994,10 @@ export default function GlobalParamsVisualEditor({
                   {/* Stroke Width Slider */}
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
-                      <label className="text-xs font-medium text-slate-300 flex items-center gap-1">
-                        <span>文字描边宽度 (文字外边框)</span>
+                      <label className="text-xs font-medium text-slate-700">
+                        描边宽度
                       </label>
-                      <span className="font-mono text-xs font-bold text-slate-400">
+                      <span className="font-mono text-xs font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded">
                         {config.subtitle.stroke_width}px
                       </span>
                     </div>
@@ -891,20 +1008,20 @@ export default function GlobalParamsVisualEditor({
                       step="1"
                       value={config.subtitle.stroke_width}
                       onChange={(e) => updateConfig('subtitle', 'stroke_width', parseInt(e.target.value))}
-                      className="w-full accent-indigo-500 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer"
+                      className="w-full accent-blue-500 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer"
                     />
                   </div>
 
                   {/* Background Mask Color Setting */}
-                  <div className="bg-slate-900/30 border border-slate-800/40 rounded-xl p-3.5 space-y-3">
+                  <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-3">
                     <div className="flex items-center justify-between">
-                      <label className="text-xs font-medium text-slate-300">背景遮罩面板</label>
+                      <label className="text-xs font-medium text-slate-700">背景遮罩</label>
                       <button 
                         onClick={() => updateConfig('subtitle', 'background_color', config.subtitle.background_color === 'transparent' ? 'rgba(0,0,0,0.6)' : 'transparent')}
                         className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${
                           config.subtitle.background_color !== 'transparent' 
-                            ? 'bg-emerald-900/20 border-emerald-500/30 text-emerald-300' 
-                            : 'bg-slate-800 border-slate-700 text-slate-400'
+                            ? 'bg-emerald-100 border-emerald-300 text-emerald-700' 
+                            : 'bg-slate-200 border-slate-300 text-slate-600'
                         }`}
                       >
                         {config.subtitle.background_color !== 'transparent' ? '已启用' : '已禁用'}
@@ -913,30 +1030,37 @@ export default function GlobalParamsVisualEditor({
 
                     {config.subtitle.background_color !== 'transparent' && (
                       <div className="space-y-4 pt-2">
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="color"
-                            value="#000000"
-                            onChange={(e) => {
-                              // Re-construct opacity of .6 for standard background ease
-                              updateConfig('subtitle', 'background_color', `rgba(0, 0, 0, 0.65)`);
-                            }}
-                            className="w-7 h-7 rounded border border-slate-800 cursor-pointer overflow-hidden bg-transparent"
-                            disabled
-                          />
-                          <input
-                            type="text"
-                            value={config.subtitle.background_color}
-                            onChange={(e) => updateConfig('subtitle', 'background_color', e.target.value)}
-                            placeholder="bg color hex or rgba"
-                            className="w-full bg-slate-950 border border-slate-850 rounded px-2.5 py-1 text-xs font-mono text-slate-300 focus:outline-none"
-                          />
+                        <div>
+                          <label className="text-[10px] font-medium text-slate-600 block mb-1.5">遮罩颜色</label>
+                          <div className="flex items-center gap-2">
+                            <div className="relative w-7 h-7 rounded-md overflow-hidden border border-slate-300 flex-shrink-0 cursor-pointer shadow-sm">
+                              <input
+                                type="color"
+                                value="#000000"
+                                onChange={(e) => {
+                                  updateConfig('subtitle', 'background_color', `rgba(0, 0, 0, 0.65)`);
+                                }}
+                                className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+                              />
+                              <div 
+                                className="w-full h-full border border-black/5 rounded-md"
+                                style={{ backgroundColor: 'rgba(0, 0, 0, 0.65)' }}
+                              />
+                            </div>
+                            <input
+                              type="text"
+                              value={config.subtitle.background_color}
+                              onChange={(e) => updateConfig('subtitle', 'background_color', e.target.value)}
+                              placeholder="rgba 或 hex 颜色值"
+                              className="w-full bg-white border border-slate-200 rounded px-2.5 py-1 text-xs font-mono text-slate-700 focus:outline-none focus:border-blue-500"
+                            />
+                          </div>
                         </div>
 
                         {/* Background radius & padding */}
-                        <div className="grid grid-cols-2 gap-3.5">
+                        <div className="grid grid-cols-2 gap-3">
                           <div>
-                            <div className="flex justify-between text-[11px] text-slate-400 mb-1">
+                            <div className="flex justify-between text-[11px] text-slate-600 mb-1">
                               <span>遮罩圆角</span>
                               <span>{config.subtitle.background_radius}px</span>
                             </div>
@@ -946,11 +1070,11 @@ export default function GlobalParamsVisualEditor({
                               max="24"
                               value={config.subtitle.background_radius}
                               onChange={(e) => updateConfig('subtitle', 'background_radius', parseInt(e.target.value))}
-                              className="w-full accent-indigo-500 h-1 bg-slate-800 rounded-none appearance-none"
+                              className="w-full accent-blue-500 h-1.5 bg-slate-200 rounded-lg appearance-none"
                             />
                           </div>
                           <div>
-                            <div className="flex justify-between text-[11px] text-slate-400 mb-1">
+                            <div className="flex justify-between text-[11px] text-slate-600 mb-1">
                               <span>遮罩内边距</span>
                               <span>{config.subtitle.background_padding}px</span>
                             </div>
@@ -960,16 +1084,16 @@ export default function GlobalParamsVisualEditor({
                               max="20"
                               value={config.subtitle.background_padding}
                               onChange={(e) => updateConfig('subtitle', 'background_padding', parseInt(e.target.value))}
-                              className="w-full accent-indigo-500 h-1 bg-slate-800 rounded-none appearance-none"
+                              className="w-full accent-blue-500 h-1.5 bg-slate-200 rounded-lg appearance-none"
                             />
                           </div>
                         </div>
 
                         {/* Background Border settings */}
-                        <div className="grid grid-cols-2 gap-3.5 pt-1 border-t border-slate-800/40">
+                        <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-200">
                           <div>
-                            <div className="flex justify-between text-[11px] text-slate-400 mb-1">
-                              <span>遮罩外框线宽</span>
+                            <div className="flex justify-between text-[11px] text-slate-600 mb-1">
+                              <span>边框线宽</span>
                               <span>{config.subtitle.background_border_width || 0}px</span>
                             </div>
                             <input
@@ -979,16 +1103,16 @@ export default function GlobalParamsVisualEditor({
                               step="1"
                               value={config.subtitle.background_border_width || 0}
                               onChange={(e) => updateConfig('subtitle', 'background_border_width', parseInt(e.target.value))}
-                              className="w-full accent-indigo-500 h-1 bg-slate-800 rounded-none appearance-none cursor-pointer"
+                              className="w-full accent-blue-500 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer"
                             />
                           </div>
                           <div>
-                            <div className="flex justify-between text-[11px] text-slate-400 mb-1">
-                              <span>遮罩边边框色</span>
+                            <div className="flex justify-between text-[11px] text-slate-600 mb-1">
+                              <span>边框颜色</span>
                               <span className="font-mono text-[9px] text-slate-500">{(config.subtitle.background_border_color || '#FFFFFF').toUpperCase()}</span>
                             </div>
                             <div className="flex items-center gap-1.5">
-                              <div className="relative w-5 h-5 rounded overflow-hidden border border-slate-850 cursor-pointer flex-shrink-0">
+                              <div className="relative w-5 h-5 rounded-md overflow-hidden border border-slate-300 cursor-pointer flex-shrink-0 shadow-sm">
                                 <input
                                   type="color"
                                   value={config.subtitle.background_border_color || '#FFFFFF'}
@@ -996,7 +1120,7 @@ export default function GlobalParamsVisualEditor({
                                   className="absolute inset-0 opacity-0 w-full h-full cursor-pointer animate-none"
                                 />
                                 <div 
-                                  className="w-full h-full border border-black/10 rounded"
+                                  className="w-full h-full border border-black/5 rounded-md"
                                   style={{ backgroundColor: config.subtitle.background_border_color || '#FFFFFF' }}
                                 />
                               </div>
@@ -1004,7 +1128,7 @@ export default function GlobalParamsVisualEditor({
                                 type="text"
                                 value={config.subtitle.background_border_color || '#FFFFFF'}
                                 onChange={(e) => updateConfig('subtitle', 'background_border_color', e.target.value)}
-                                className="w-full bg-slate-950 border border-slate-850 rounded px-1.5 py-0.5 text-[10px] font-mono text-slate-350 focus:outline-none"
+                                className="w-full bg-white border border-slate-200 rounded px-1.5 py-0.5 text-[10px] font-mono text-slate-700 focus:outline-none focus:border-blue-500"
                               />
                             </div>
                           </div>
@@ -1016,9 +1140,9 @@ export default function GlobalParamsVisualEditor({
                   {/* Manual Coordinates Offsets Ranges */}
                   <div className="grid grid-cols-2 gap-3 pt-2">
                     <div>
-                      <div className="flex justify-between text-xs text-slate-350 mb-1.5">
-                        <span className="flex items-center gap-1">水平偏调 (X)</span>
-                        <span className="font-mono font-bold text-slate-400">{config.subtitle.x_offset}</span>
+                      <div className="flex justify-between text-xs text-slate-600 mb-1.5">
+                        <span className="flex items-center gap-1">水平偏移 (X)</span>
+                        <span className="font-mono font-bold text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded">{config.subtitle.x_offset}</span>
                       </div>
                       <input
                         type="range"
@@ -1026,13 +1150,13 @@ export default function GlobalParamsVisualEditor({
                         max="100"
                         value={config.subtitle.x_offset}
                         onChange={(e) => updateConfig('subtitle', 'x_offset', parseInt(e.target.value))}
-                        className="w-full accent-indigo-500 h-1 bg-slate-800 rounded-lg"
+                        className="w-full accent-blue-500 h-1.5 bg-slate-200 rounded-lg"
                       />
                     </div>
                     <div>
-                      <div className="flex justify-between text-xs text-slate-350 mb-1.5">
-                        <span className="flex items-center gap-1">垂直偏调 (Y)</span>
-                        <span className="font-mono font-bold text-slate-400">{config.subtitle.y_offset}</span>
+                      <div className="flex justify-between text-xs text-slate-600 mb-1.5">
+                        <span className="flex items-center gap-1">垂直偏移 (Y)</span>
+                        <span className="font-mono font-bold text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded">{config.subtitle.y_offset}</span>
                       </div>
                       <input
                         type="range"
@@ -1040,7 +1164,7 @@ export default function GlobalParamsVisualEditor({
                         max="100"
                         value={config.subtitle.y_offset}
                         onChange={(e) => updateConfig('subtitle', 'y_offset', parseInt(e.target.value))}
-                        className="w-full accent-indigo-500 h-1 bg-slate-800 rounded-lg"
+                        className="w-full accent-blue-500 h-1.5 bg-slate-200 rounded-lg"
                       />
                     </div>
                   </div>
@@ -1051,12 +1175,90 @@ export default function GlobalParamsVisualEditor({
 
             {/* AUDIO CONFIG TAB */}
             {activeTab === 'audio' && (
-              <div className="space-y-6" id="audio-config-group">
-                <div className="p-4 bg-slate-900/30 border border-slate-800/50 rounded-2xl flex items-start gap-3">
-                  <Volume2 className="w-5 h-5 text-emerald-400 mt-0.5 flex-shrink-0" />
+              <div className="space-y-5" id="audio-config-group">
+                <div className="p-3.5 bg-blue-50 border border-blue-100 rounded-lg flex items-start gap-3">
+                  <Volume2 className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
                   <div>
-                    <h4 className="text-xs font-semibold text-slate-200">音频层与音量均衡</h4>
-                    <p className="text-[11px] text-slate-450 mt-1 leading-relaxed">融合多轨音频资源。调节背景音乐、原生人声的默认输出功率及淡入淡出包络器曲线。</p>
+                    <h4 className="text-xs font-semibold text-slate-800">音频配置</h4>
+                    <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">调节视频原声、背景音乐的音量及淡入淡出效果。支持实时试听测试音源。</p>
+                  </div>
+                </div>
+
+                {/* 测试音源试听区域 */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+                      <Music className="w-3.5 h-3.5 text-blue-500" />
+                      测试音源试听
+                    </span>
+                    <span className="text-[10px] text-slate-500">点击卡片应用并试听</span>
+                  </div>
+
+                  <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-slate-200">
+                    {TEST_BGM_TRACKS.map((track) => {
+                      const isSelected = config.audio.bgm_url === track.url;
+                      const isThisPlaying = playingTrackUrl === track.url && isPlayingBgm;
+                      
+                      return (
+                        <div 
+                          key={track.id}
+                          onClick={() => {
+                            updateConfig('audio', 'bgm_url', track.url);
+                            setPlayingTrackUrl(track.url);
+                            setIsPlayingBgm(true);
+                          }}
+                          className={`p-2.5 rounded-lg border transition-all text-left cursor-pointer group ${
+                            isSelected 
+                              ? 'bg-blue-50 border-blue-300 shadow-sm' 
+                              : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className={`text-xs font-semibold ${isSelected ? 'text-blue-700' : 'text-slate-700'}`}>
+                                  {track.name}
+                                </span>
+                                <span className="bg-white/80 text-slate-500 border border-slate-200 text-[9px] px-1.5 py-0.5 rounded font-medium">
+                                  {track.genre}
+                                </span>
+                              </div>
+                            </div>
+                            
+                            {/* 播放按钮 */}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (playingTrackUrl !== track.url) {
+                                  setPlayingTrackUrl(track.url);
+                                  setIsPlayingBgm(true);
+                                  updateConfig('audio', 'bgm_url', track.url);
+                                } else {
+                                  setIsPlayingBgm(!isPlayingBgm);
+                                }
+                              }}
+                              className={`w-7 h-7 rounded-md flex items-center justify-center transition-all border select-none ${
+                                isThisPlaying
+                                  ? 'bg-amber-100 border-amber-300 text-amber-600'
+                                  : isSelected
+                                    ? 'bg-blue-100 border-blue-300 text-blue-600'
+                                    : 'bg-white border-slate-200 text-slate-400 hover:text-slate-600'
+                              }`}
+                            >
+                              {isThisPlaying ? (
+                                <div className="flex items-center gap-0.5 h-3">
+                                  <span className="w-0.5 h-3 bg-current rounded-full animate-bounce" />
+                                  <span className="w-0.5 h-2 bg-current rounded-full animate-[bounce_1s_infinite_200ms]" />
+                                  <span className="w-0.5 h-2.5 bg-current rounded-full animate-[bounce_1s_infinite_400ms]" />
+                                </div>
+                              ) : (
+                                <Play className="w-3 h-3 fill-current" />
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -1064,10 +1266,10 @@ export default function GlobalParamsVisualEditor({
                 <div className="space-y-4 pt-2">
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
-                      <label className="text-xs font-medium text-slate-350">
-                        视频原声音轨音量系数
+                      <label className="text-xs font-medium text-slate-700">
+                        原声音量
                       </label>
-                      <span className="font-mono text-xs font-bold text-emerald-400">
+                      <span className="font-mono text-xs font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
                         {Math.round(config.audio.original_volume * 100)}%
                       </span>
                     </div>
@@ -1078,17 +1280,17 @@ export default function GlobalParamsVisualEditor({
                       step="0.05"
                       value={config.audio.original_volume}
                       onChange={(e) => updateConfig('audio', 'original_volume', parseFloat(e.target.value))}
-                      className="w-full accent-emerald-500 h-1 bg-slate-800 rounded-lg appearance-none"
+                      className="w-full accent-blue-500 h-1.5 bg-slate-200 rounded-lg appearance-none"
                     />
                   </div>
 
                   {/* Slider: BGM sound */}
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
-                      <label className="text-xs font-medium text-slate-350">
-                        BGM 背景音乐音量系数
+                      <label className="text-xs font-medium text-slate-700">
+                        BGM 音量
                       </label>
-                      <span className="font-mono text-xs font-bold text-emerald-400">
+                      <span className="font-mono text-xs font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
                         {Math.round(config.audio.bgm_volume * 100)}%
                       </span>
                     </div>
@@ -1099,31 +1301,31 @@ export default function GlobalParamsVisualEditor({
                       step="0.05"
                       value={config.audio.bgm_volume}
                       onChange={(e) => updateConfig('audio', 'bgm_volume', parseFloat(e.target.value))}
-                      className="w-full accent-emerald-500 h-1 bg-slate-800 rounded-lg appearance-none"
+                      className="w-full accent-blue-500 h-1.5 bg-slate-200 rounded-lg appearance-none"
                     />
                   </div>
 
                   {/* Loop Switch Toggle */}
-                  <div className="flex items-center justify-between p-3.5 bg-slate-900/40 border border-slate-800/85 rounded-xl">
+                  <div className="flex items-center justify-between p-3 bg-white border border-slate-200 rounded-lg">
                     <div className="space-y-0.5">
-                      <label htmlFor="bgm_loop" className="text-xs font-semibold text-slate-200 cursor-pointer">BGM 无缝循环播放</label>
-                      <p className="text-[10px] text-slate-450">当背景音乐短于视频时间时自动从头循环</p>
+                      <label htmlFor="bgm_loop" className="text-xs font-semibold text-slate-700 cursor-pointer">BGM 循环播放</label>
+                      <p className="text-[10px] text-slate-500">背景音乐短于视频时自动循环</p>
                     </div>
                     <input
                       type="checkbox"
                       id="bgm_loop"
                       checked={config.audio.bgm_loop}
                       onChange={(e) => updateConfig('audio', 'bgm_loop', e.target.checked)}
-                      className="w-4 h-4 rounded text-emerald-500 accent-emerald-500 cursor-pointer"
+                      className="w-4 h-4 rounded text-blue-600 accent-blue-600 cursor-pointer"
                     />
                   </div>
 
                   {/* Fading Time Envelopes */}
                   <div className="grid grid-cols-2 gap-4 pt-2">
                     <div>
-                      <div className="flex justify-between text-xs text-slate-350 mb-1.5">
-                        <span>淡入包络时长</span>
-                        <span className="font-mono font-semibold text-emerald-400">{config.audio.fade_in_duration}s</span>
+                      <div className="flex justify-between text-xs text-slate-600 mb-1.5">
+                        <span>淡入时长</span>
+                        <span className="font-mono font-semibold text-blue-600">{config.audio.fade_in_duration}s</span>
                       </div>
                       <input
                         type="range"
@@ -1132,13 +1334,13 @@ export default function GlobalParamsVisualEditor({
                         step="0.1"
                         value={config.audio.fade_in_duration}
                         onChange={(e) => updateConfig('audio', 'fade_in_duration', parseFloat(e.target.value))}
-                        className="w-full accent-emerald-500 h-1 bg-slate-800 rounded-lg"
+                        className="w-full accent-blue-500 h-1.5 bg-slate-200 rounded-lg"
                       />
                     </div>
                     <div>
-                      <div className="flex justify-between text-xs text-slate-350 mb-1.5">
-                        <span>淡出包络时长</span>
-                        <span className="font-mono font-semibold text-emerald-400">{config.audio.fade_out_duration}s</span>
+                      <div className="flex justify-between text-xs text-slate-600 mb-1.5">
+                        <span>淡出时长</span>
+                        <span className="font-mono font-semibold text-blue-600">{config.audio.fade_out_duration}s</span>
                       </div>
                       <input
                         type="range"
@@ -1147,7 +1349,7 @@ export default function GlobalParamsVisualEditor({
                         step="0.1"
                         value={config.audio.fade_out_duration}
                         onChange={(e) => updateConfig('audio', 'fade_out_duration', parseFloat(e.target.value))}
-                        className="w-full accent-emerald-500 h-1 bg-slate-800 rounded-lg"
+                        className="w-full accent-blue-500 h-1.5 bg-slate-200 rounded-lg"
                       />
                     </div>
                   </div>
@@ -1158,23 +1360,23 @@ export default function GlobalParamsVisualEditor({
 
             {/* PIPELINE & TRANSITIONS TAB */}
             {activeTab === 'pipeline' && (
-              <div className="space-y-6" id="pipeline-config-group">
+              <div className="space-y-5" id="pipeline-config-group">
                 
                 {/* Switch: Use transition rendering */}
-                <div className="flex items-center justify-between p-4 bg-slate-900/30 border border-slate-800/80 rounded-xl">
+                <div className="flex items-center justify-between p-3.5 bg-purple-50 border border-purple-100 rounded-lg">
                   <div className="space-y-0.5">
-                    <label htmlFor="use_transitions" className="text-xs font-semibold text-slate-200 cursor-pointer flex items-center gap-1.5">
-                      <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                      渲染片段间转场效果
+                    <label htmlFor="use_transitions" className="text-xs font-semibold text-slate-800 cursor-pointer flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-purple-600" />
+                      转场效果
                     </label>
-                    <p className="text-[10px] text-slate-450">开启后各视频片段重合区将自动插值渲染动画</p>
+                    <p className="text-[10px] text-slate-600">视频片段间自动添加动画过渡</p>
                   </div>
                   <input
                     type="checkbox"
                     id="use_transitions"
                     checked={config.pipeline.use_transitions}
                     onChange={(e) => updateConfig('pipeline', 'use_transitions', e.target.checked)}
-                    className="w-4 h-4 rounded text-amber-500 accent-amber-500 cursor-pointer"
+                    className="w-4 h-4 rounded text-purple-600 accent-purple-600 cursor-pointer"
                   />
                 </div>
 
@@ -1182,27 +1384,27 @@ export default function GlobalParamsVisualEditor({
                   <motion.div 
                     initial={{ opacity: 0, height: 0 }}
                     animate={{ opacity: 1, height: "auto" }}
-                    className="space-y-5"
+                    className="space-y-4"
                   >
                     
                     {/* Select: Transition type */}
                     <div>
-                      <label className="text-xs font-medium text-slate-300 block mb-2">转场特效类型</label>
+                      <label className="text-xs font-medium text-slate-700 block mb-2">转场类型</label>
                       <div className="grid grid-cols-2 gap-2">
                         {(['fade', 'slide', 'zoom', 'blur']).map(type => (
                           <button
                             key={type}
                             onClick={() => updateConfig('pipeline', 'transition_type', type)}
-                            className={`p-2.5 text-xs text-center border rounded-xl capitalize transition-all ${
+                            className={`p-2.5 text-xs text-center border rounded-lg capitalize transition-all ${
                               config.pipeline.transition_type === type
-                                ? 'bg-amber-500/10 border-amber-500/40 text-amber-300 font-semibold'
-                                : 'bg-slate-900/40 hover:bg-slate-900/80 border-slate-800/60 text-slate-400'
+                                ? 'bg-purple-600 border-purple-600 text-white font-semibold shadow-sm'
+                                : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-600'
                             }`}
                           >
-                            {type === 'fade' && '淡入淡出 (Fade)'}
-                            {type === 'slide' && '滑动切片 (Slide)'}
-                            {type === 'zoom' && '呼吸缩放 (Zoom)'}
-                            {type === 'blur' && '高斯模糊 (Blur)'}
+                            {type === 'fade' && '淡入淡出'}
+                            {type === 'slide' && '滑动'}
+                            {type === 'zoom' && '缩放'}
+                            {type === 'blur' && '模糊'}
                           </button>
                         ))}
                       </div>
@@ -1211,10 +1413,10 @@ export default function GlobalParamsVisualEditor({
                     {/* Transition Duration slider */}
                     <div>
                       <div className="flex items-center justify-between mb-1.5">
-                        <label className="text-xs font-medium text-slate-300">
-                          转场特效插值时长
+                        <label className="text-xs font-medium text-slate-700">
+                          转场时长
                         </label>
-                        <span className="font-mono text-xs font-bold text-amber-400">
+                        <span className="font-mono text-xs font-bold text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded">
                           {config.pipeline.transition_duration}秒
                         </span>
                       </div>
@@ -1225,11 +1427,11 @@ export default function GlobalParamsVisualEditor({
                         step="0.1"
                         value={config.pipeline.transition_duration}
                         onChange={(e) => updateConfig('pipeline', 'transition_duration', parseFloat(e.target.value))}
-                        className="w-full accent-amber-500 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer"
+                        className="w-full accent-purple-500 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer"
                       />
-                      <div className="flex justify-between text-[10px] text-slate-450 mt-1">
-                        <span>极速 (0.2s)</span>
-                        <span>平缓 (2.0s)</span>
+                      <div className="flex justify-between text-[10px] text-slate-500 mt-1">
+                        <span>0.2s</span>
+                        <span>2.0s</span>
                       </div>
                     </div>
 
@@ -1237,36 +1439,36 @@ export default function GlobalParamsVisualEditor({
                 )}
 
                 {/* Subtitle Alignment / Resync setting */}
-                <div className="flex items-center justify-between p-4 bg-slate-900/30 border border-slate-800/80 rounded-xl">
+                <div className="flex items-center justify-between p-3.5 bg-white border border-slate-200 rounded-lg">
                   <div className="space-y-0.5">
-                    <label htmlFor="resync_subtitle" className="text-xs font-semibold text-slate-200 cursor-pointer">
-                      自动修正声轨与字幕对齐 (Resync)
+                    <label htmlFor="resync_subtitle" className="text-xs font-semibold text-slate-700 cursor-pointer">
+                      字幕音频自动对齐
                     </label>
-                    <p className="text-[10px] text-slate-450">当视频帧率波动或变速时强制对齐 ASS 与音频戳</p>
+                    <p className="text-[10px] text-slate-500">视频帧率波动时强制对齐字幕与音频</p>
                   </div>
                   <input
                     type="checkbox"
                     id="resync_subtitle"
                     checked={config.pipeline.resync_subtitle}
                     onChange={(e) => updateConfig('pipeline', 'resync_subtitle', e.target.checked)}
-                    className="w-4 h-4 rounded text-amber-500 accent-amber-500 cursor-pointer"
+                    className="w-4 h-4 rounded text-blue-600 accent-blue-600 cursor-pointer"
                   />
                 </div>
 
                 {/* Subtitle ASS script generation toggle */}
-                <div className="flex items-center justify-between p-4 bg-slate-900/30 border border-slate-800/80 rounded-xl">
+                <div className="flex items-center justify-between p-3.5 bg-white border border-slate-200 rounded-lg">
                   <div className="space-y-0.5">
-                    <label htmlFor="need_ass" className="text-xs font-semibold text-slate-200 cursor-pointer">
-                      同时输出 ASS 原始字幕文件
+                    <label htmlFor="need_ass" className="text-xs font-semibold text-slate-700 cursor-pointer">
+                      输出 ASS 字幕文件
                     </label>
-                    <p className="text-[10px] text-slate-450">渲染的同时生成外置字幕包输出</p>
+                    <p className="text-[10px] text-slate-500">渲染时同时生成外置 ASS 字幕</p>
                   </div>
                   <input
                     type="checkbox"
                     id="need_ass"
                     checked={config.output.need_ass}
                     onChange={(e) => updateConfig('output', 'need_ass', e.target.checked)}
-                    className="w-4 h-4 rounded text-indigo-500 accent-indigo-500 cursor-pointer"
+                    className="w-4 h-4 rounded text-blue-600 accent-blue-600 cursor-pointer"
                   />
                 </div>
               </div>
@@ -1276,37 +1478,37 @@ export default function GlobalParamsVisualEditor({
         </div>
 
         {/* Right Side Video Layout Live Preview Screen */}
-        <div className="col-span-1 lg:col-span-7 flex flex-col p-6 space-y-6">
+        <div className="col-span-1 lg:col-span-7 flex flex-col p-4 space-y-4">
           
           {/* Preview Panel Box Wrapper */}
           <div className="flex flex-col flex-1">
             
             {/* Header info bar of the preview */}
-            <div className="flex sm:flex-row flex-col items-start sm:items-center justify-between mb-4 text-xs text-slate-300 font-medium gap-2">
-              <span className="flex items-center gap-1.5 text-slate-400">
-                <Film className="w-4 h-4 text-indigo-400" />
-                超清多轨渲染实时预览
+            <div className="flex sm:flex-row flex-col items-start sm:items-center justify-between mb-3 text-xs text-slate-600 font-medium gap-2">
+              <span className="flex items-center gap-1.5">
+                <Film className="w-4 h-4 text-blue-500" />
+                实时预览
               </span>
               <div className="flex items-center gap-2 self-stretch sm:self-auto justify-between sm:justify-end">
                 {/* Aspect ratio toggler */}
-                <div className="flex bg-slate-950 border border-slate-800/80 p-0.5 rounded-lg">
+                <div className="flex bg-slate-100 border border-slate-200 p-0.5 rounded-lg">
                   <button
                     onClick={() => setAspectRatio('9/16')}
-                    className={`px-2 py-1 rounded text-[10.5px] font-semibold transition-all ${aspectRatio === '9/16' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-450 hover:text-white hover:bg-slate-900'}`}
+                    className={`px-2 py-1 rounded text-[10px] font-semibold transition-all ${aspectRatio === '9/16' ? 'bg-white text-blue-600 shadow-sm border border-slate-200' : 'text-slate-600 hover:text-slate-900'}`}
                   >
-                    9:16 竖屏 (短视频)
+                    9:16
                   </button>
                   <button
                     onClick={() => setAspectRatio('16/9')}
-                    className={`px-2 py-1 rounded text-[10.5px] font-semibold transition-all ${aspectRatio === '16/9' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-450 hover:text-white hover:bg-slate-900'}`}
+                    className={`px-2 py-1 rounded text-[10px] font-semibold transition-all ${aspectRatio === '16/9' ? 'bg-white text-blue-600 shadow-sm border border-slate-200' : 'text-slate-600 hover:text-slate-900'}`}
                   >
-                    16:9 横屏
+                    16:9
                   </button>
                 </div>
 
                 <button
                   onClick={() => setIsPlaying(!isPlaying)}
-                  className={`px-2 py-1 rounded text-[10.5px] font-semibold flex items-center gap-1 transition-all ${isPlaying ? 'bg-indigo-650/30 text-indigo-300 border border-indigo-500/30' : 'bg-slate-900 text-slate-450 hover:text-white border border-slate-800/60'}`}
+                  className={`px-2 py-1 rounded text-[10px] font-semibold flex items-center gap-1 transition-all ${isPlaying ? 'bg-blue-50 text-blue-600 border border-blue-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200'}`}
                 >
                   {isPlaying ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
                   <span>{isPlaying ? '暂停' : '播放'}</span>
@@ -1409,7 +1611,7 @@ export default function GlobalParamsVisualEditor({
                     {/* Simulated Text Subtitle Layer */}
                     <AnimatePresence mode="wait">
                       <motion.div
-                        key={`${currentSubtitleIndex}-${transitionTrigger}`}
+                        key={`subtitle-${transitionTrigger}`}
                         initial={getTransitionAnimation().initial}
                         animate={getTransitionAnimation().animate}
                         exit={{ opacity: 0 }}
@@ -1419,10 +1621,7 @@ export default function GlobalParamsVisualEditor({
                         }}
                         className="shadow-2xl"
                       >
-                        {sampleSubtitles[currentSubtitleIndex].zh}
-                        <div className="opacity-75 font-normal text-[0.8em] font-sans mt-1">
-                          {sampleSubtitles[currentSubtitleIndex].en}
-                        </div>
+                        {getCurrentSubtitle()}
                       </motion.div>
                     </AnimatePresence>
 
@@ -1456,8 +1655,8 @@ export default function GlobalParamsVisualEditor({
 
                 {/* Preset backdrop switch keys */}
                 <div className="flex items-center gap-3 mt-4 text-xs font-medium">
-                  <span className="text-slate-400 text-[11px]">切换视频背景:</span>
-                  <div className="flex bg-slate-900 border border-slate-800 p-0.5 rounded-lg">
+                  <span className="text-slate-600 text-[11px]">预览背景:</span>
+                  <div className="flex bg-slate-100 border border-slate-200 p-0.5 rounded-lg">
                     {[
                       { key: 'cyber', label: '量子波形' },
                       { key: 'relaxing', label: '森林翠色' },
@@ -1467,7 +1666,7 @@ export default function GlobalParamsVisualEditor({
                       <button
                         key={style.key}
                         onClick={() => setBgStyle(style.key)}
-                        className={`px-3 py-1 text-[11px] font-medium rounded-md transition-all ${bgStyle === style.key ? 'bg-slate-850 border border-slate-700 text-white' : 'text-slate-400 hover:text-white border border-transparent'}`}
+                        className={`px-3 py-1 text-[11px] font-medium rounded-md transition-all ${bgStyle === style.key ? 'bg-white border border-slate-200 text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-900 border border-transparent'}`}
                       >
                         {style.label}
                       </button>
@@ -1484,25 +1683,6 @@ export default function GlobalParamsVisualEditor({
               </div>
             )}
 
-            {/* Config JSON Payload Inspector */}
-            <div className="mt-auto pt-6 border-t border-slate-800/40">
-              <div className="flex items-center justify-between mb-3 text-xs font-semibold uppercase text-indigo-400 tracking-wider">
-                <span>实时渲染参数 JSON 数据流</span>
-                <button 
-                  onClick={copyJsonPayload}
-                  className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-indigo-300 font-semibold bg-slate-900 hover:bg-slate-850 px-2 py-1 rounded border border-slate-850 hover:border-slate-700 transition-all cursor-pointer"
-                >
-                  {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                  <span>{copied ? '已复制' : '复制数据'}</span>
-                </button>
-              </div>
-
-              <div className="relative rounded-xl border border-slate-800/80 bg-slate-950/80 p-4 max-h-[160px] overflow-y-auto">
-                <pre className="font-mono text-[11px] text-slate-350 leading-relaxed whitespace-pre-wrap">
-                  {JSON.stringify(config, null, 2)}
-                </pre>
-              </div>
-            </div>
 
           </div>
 

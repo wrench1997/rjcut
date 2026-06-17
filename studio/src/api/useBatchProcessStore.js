@@ -58,7 +58,7 @@ const useBatchProcessStore = create((set, get) => ({
   },
 
   // 启动批量处理任务
-  startBatch: async (taskItems, maxConcurrent = 3) => {
+  startBatch: async (taskItems, maxConcurrent = 3, globalParams = null) => {
     set({
       tasks: taskItems,
       isRunning: true,
@@ -81,7 +81,7 @@ await vfs.init()
       while (index < tasksQueue.length && !abortSignal.aborted) {
         const currentIndex = index++
         const task = tasksQueue[currentIndex]
-        await get().processTask(task, vfs, apiKey, abortSignal)
+        await get().processTask(task, vfs, apiKey, abortSignal, globalParams)
       }
     }
 
@@ -99,7 +99,7 @@ await vfs.init()
   },
 
   // 处理单个任务流程
-  processTask: async (task, vfs, apiKey, abortSignal) => {
+  processTask: async (task, vfs, apiKey, abortSignal, globalParams = null) => {
     const { updateTask } = get()
     const taskId = task.id
 
@@ -233,15 +233,31 @@ await vfs.init()
       // ==========================================
       updateTask(taskId, { stage: 'composing', progress: 70 })
       
+      // 使用全局参数配置（如果提供），否则使用默认值
       const composeReq = {
         draft_task_id: draftTaskId,
-        pipeline: {
+        pipeline: globalParams?.pipeline || {
           use_transitions: false,
           transition_type: "fade",
           transition_duration: 0.8,
           resync_subtitle: true
         },
-        audio: {
+        subtitle: globalParams?.subtitle || {
+          effect: "ad",
+          font_size: 88,
+          position: "bottom",
+          x_offset: 0,
+          y_offset: -80,
+          color: "#FFFF00",
+          stroke_color: "#000000",
+          stroke_width: 3,
+          background_color: "rgba(0, 0, 0, 0.4)",
+          background_padding: 8,
+          background_radius: 8,
+          line_spacing: 1.3,
+          max_width: 95
+        },
+        audio: globalParams?.audio || {
           bgm_url: bgmOssKey || null,
           bgm_volume: 0.3,
           original_volume: 1.0,
@@ -250,8 +266,13 @@ await vfs.init()
           fade_in_duration: 0.5,
           fade_out_duration: 0.5
         },
-        output: { need_ass: true },
+        output: globalParams?.output || { need_ass: true },
         timeout_seconds: 1800
+      }
+      
+      // 如果全局参数中没有 bgm_url 但上传了 bgmOssKey，则使用上传的文件
+      if (!composeReq.audio.bgm_url && bgmOssKey) {
+        composeReq.audio.bgm_url = bgmOssKey
       }
 
       const composeRes = await fetch(`${API_BASE_URL}/v1/tasks/compose-from-draft`, {

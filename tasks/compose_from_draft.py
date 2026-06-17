@@ -149,10 +149,15 @@ def run_compose_from_draft_task(task_id: str, payload: dict, trace_id: str, merc
         subtitle = payload.get("subtitle", {})
         position = subtitle.get("position", "bottom")
         alignment = _resolve_position_to_alignment(position)
+        
+        # 兼容前端字段名：优先使用 x_offset/y_offset，其次兼容 offset_x/offset_y
+        offset_x = int(subtitle.get("x_offset", subtitle.get("offset_x", 0)))
+        offset_y = int(subtitle.get("y_offset", subtitle.get("offset_y", 0)))
+        
         actual_margin_v = _calc_actual_margin_v(
             position=position,
             margin_v=int(subtitle.get("margin_v", 50)),
-            offset_y=int(subtitle.get("offset_y", 0)),
+            offset_y=offset_y,
         )
 
         _update_task(task_id, progress=50, stage="composing_video")
@@ -195,8 +200,9 @@ def run_compose_from_draft_task(task_id: str, payload: dict, trace_id: str, merc
             margin_v=actual_margin_v,
             margin_l=int(subtitle.get("margin_l", 10)),
             margin_r=int(subtitle.get("margin_r", 10)),
-            offset_x=int(subtitle.get("offset_x", 0)),
-            offset_y=int(subtitle.get("offset_y", 0)),
+            # 兼容前端字段名：优先使用 x_offset/y_offset，其次兼容 offset_x/offset_y
+            offset_x=offset_x,
+            offset_y=offset_y,
             corrections_file=corrections_file,
             bgm_url=bgm_path,
             bgm_volume=float(audio_config.get("bgm_volume", 0.3)),

@@ -542,7 +542,8 @@ export default function BatchProcessor({ vfs, apiKey }) {
       return
     }
     
-    startBatch(taskItems, maxConcurrent)
+    // 将全局参数配置传递给后台
+    startBatch(taskItems, maxConcurrent, globalParams)
   }
 
   const getRunningDuration = () => {
@@ -615,164 +616,168 @@ export default function BatchProcessor({ vfs, apiKey }) {
           </div>
         </div>
 ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* 左侧上传区 */}
-          <div className="col-span-2 space-y-6">
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-              <h3 className="text-base font-bold text-slate-800 mb-4">上传处理源文件</h3>
-              
-              <FileSelector
-                label="数字人视频（单选）*"
-                vfs={vfs}
-                selectedFile={digitalHumanVideo}
-                onSelect={(path) => setDigitalHumanVideo(path)}
-                multiple={false}
-              />
+        <div className="space-y-6">
+          {/* 上传处理源文件区 - 顶部 */}
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+            <h3 className="text-base font-bold text-slate-800 mb-4">上传处理源文件</h3>
+            
+            <FileSelector
+              label="数字人视频（单选）*"
+              vfs={vfs}
+              selectedFile={digitalHumanVideo}
+              onSelect={(path) => setDigitalHumanVideo(path)}
+              multiple={false}
+            />
 
-              <div className="mt-6">
-                <div className="flex justify-between items-center mb-3">
-                  <h4 className="text-sm font-bold text-slate-700">场景配置列表</h4>
-                  <button
-                    className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors"
-                    onClick={() => setSceneConfigs([...sceneConfigs, { scenePath: null, scriptPath: null, bgmPath: null }])}
-                  >
-                    + 添加场景
-                  </button>
+            <div className="mt-6">
+              <div className="flex justify-between items-center mb-3">
+                <h4 className="text-sm font-bold text-slate-700">场景配置列表</h4>
+                <div>
+                  <Tooltip tip="添加一个新的场景配置，可设置场景文件夹、脚本和背景音乐" delay={1000}>
+                    <button
+                      className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors"
+                      onClick={() => setSceneConfigs([...sceneConfigs, { scenePath: null, scriptPath: null, bgmPath: null }])}
+                    >
+                      + 添加场景
+                    </button>
+                  </Tooltip>
                 </div>
-                
-                {sceneConfigs.length === 0 ? (
-                  <div className="text-center py-8 text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">
-                    暂无场景配置，请点击"添加场景"按钮
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {sceneConfigs.map((config, index) => (
-                      <div key={index} className="p-4 bg-slate-50 rounded-xl border border-slate-200">
-                        <div className="flex justify-between items-center mb-3">
-                          <span className="text-sm font-bold text-slate-700">场景 {index + 1}</span>
-                          <button
-                            className="p-1 text-slate-400 hover:text-red-500 transition-colors"
-                            onClick={() => {
-                              const newConfigs = sceneConfigs.filter((_, i) => i !== index)
-                              setSceneConfigs(newConfigs)
-                            }}
-                          >
-                            ✕
-                          </button>
-                        </div>
+              </div>
+              
+              {sceneConfigs.length === 0 ? (
+                <div className="text-center py-8 text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">
+                  暂无场景配置，请点击"添加场景"按钮
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {sceneConfigs.map((config, index) => (
+                    <div key={index} className="p-4 bg-slate-50 rounded-xl border border-slate-200">
+                      <div className="flex justify-between items-center mb-3">
+                        <span className="text-sm font-bold text-slate-700">场景 {index + 1}</span>
+                        <button
+                          className="p-1 text-slate-400 hover:text-red-500 transition-colors"
+                          onClick={() => {
+                            const newConfigs = sceneConfigs.filter((_, i) => i !== index)
+                            setSceneConfigs(newConfigs)
+                          }}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                      
+                      <div className="space-y-3">
+                        <FileSelector
+                          label="场景文件夹 *"
+                          vfs={vfs}
+                          selectedFile={config.scenePath}
+                          onSelect={(path) => {
+                            const newConfigs = [...sceneConfigs]
+                            newConfigs[index] = { ...config, scenePath: path }
+                            setSceneConfigs(newConfigs)
+                          }}
+                          multiple={false}
+                          allowDirectorySelection={true}
+                        />
                         
-                        <div className="space-y-3">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                           <FileSelector
-                            label="场景文件夹 *"
+                            label="脚本文件 (可选)"
                             vfs={vfs}
-                            selectedFile={config.scenePath}
+                            selectedFile={config.scriptPath}
                             onSelect={(path) => {
                               const newConfigs = [...sceneConfigs]
-                              newConfigs[index] = { ...config, scenePath: path }
+                              newConfigs[index] = { ...config, scriptPath: path }
                               setSceneConfigs(newConfigs)
                             }}
+                            accept=".json"
                             multiple={false}
-                            allowDirectorySelection={true}
                           />
                           
-                          <div className="grid grid-cols-2 gap-3">
-                            <FileSelector
-                              label="脚本文件 (可选)"
-                              vfs={vfs}
-                              selectedFile={config.scriptPath}
-                              onSelect={(path) => {
-                                const newConfigs = [...sceneConfigs]
-                                newConfigs[index] = { ...config, scriptPath: path }
-                                setSceneConfigs(newConfigs)
-                              }}
-                              accept=".json"
-                              multiple={false}
-                            />
-                            
-                            <FileSelector
-                              label="背景音乐 (可选)"
-                              vfs={vfs}
-                              selectedFile={config.bgmPath}
-                              onSelect={(path) => {
-                                const newConfigs = [...sceneConfigs]
-                                newConfigs[index] = { ...config, bgmPath: path }
-                                setSceneConfigs(newConfigs)
-                              }}
-                              accept="audio/*"
-                              multiple={false}
-                            />
-                          </div>
+                          <FileSelector
+                            label="背景音乐 (可选)"
+                            vfs={vfs}
+                            selectedFile={config.bgmPath}
+                            onSelect={(path) => {
+                              const newConfigs = [...sceneConfigs]
+                              newConfigs[index] = { ...config, bgmPath: path }
+                              setSceneConfigs(newConfigs)
+                            }}
+                            accept="audio/*"
+                            multiple={false}
+                          />
                         </div>
                       </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
 
-              <div className="mt-6">
-                <FileSelector
-                  label="全局修正文件 (可选)"
-                  vfs={vfs}
-                  selectedFile={correctionsFile}
-                  onSelect={(path) => setCorrectionsFile(path)}
-                  accept=".json"
-                  multiple={false}
-                />
-              </div>
+            <div className="mt-6">
+              <FileSelector
+                label="全局修正文件 (可选)"
+                vfs={vfs}
+                selectedFile={correctionsFile}
+                onSelect={(path) => setCorrectionsFile(path)}
+                accept=".json"
+                multiple={false}
+              />
             </div>
           </div>
 
-          {/* 右侧配置区 */}
-          <div className="col-span-1 space-y-6">
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-              <h3 className="text-base font-bold text-slate-800 mb-4">全局参数配置</h3>
-              <div className="space-y-4">
-                <div>
-                  <Tooltip tip="同时处理的任务数量，数量越大速度越快但可能导致 API 限流" delay={1000}>
-                    <label className="block text-sm font-medium text-slate-700 mb-1.5">并发数量</label>
-                  </Tooltip>
-                  <select 
-                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                    value={maxConcurrent}
-                    onChange={(e) => setMaxConcurrent(Number(e.target.value))}
-                  >
-                    <option value={1}>1 (最稳定)</option>
-                    <option value={2}>2</option>
-                    <option value={3}>3 (推荐)</option>
-                    <option value={5}>5 (快速)</option>
-                    <option value={10}>10</option>
-                  </select>
-                </div>
-                
-                <div className="pt-4 border-t border-slate-100">
-                  <Tooltip tip="点击展开或收起高级可视化配置选项" delay={1000}>
-                    <button
-                      className="w-full text-left text-sm font-medium text-slate-700 flex justify-between items-center"
-                      onClick={() => setShowConfigEditor(!showConfigEditor)}
-                    >
-                      {showConfigEditor ? '收起高级配置' : '展开高级配置'}
-                      <span className="transform transition-transform">{showConfigEditor ? '▲' : '▼'}</span>
-                    </button>
-                  </Tooltip>
-                  
-                  {showConfigEditor && (
-                    <div className="mt-3">
-                      <GlobalParamsVisualEditor
-                        value={globalParams}
-                        onChange={setGlobalParams}
-                      />
-                    </div>
-                  )}
-                </div>
-
-                <hr className="border-slate-100" />
-                
-                <button 
-                  onClick={handleStartBatch}
-                  className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg shadow-sm shadow-blue-500/30 transition-all"
+          {/* 全局参数配置区 - 底部 */}
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+            <h3 className="text-base font-bold text-slate-800 mb-4">全局参数配置</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <Tooltip tip="同时处理的任务数量，数量越大速度越快但可能导致 API 限流" delay={1000}>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">并发数量</label>
+                </Tooltip>
+                <select 
+                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                  value={maxConcurrent}
+                  onChange={(e) => setMaxConcurrent(Number(e.target.value))}
                 >
-                  <Rocket size={16} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '6px' }} /> 开始批量处理
+                  <option value={1}>1 (最稳定)</option>
+                  <option value={2}>2</option>
+                  <option value={3}>3 (推荐)</option>
+                  <option value={5}>5 (快速)</option>
+                  <option value={10}>10</option>
+                </select>
+              </div>
+              
+              <div className="flex items-end">
+                <button
+                  className="w-full text-left text-sm font-medium text-blue-600 hover:text-blue-700 flex justify-between items-center"
+                  onClick={() => setShowConfigEditor(!showConfigEditor)}
+                >
+                  <Tooltip tip="点击展开或收起高级可视化配置选项" delay={1000}>
+                    <span>{showConfigEditor ? '收起高级配置' : '展开高级配置'}</span>
+                  </Tooltip>
+                  <span className="transform transition-transform">{showConfigEditor ? '▲' : '▼'}</span>
                 </button>
+              </div>
+            </div>
+            
+            {showConfigEditor && (
+              <div className="mt-4 pt-4 border-t border-slate-100">
+                <GlobalParamsVisualEditor
+                  value={globalParams}
+                  onChange={setGlobalParams}
+                />
+              </div>
+            )}
+
+            <div className="mt-6 pt-6 border-t border-slate-100">
+              <div className="flex justify-center">
+                <Tooltip tip="开始按照配置批量处理所有场景" delay={1000}>
+                  <button 
+                    onClick={handleStartBatch}
+                    className="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg shadow-sm shadow-blue-500/30 transition-all"
+                  >
+                    <Rocket size={16} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '6px' }} /> 开始批量处理
+                  </button>
+                </Tooltip>
               </div>
             </div>
           </div>
