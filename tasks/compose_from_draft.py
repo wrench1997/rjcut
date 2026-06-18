@@ -159,6 +159,13 @@ def run_compose_from_draft_task(task_id: str, payload: dict, trace_id: str, merc
             margin_v=int(subtitle.get("margin_v", 50)),
             offset_y=offset_y,
         )
+        
+        # 🎨 新增：与前端统一的字幕样式参数
+        stroke_color = subtitle.get("stroke_color")  # 如 "#000000"
+        stroke_width = subtitle.get("stroke_width")  # 如 3
+        background_color = subtitle.get("background_color")  # 如 "rgba(0,0,0,0.4)"
+        background_padding = subtitle.get("background_padding")  # 如 8
+        background_radius = subtitle.get("background_radius")  # 如 8（ASS 不支持，仅用于前端预览）
 
         _update_task(task_id, progress=50, stage="composing_video")
 
@@ -217,6 +224,12 @@ def run_compose_from_draft_task(task_id: str, payload: dict, trace_id: str, merc
             # 🆕 明确产物路径
             ass_output_path=ass_file,
             resync_json_output_path=resync_json,
+            # 🎨 与前端统一的字幕样式参数
+            stroke_color=stroke_color,
+            stroke_width=stroke_width,
+            background_color=background_color,
+            background_padding=background_padding,
+            background_radius=background_radius,
         )
 
         if _is_task_cancelled(task_id):

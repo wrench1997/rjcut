@@ -585,6 +585,12 @@ def compose_from_timeline(
     # 🆕 Task 1: pipeline.mode 支持纯场景模式
     mode: str = "normal",
     subtitle_json: Optional[str] = None,
+    # 🎨 与前端统一的字幕样式参数
+    stroke_color: Optional[str] = None,
+    stroke_width: Optional[int] = None,
+    background_color: Optional[str] = None,
+    background_padding: Optional[int] = None,
+    background_radius: Optional[int] = None,
 ):
     """
     从 timeline.json 进行最终合成
@@ -626,11 +632,22 @@ def compose_from_timeline(
 
         if use_transitions and len(clips) > 1:
             transitions = [transition_type] * (len(clips) - 1)
+            
+            # 🎨 获取视频宽高比，用于智能滑动方向 (与前端一致)
+            from video_utils import get_video_resolution
+            try:
+                width, height = get_video_resolution(clips[0])
+                video_aspect = "9/16" if width < height else "16/9"
+            except Exception as e:
+                print(f"  ⚠️ 无法获取视频分辨率，默认使用 16/9: {e}")
+                video_aspect = "16/9"
+            
             merge_with_xfade(
                 clip_paths=clips,
                 output_path=tmp_merged,
                 transitions=transitions,
                 td=transition_duration,
+                video_aspect=video_aspect,
             )
         else:
             concat_simple(clips, tmp_merged)
@@ -682,6 +699,12 @@ def compose_from_timeline(
                     offset_y=offset_y,
                     corrections_file=corrections_file,
                     ad_keywords=ad_keywords,
+                    # 🎨 与前端统一的字幕样式参数
+                    stroke_color=stroke_color,
+                    stroke_width=stroke_width,
+                    background_color=background_color,
+                    background_padding=background_padding,
+                    background_radius=background_radius,
                 )
                 
                 # 复制 resync JSON 到指定路径（如果提供了）
@@ -731,6 +754,12 @@ def compose_from_timeline(
                 ad_keywords=ad_keywords,
                 # 🆕 关键：把 resync json 写到指定路径
                 resync_json_path=resync_json_output_path,
+                # 🎨 与前端统一的字幕样式参数
+                stroke_color=stroke_color,
+                stroke_width=stroke_width,
+                background_color=background_color,
+                background_padding=background_padding,
+                background_radius=background_radius,
             )
 
             # 🆕 关键：把 work_dir 里的 subtitled.ass 拷贝到指定路径

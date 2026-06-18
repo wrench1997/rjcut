@@ -25,9 +25,16 @@ XFADE_TRANSITIONS = [
     "hlslice", "hrslice", "vuslice", "vdslice",
 ]
 
-# 常用转场特效及说明
+# 常用转场特效及说明 - 与前端 GlobalParamsVisualEditor.jsx 统一
+# 前端支持 4 种转场：fade, slide, zoom, blur
+# 后端映射到 ffmpeg xfade 滤镜的具体实现
 POPULAR_TRANSITIONS = {
-    "fade":        "经典淡入淡出",
+    # 🎨 前端标准转场 (4 种)
+    "fade":        "经典淡入淡出 (对应前端: fade)",
+    "slide":       "智能滑动 (9:16 纵向/16:9 横向自适应，对应前端：slide)",
+    "zoom":        "中心缩放展开 (对应前端：zoom)",
+    "blur":        "高斯模糊淡入淡出 (对应前端：blur)",
+    # 📦 传统 xfade 转场 (兼容)
     "fadeblack":   "黑场过渡",
     "fadewhite":   "白场过渡",
     "dissolve":    "溶解过渡",
@@ -35,6 +42,8 @@ POPULAR_TRANSITIONS = {
     "wiperight":   "向右擦除",
     "slideright":  "向右滑动",
     "slideleft":   "向左滑动",
+    "slideup":     "向上滑动",
+    "slidedown":   "向下滑动",
     "circlecrop":  "圆形裁切",
     "circleopen":  "圆形展开",
     "circleclose": "圆形收缩",
@@ -49,8 +58,18 @@ POPULAR_TRANSITIONS = {
 
 
 def merge_with_xfade(clip_paths: List[str], output_path: str,
-                     transitions: List[str], td: float = 0.5):
-    """使用 xfade 转场特效合并视频"""
+                     transitions: List[str], td: float = 0.5,
+                     video_aspect: str = "16/9"):
+    """
+    使用 xfade 转场特效合并视频
+    
+    Args:
+        clip_paths: 视频片段路径列表
+        output_path: 输出路径
+        transitions: 转场类型列表 (支持前端标准 4 种：fade, slide, zoom, blur)
+        td: 转场时长 (秒)
+        video_aspect: 视频宽高比，用于智能滑动方向 ("16/9" 或 "9/16")
+    """
     import subprocess
     
     n = len(clip_paths)
@@ -68,8 +87,17 @@ def merge_with_xfade(clip_paths: List[str], output_path: str,
         concat_simple(clip_paths, output_path)
         return
     if safe_td < td:
-        print(f"  ⚠️  转场时长已自动缩短: {td}s → {safe_td:.2f}s")
+        print(f"  ⚠️  转场时长已自动缩短：{td}s → {safe_td:.2f}s")
         td = safe_td
+
+    # 🎨 前端标准转场映射到 ffmpeg xfade
+    # 前端使用 CSS 动画实现，后端使用 ffmpeg 滤镜模拟相似效果
+    TRANSITION_MAP = {
+        "fade": "fade",           # 淡入淡出 - 完全一致
+        "slide": "slideup" if video_aspect == "9/16" else "slideright",  # 智能滑动
+        "zoom": "circleopen",     # 中心缩放展开 (最接近的 xfade 实现)
+        "blur": "hblur",          # 模糊转场
+    }
 
     vf_parts: List[str] = []
     af_parts: List[str] = []
@@ -79,9 +107,13 @@ def merge_with_xfade(clip_paths: List[str], output_path: str,
     for i in range(1, n):
         offset = max(0, accumulated - td)
         t_name = transitions[i - 1]
+        
+        # 映射前端转场类型到 ffmpeg xfade
+        xfade_name = TRANSITION_MAP.get(t_name, t_name)
+        
         out_v = "vout" if i == n - 1 else f"v{i}"
         vf_parts.append(
-            f"[{prev_v}][{i}:v]xfade=transition={t_name}"
+            f"[{prev_v}][{i}:v]xfade=transition={xfade_name}"
             f":duration={td:.4f}:offset={offset:.4f}[{out_v}]"
         )
         out_a = "aout" if i == n - 1 else f"a{i}"
@@ -105,7 +137,6 @@ def merge_with_xfade(clip_paths: List[str], output_path: str,
         output_path,
     ]
     subprocess.run(cmd, check=True)
-
 
 def list_transitions():
     """显示所有可用的转场特效"""

@@ -27,6 +27,68 @@ SUBTITLE_EFFECTS = {
     "bounce":     "弹跳出现 — 当前字弹跳放大后回弹",
     "ad":         "带货广告风 — 全句常驻 + 当前字高亮 + 重点词强调",
 }
+def _hex_to_ass_color(hex_color: str) -> str:
+    """
+    将前端 hex 颜色 (#RRGGBB 或 #RRGGBBAA) 转换为 ASS 颜色格式 (&HAABBGGRR)
+    """
+    if not hex_color:
+        return "&H00000000"
+    
+    hex_color = hex_color.lstrip('#')
+    
+    if len(hex_color) == 6:
+        r = hex_color[0:2]
+        g = hex_color[2:4]
+        b = hex_color[4:6]
+        a = "00"
+    elif len(hex_color) == 8:
+        r = hex_color[0:2]
+        g = hex_color[2:4]
+        b = hex_color[4:6]
+        a = hex_color[6:8]
+    else:
+        return "&H00000000"
+    
+    return f"&H{a}{b}{g}{r}"
+
+
+def _rgba_to_ass_color(rgba_color: str) -> str:
+    """
+    将前端 rgba 颜色 (rgba(R,G,B,A) 或 rgba(R,G,B,A%)) 转换为 ASS 颜色格式 (&HAABBGGRR)
+    A 值范围：0-1 或 0%-100%，ASS 中 00=透明，FF=不透明
+    """
+    if not rgba_color:
+        return "&H80000000"
+    
+    rgba_color = rgba_color.strip()
+    
+    if rgba_color == "transparent":
+        return "&H00000000"
+    
+    import re
+    match = re.match(r'rgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+%?))?\s*\)', rgba_color)
+    if not match:
+        # 尝试解析 hex
+        if rgba_color.startswith('#'):
+            return _hex_to_ass_color(rgba_color)
+        return "&H80000000"
+    
+    r = int(match.group(1))
+    g = int(match.group(2))
+    b = int(match.group(3))
+    a_str = match.group(4) if match.group(4) else "1"
+    
+    # 解析 alpha 值
+    if a_str.endswith('%'):
+        a = int(float(a_str[:-1]) / 100 * 255)
+    else:
+        a_float = float(a_str)
+        if a_float > 1:
+            a = int(a_float)  # 已经是 0-255
+        else:
+            a = int(a_float * 255)  # 0-1 范围
+    
+    return f"&H{a:02X}{b:02X}{g:02X}{r:02X}"
 
 
 def generate_word_ass(
@@ -58,6 +120,12 @@ def generate_word_ass(
     position_x: Optional[int] = None,  # 精确 X 坐标（像素），优先级高于 alignment
     position_y: Optional[int] = None,  # 精确 Y 坐标（像素），优先级高于 margin_v
     use_relative_pos: bool = False,    # 是否使用相对坐标 (0-1 之间的小数)
+    # === 新增：与前端统一参数 ===
+    stroke_color: Optional[str] = None,  # 描边颜色（ASS 格式），优先级高于 outline_color
+    stroke_width: Optional[int] = None,  # 描边宽度，优先级高于 outline
+    background_color: Optional[str] = None,  # 背景颜色（ASS 格式），优先级高于 back_color
+    background_padding: Optional[int] = None,  # 背景内边距（通过 margin 实现）
+    background_radius: Optional[int] = None,  # 背景圆角（ASS 不支持，仅用于前端预览）
 ) -> str:
     """
     根据逐字时间戳生成 ASS 字幕文件。
@@ -74,6 +142,22 @@ def generate_word_ass(
             bold = False
 
     bold_flag = -1 if bold else 0  # ASS: -1 开启粗体, 0 关闭
+# ── 应用前端统一参数（优先级更高）──
+    # stroke_color: 前端 stroke_color (如 "#000000") -> ASS 格式 (&HAABBGGRR)
+    if stroke_color:
+        outline_color = _hex_to_ass_color(stroke_color)
+    # stroke_width: 前端描边宽度
+    if stroke_width is not None:
+        outline = stroke_width
+    # background_color: 前端 background_color (如 "rgba(0,0,0,0.4)") -> ASS 格式
+    if background_color:
+        back_color = _rgba_to_ass_color(background_color)
+    # background_padding: 通过调整 margin 实现背景内边距效果
+    if background_padding is not None:
+        # 背景内边距会影响字幕的视觉边距，这里简单叠加
+        margin_l = margin_l + background_padding
+        margin_r = margin_r + background_padding
+        margin_v = margin_v + background_padding
 
     header = f"""[Script Info]
 Title: Word-Sync Subtitles
@@ -580,6 +664,12 @@ def burn_whisper_subtitle(
     position_x: Optional[int] = None,   # 精确 X 坐标（像素），如 960 表示水平居中 (1920 分辨率下)
     position_y: Optional[int] = None,   # 精确 Y 坐标（像素），如 900 表示垂直方向 900px
     use_relative_pos: bool = False,     # 是否使用相对坐标 (0-1 之间的小数)
+    # === 新增：与前端统一参数 ===
+    stroke_color: Optional[str] = None,  # 描边颜色（如 "#000000"）
+    stroke_width: Optional[int] = None,  # 描边宽度
+    background_color: Optional[str] = None,  # 背景颜色（如 "rgba(0,0,0,0.4)"）
+    background_padding: Optional[int] = None,  # 背景内边距
+    background_radius: Optional[int] = None,  # 背景圆角（ASS 不支持，仅用于前端预览）
 ) -> str:
     import subprocess
     import shutil
@@ -668,6 +758,12 @@ def burn_whisper_subtitle(
             position_x=position_x,
             position_y=position_y,
             use_relative_pos=use_relative_pos,
+            # 传递前端统一参数
+            stroke_color=stroke_color,
+            stroke_width=stroke_width,
+            background_color=background_color,
+            background_padding=background_padding,
+            background_radius=background_radius,
         )
 
         # ── 烧录 ASS ──

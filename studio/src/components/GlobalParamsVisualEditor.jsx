@@ -19,40 +19,42 @@ import {
   Play, 
   Pause,
   RefreshCw,
-  Film
+  Film,
+  Zap,
+  Cpu
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
-// 测试音源数据
+// 测试音源数据（本地文件，无需联网）
 const TEST_BGM_TRACKS = [
   {
     id: 'lofi',
     name: '温馨 Lofi',
-    url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',
+    url: '/audio/lofi.mp3',
     genre: 'Lofi / Chill',
   },
   {
     id: 'tech',
     name: '科技电子',
-    url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3',
+    url: '/audio/tech.mp3',
     genre: 'Synthwave',
   },
   {
     id: 'epic',
     name: '史诗交响',
-    url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3',
+    url: '/audio/epic.mp3',
     genre: 'Orchestral',
   },
   {
     id: 'ambient',
     name: '空灵极简',
-    url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3',
+    url: '/audio/ambient.mp3',
     genre: 'Ambient',
   },
   {
     id: 'jazz',
     name: '休闲爵士',
-    url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-6.mp3',
+    url: '/audio/jazz.mp3',
     genre: 'Jazz-funk',
   },
 ];
@@ -301,11 +303,23 @@ export default function GlobalParamsVisualEditor({
 
   // 音频播放核心逻辑
   useEffect(() => {
+    // 清理函数：移除旧的事件监听器
+    const cleanupAudio = () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = '';
+        audioRef.current = null;
+      }
+    };
+
     if (playingTrackUrl) {
+      // 如果切换音源，先完全清理旧的音频对象
+      if (audioRef.current && audioRef.current.src !== playingTrackUrl) {
+        cleanupAudio();
+      }
+
       if (!audioRef.current) {
         audioRef.current = new Audio(playingTrackUrl);
-      } else if (audioRef.current.src !== playingTrackUrl) {
-        audioRef.current.src = playingTrackUrl;
       }
       
       audioRef.current.volume = config.audio.bgm_volume;
@@ -317,13 +331,26 @@ export default function GlobalParamsVisualEditor({
         }
       };
       
+      // 移除旧的事件监听器（如果有）
+      audioRef.current.removeEventListener('ended', handleEnded);
       audioRef.current.addEventListener('ended', handleEnded);
       
       if (isPlayingBgm) {
-        audioRef.current.play().catch(err => {
-          console.warn('音频播放失败:', err);
-          setIsPlayingBgm(false);
-        });
+        // 使用 Promise 链式调用，避免中断问题
+        const playPromise = audioRef.current.play();
+        if (playPromise !== undefined) {
+          playPromise
+            .then(() => {
+              // 播放成功
+            })
+            .catch(err => {
+              // 忽略 AbortError，只记录其他错误
+              if (err.name !== 'AbortError') {
+                console.warn('音频播放失败:', err);
+              }
+              setIsPlayingBgm(false);
+            });
+        }
       } else {
         audioRef.current.pause();
       }
@@ -338,7 +365,7 @@ export default function GlobalParamsVisualEditor({
         audioRef.current.pause();
       }
     }
-  }, [playingTrackUrl, isPlayingBgm]);
+  }, [playingTrackUrl, isPlayingBgm, config.audio.bgm_volume, config.audio.bgm_loop]);
 
   // 音量同步
   useEffect(() => {
@@ -394,6 +421,17 @@ export default function GlobalParamsVisualEditor({
   const getCurrentSubtitle = () => {
     return customSubtitleText || sampleSubtitles[currentSubtitleIndex].zh;
   };
+// 自动播放场景切换逻辑 - 让转场效果动起来
+  useEffect(() => {
+    if (!isPlaying) return;
+    
+    const interval = setInterval(() => {
+      setCurrentSubtitleIndex(prev => (prev + 1) % sampleSubtitles.length);
+      setTransitionTrigger(prev => prev + 1); // 触发字幕转场动画
+    }, 3000); // 每 3 秒切换一个场景
+
+    return () => clearInterval(interval);
+  }, [isPlaying]);
 
   // Synchronize external value overrides
   useEffect(() => {
@@ -630,36 +668,56 @@ export default function GlobalParamsVisualEditor({
     };
   };
 
-  // Subtitle transition simulation animation configurations
-  const getTransitionAnimation = () => {
+  // 转场动画配置生成器 - 支持 9:16 纵向滑动与 16:9 横向滑动自适应
+  const getSceneTransitionAnimation = () => {
     const { transition_type, transition_duration } = config.pipeline;
     const duration = transition_duration;
 
     switch (transition_type) {
       case 'slide':
-        return {
-          initial: { opacity: 0, y: 15 },
-          animate: { opacity: 1, y: 0 },
-          transition: { duration, ease: "easeOut" }
-        };
+        // 💡 黄金优化细节：
+        // - 针对 9:16 短视频，使用符合抖音/小红书滑动习惯的「上下纵向推移」(Vertical Slide)
+        // - 针对 16:9 宽屏，使用具备电影感与空间展开感的「左右横向推移」(Horizontal Slide)
+        return aspectRatio === '9/16'
+          ? {
+              initial: { opacity: 0, y: "100%", x: 0 },
+              animate: { opacity: 1, y: 0, x: 0 },
+              exit: { opacity: 0, y: "-100%", x: 0 },
+              transition: { duration, ease: [0.16, 1, 0.3, 1] } // 超平滑三次贝塞尔曲线
+            }
+          : {
+              initial: { opacity: 0, x: "100%", y: 0 },
+              animate: { opacity: 1, x: 0, y: 0 },
+              exit: { opacity: 0, x: "-100%", y: 0 },
+              transition: { duration, ease: [0.16, 1, 0.3, 1] }
+            };
+
       case 'zoom':
+        // 电影感中心缩放与拉伸
         return {
           initial: { opacity: 0, scale: 0.8 },
           animate: { opacity: 1, scale: 1 },
-          transition: { duration, ease: "easeOut" }
+          exit: { opacity: 0, scale: 1.15 },
+          transition: { duration, ease: [0.25, 1, 0.5, 1] }
         };
+
       case 'blur':
+        // 高斯模糊浪漫淡入淡出 (适合唯美、情感或 Lofi 风格)
         return {
-          initial: { opacity: 0, filter: "blur(10px)" },
+          initial: { opacity: 0, filter: "blur(20px)" },
           animate: { opacity: 1, filter: "blur(0px)" },
-          transition: { duration }
+          exit: { opacity: 0, filter: "blur(20px)" },
+          transition: { duration, ease: "easeInOut" }
         };
+
       case 'fade':
       default:
+        // 经典交叉淡化
         return {
           initial: { opacity: 0 },
           animate: { opacity: 1 },
-          transition: { duration }
+          exit: { opacity: 0 },
+          transition: { duration, ease: "easeInOut" }
         };
     }
   };
@@ -1539,43 +1597,199 @@ export default function GlobalParamsVisualEditor({
                   }}
                   id="preview-canvas-sandbox"
                 >
-                  
-                  {/* Checkerboard backgrounds / visuals matching the style states */}
-                  {bgStyle === 'checker' && (
-                    <div className="absolute inset-0 z-0 bg-[#161b22]" style={{
-                      backgroundImage: `
-                        linear-gradient(45deg, #0d1117 25%, transparent 25%),
-                        linear-gradient(-45deg, #0d1117 25%, transparent 25%),
-                        linear-gradient(45deg, transparent 75%, #0d1117 75%),
-                        linear-gradient(-45deg, transparent 75%, #0d1117 75%)
-                      `,
-                      backgroundSize: '24px 24px',
-                      backgroundPosition: '0 0, 0 12px, 12px -12px, -12px 0px'
-                    }} />
-                  )}
+                  {/* 🎬 视频场景转场核心层 - 使用 AnimatePresence 实现平滑场景切换 */}
+                  <AnimatePresence initial={false} mode="popLayout">
+                    <motion.div
+                      key={`scene-clip-${currentSubtitleIndex}`}
+                      {...getSceneTransitionAnimation()}
+                      className="absolute inset-0 z-0 overflow-hidden w-full h-full"
+                    >
+                      {/* 动态流光多轨视效渲染器 */}
+                      {(() => {
+                        const sceneSchemes = {
+                          cyber: [
+                            {
+                              bg: 'bg-[#070b19]',
+                              radial1: 'bg-[radial-gradient(ellipse_at_top_right,#4f46e5,transparent_55%)]',
+                              radial2: 'bg-[radial-gradient(circle_at_bottom_left,#db2777,transparent_50%)]',
+                              pattern: (
+                                <div className="absolute inset-0 opacity-15 bg-[linear-gradient(to_right,#1e293b_1px,transparent_1px),linear-gradient(to_bottom,#1e293b_1px,transparent_1px)] bg-[size:30px_30px]" />
+                              ),
+                              icon: <Zap className="w-12 h-12 text-indigo-400 absolute top-12 left-12 animate-pulse pointer-events-none" />
+                            },
+                            {
+                              bg: 'bg-[#05162a]',
+                              radial1: 'bg-[radial-gradient(ellipse_at_top_left,#06b6d4,transparent_55%)]',
+                              radial2: 'bg-[radial-gradient(circle_at_bottom_right,#9333ea,transparent_50%)]',
+                              pattern: (
+                                <div className="absolute inset-x-0 bottom-0 h-40 bg-[linear-gradient(to_top,#0e7490_1px,transparent_1px)] bg-[size:100%_15px] opacity-25 pointer-events-none" style={{ transform: 'perspective(100px) rotateX(45deg)' }} />
+                              ),
+                              icon: <Cpu className="w-12 h-12 text-cyan-400 absolute top-12 right-12 animate-bounce pointer-events-none" />
+                            },
+                            {
+                              bg: 'bg-[#1e0a2d]',
+                              radial1: 'bg-[radial-gradient(ellipse_at_bottom_left,#d946ef,transparent_55%)]',
+                              radial2: 'bg-[radial-gradient(circle_at_top_right,#ea580c,transparent_50%)]',
+                              pattern: (
+                                 <div className="absolute inset-0 bg-[radial-gradient(#ffffff_1px,transparent_1px)] [background-size:20px_20px] opacity-10 pointer-events-none" />
+                              ),
+                              icon: <Sparkles className="w-12 h-12 text-fuchsia-400 absolute bottom-16 right-16 animate-pulse pointer-events-none" />
+                            },
+                            {
+                              bg: 'bg-[#0a1e12]',
+                              radial1: 'bg-[radial-gradient(ellipse_at_center,#10b981,transparent_60%)]',
+                              radial2: 'bg-[radial-gradient(circle_at_bottom_left,#0284c7,transparent_50%)]',
+                              pattern: (
+                                 <div className="absolute inset-0 opacity-10 bg-[radial-gradient(ellipse_at_bottom,#10b981,transparent_70%)] pointer-events-none" />
+                              ),
+                              icon: <Film className="w-12 h-12 text-emerald-400 absolute bottom-16 left-16 pointer-events-none animate-pulse" />
+                            }
+                          ],
+                          relaxing: [
+                            {
+                              bg: 'bg-[#0b1c1e]',
+                              radial1: 'bg-[radial-gradient(ellipse_at_top_right,#0d9488,transparent_55%)]',
+                              radial2: 'bg-[radial-gradient(circle_at_bottom_left,#0f766e,transparent_50%)]',
+                              pattern: <div className="absolute inset-0 bg-gradient-to-tr from-slate-900/40 via-teal-950/20 to-slate-950 pointer-events-none" />
+                            },
+                            {
+                              bg: 'bg-[#061f18]',
+                              radial1: 'bg-[radial-gradient(ellipse_at_bottom_left,#059669,transparent_55%)]',
+                              radial2: 'bg-[radial-gradient(circle_at_top_right,#15803d,transparent_50%)]',
+                              pattern: <div className="absolute inset-0 bg-[radial-gradient(#ffffff_0.5px,transparent_0.5px)] [background-size:16px_16px] opacity-10 pointer-events-none" />
+                            },
+                            {
+                              bg: 'bg-[#1a1c14]',
+                              radial1: 'bg-[radial-gradient(ellipse_at_top_left,#84cc16,transparent_55%)]',
+                              radial2: 'bg-[radial-gradient(circle_at_bottom_right,#4d7c0f,transparent_50%)]',
+                              pattern: <div className="absolute bottom-0 inset-x-0 h-1/2 bg-gradient-to-t from-[#111827] to-transparent opacity-60 pointer-events-none" />
+                            },
+                            {
+                              bg: 'bg-[#151b14]',
+                              radial1: 'bg-[radial-gradient(ellipse_at_center,#14532d,transparent_65%)]',
+                              radial2: 'bg-[radial-gradient(circle_at_top_right,#15803d,transparent_45%)]',
+                              pattern: <div className="absolute inset-0 opacity-20 bg-[radial-gradient(circle_at_center,#22c55e_1px,transparent_4px)] pointer-events-none" />
+                            }
+                          ],
+                          midnight: [
+                            {
+                              bg: 'bg-[#020617]',
+                              radial1: 'bg-[radial-gradient(ellipse_at_right,#1e1b4b,transparent_60%)]',
+                              radial2: 'bg-[radial-gradient(circle_at_left,#0f172a,transparent_50%)]',
+                              pattern: <div className="absolute inset-0 opacity-20 bg-[radial-gradient(circle_at_center,#ffffff_1px,transparent_1px)] [background-size:12px_12px] pointer-events-none" />
+                            },
+                            {
+                              bg: 'bg-[#11061e]',
+                              radial1: 'bg-[radial-gradient(ellipse_at_top_left,#581c87,transparent_55%)]',
+                              radial2: 'bg-[radial-gradient(circle_at_bottom_right,#2e1065,transparent_50%)]',
+                              pattern: <div className="absolute inset-0 opacity-35 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.15)_1.5px,transparent_1.5px)] [background-size:40px_40px] pointer-events-none" />
+                            },
+                            {
+                              bg: 'bg-[#041225]',
+                              radial1: 'bg-[radial-gradient(ellipse_at_bottom_right,#0369a1,transparent_55%)]',
+                              radial2: 'bg-[radial-gradient(circle_at_top_left,#172554,transparent_50%)]',
+                              pattern: <div className="absolute inset-0 bg-gradient-to-b from-[#121829] to-[#040815] opacity-50 pointer-events-none" />
+                            },
+                            {
+                              bg: 'bg-[#000a12]',
+                              radial1: 'bg-[radial-gradient(ellipse_at_center,#0c4a6e,transparent_60%)]',
+                              radial2: 'bg-[radial-gradient(circle_at_bottom_right,#075985,transparent_50%)]',
+                              pattern: <div className="absolute bottom-6 left-6 font-mono text-[9px] text-[#075985]/30 pointer-events-none select-none">COSMIC AUDIO ENGINE</div>
+                            }
+                          ],
+                          checker: [
+                            {
+                              bg: 'bg-[#0d1117]',
+                              radial1: 'bg-[radial-gradient(circle_at_center,#1f2937,transparent_60%)]',
+                              radial2: 'bg-transparent',
+                              pattern: (
+                                <div className="absolute inset-0 z-0 bg-[#0d1117] pointer-events-none" style={{
+                                  backgroundImage: 'linear-gradient(45deg, #161b22 25%, transparent 25%), linear-gradient(-45deg, #161b22 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #161b22 75%), linear-gradient(-45deg, transparent 75%, #161b22 75%)',
+                                  backgroundSize: '24px 24px',
+                                  backgroundPosition: '0 0, 0 12px, 12px -12px, -12px 0px'
+                                }} />
+                              )
+                            },
+                            {
+                              bg: 'bg-[#161b22]',
+                              radial1: 'bg-[radial-gradient(circle_at_center,#111827,transparent_60%)]',
+                              radial2: 'bg-transparent',
+                              pattern: (
+                                <div className="absolute inset-0 z-0 bg-[#161b22] pointer-events-none" style={{
+                                  backgroundImage: 'linear-gradient(45deg, #0d1117 25%, transparent 25%), linear-gradient(-45deg, #0d1117 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #0d1117 75%), linear-gradient(-45deg, transparent 75%, #0d1117 75%)',
+                                  backgroundSize: '24px 24px',
+                                  backgroundPosition: '0 0, 0 12px, 12px -12px, -12px 0px'
+                                }} />
+                              )
+                            },
+                            {
+                              bg: 'bg-[#0b0f19]',
+                              radial1: 'bg-[radial-gradient(circle_at_center,#1e293b,transparent_60%)]',
+                              radial2: 'bg-transparent',
+                              pattern: (
+                                <div className="absolute inset-0 z-0 bg-[#0b0f19] pointer-events-none" style={{
+                                  backgroundImage: 'linear-gradient(45deg, #111827 25%, transparent 25%), linear-gradient(-45deg, #111827 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #111827 75%), linear-gradient(-45deg, transparent 75%, #111827 75%)',
+                                  backgroundSize: '24px 24px',
+                                  backgroundPosition: '0 0, 0 12px, 12px -12px, -12px 0px'
+                                }} />
+                              )
+                            },
+                            {
+                              bg: 'bg-[#1e1e2e]',
+                              radial1: 'bg-[radial-gradient(circle_at_center,#313244,transparent_60%)]',
+                              radial2: 'bg-transparent',
+                              pattern: (
+                                <div className="absolute inset-0 z-0 bg-[#1e1e2e] pointer-events-none" style={{
+                                  backgroundImage: 'linear-gradient(45deg, #11111b 25%, transparent 25%), linear-gradient(-45deg, #11111b 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #11111b 75%), linear-gradient(-45deg, transparent 75%, #11111b 75%)',
+                                  backgroundSize: '24px 24px',
+                                  backgroundPosition: '0 0, 0 12px, 12px -12px, -12px 0px'
+                                }} />
+                              )
+                            }
+                          ]
+                        };
 
-                  {bgStyle === 'cyber' && (
-                    <div className="absolute inset-0 z-0 bg-[#070b19] overflow-hidden">
-                      {/* Grid overlay */}
-                      <div className="absolute inset-0 opacity-15 bg-[linear-gradient(to_right,#1e293b_1px,transparent_1px),linear-gradient(to_bottom,#1e293b_1px,transparent_1px)] bg-[size:30px_30px]" />
-                      {/* Dynamic color waves */}
-                      <div className="absolute -top-1/2 -left-1/4 w-[150%] h-[150%] opacity-30 bg-[radial-gradient(ellipse_at_top_right,var(--color-indigo-600),transparent_55%)] blur-[80px]" />
-                      <div className="absolute -bottom-1/3 -right-1/4 w-[120%] h-[120%] opacity-20 bg-[radial-gradient(circle_at_bottom_left,var(--color-fuchsia-600),transparent_50%5)] blur-[100px]" />
-                      <div className="absolute top-1/4 left-1/3 w-[150px] h-[150px] rounded-full border border-indigo-500/10 animate-ping duration-10000" />
-                    </div>
-                  )}
+                        const schemeStyle = bgStyle in sceneSchemes ? bgStyle : 'cyber';
+                        const activeSchemeList = sceneSchemes[schemeStyle];
+                        const activeScheme = activeSchemeList[currentSubtitleIndex % activeSchemeList.length];
 
-                  {bgStyle === 'relaxing' && (
-                    <div className="absolute inset-0 z-0 bg-gradient-to-tr from-teal-900/40 via-emerald-950/30 to-slate-900" />
-                  )}
+                        return (
+                          <div className={`absolute inset-0 ${activeScheme.bg} overflow-hidden w-full h-full`}>
+                            {/* 1. 图案/背景网格 (Pattern/Grid) */}
+                            {activeScheme.pattern}
+                            
+                            {/* 2. 动态氛围流光 (Dynamic Ambient Light Layer - GPU 硬件渲染) */}
+                            <div className={`absolute -top-1/2 -left-1/4 w-[150%] h-[150%] opacity-35 ${activeScheme.radial1} blur-[80px] pointer-events-none`} />
+                            {activeScheme.radial2 && (
+                              <div className={`absolute -bottom-1/3 -right-1/4 w-[120%] h-[120%] opacity-20 ${activeScheme.radial2} blur-[100px] pointer-events-none`} />
+                            )}
 
-                  {bgStyle === 'midnight' && (
-                    <div className="absolute inset-0 z-0 bg-gradient-to-b from-[#121829] to-[#040815]" />
-                  )}
+                            {/* 3. 动态光点缀线 (Decorative vector lights) */}
+                            {currentSubtitleIndex === 0 && <div className="absolute top-[30%] left-[10%] w-40 h-[1.5px] bg-gradient-to-r from-transparent via-indigo-500/30 to-transparent pointer-events-none animate-pulse" />}
+                            {currentSubtitleIndex === 1 && <div className="absolute top-[40%] right-[15%] w-32 h-[1px] bg-gradient-to-r from-cyan-500/20 to-transparent pointer-events-none rotate-45" />}
+                            {currentSubtitleIndex === 2 && <div className="absolute bottom-[35%] left-[20%] w-48 h-[1px] bg-gradient-to-r from-transparent via-amber-500/20 to-transparent pointer-events-none -rotate-12" />}
+                            {currentSubtitleIndex === 3 && <div className="absolute top-[20%] right-[25%] w-48 h-[1px] bg-gradient-to-r from-emerald-500/20 to-transparent pointer-events-none" />}
 
-                  {/* Aesthetic visual content preview mockup */}
-                  <div className="absolute top-4 right-4 z-10 px-2 py-1 bg-slate-950/60 backdrop-blur-md border border-slate-800/40 text-[9px] font-mono text-indigo-400 rounded-md">
-                    23.976 fps • 10-bit H.265
+                            {/* 4. 仅在赛博模式下挂载漂浮微标 */}
+                            {bgStyle === 'cyber' && 'icon' in activeScheme && activeScheme.icon}
+
+                            {/* 5. 巨大中置场景水印：针对 9:16 自适应防止字体溢出或拉伸变形 */}
+                            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none select-none p-4">
+                              <span className={`text-white font-bold tracking-widest font-sans opacity-[0.04] uppercase select-none whitespace-nowrap text-center block leading-none transition-all ${
+                                aspectRatio === '9/16' ? 'text-3xl tracking-wide' : 'text-[64px]'
+                              }`}>
+                                SCENE {currentSubtitleIndex + 1}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </motion.div>
+                  </AnimatePresence>
+
+                  {/* Aesthetic visual content preview mockup - 顶层 UI 覆盖层 */}
+                  <div className="absolute top-4 right-4 z-10 px-2 py-1 bg-slate-950/60 backdrop-blur-md border border-slate-800/40 text-[9px] font-mono text-indigo-400 rounded-md pointer-events-none select-none">
+                    {aspectRatio === '9/16' ? '1080x1920 (9:16)' : '1920x1080 (16:9)'} • 23.976 fps
                   </div>
 
                   {/* Alignment guide grids (Shown during manual dragging) */}
@@ -1598,7 +1812,7 @@ export default function GlobalParamsVisualEditor({
                     )}
                   </AnimatePresence>
 
-                  {/* Drag Handle Indicator */}
+                  {/* Drag Handle Indicator - 字幕拖拽层 */}
                   <div 
                     className="absolute z-30 transition-transform duration-100 ease-out flex justify-center pointer-events-none"
                     style={{
@@ -1608,14 +1822,14 @@ export default function GlobalParamsVisualEditor({
                       width: '100%',
                     }}
                   >
-                    {/* Simulated Text Subtitle Layer */}
-                    <AnimatePresence mode="wait">
+                    {/* Simulated Text Subtitle Layer - 字幕独立于背景转场 */}
+                    <AnimatePresence mode="popLayout" initial={false}>
                       <motion.div
                         key={`subtitle-${transitionTrigger}`}
-                        initial={getTransitionAnimation().initial}
-                        animate={getTransitionAnimation().animate}
-                        exit={{ opacity: 0 }}
-                        transition={getTransitionAnimation().transition}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -10 }}
+                        transition={{ duration: 0.2 }}
                         style={{
                           ...getSubtitleStyle(),
                         }}
@@ -1645,8 +1859,8 @@ export default function GlobalParamsVisualEditor({
                       {config.subtitle.y_offset > 0 ? `+${config.subtitle.y_offset}` : config.subtitle.y_offset}
                     </span>
                   </div>
-
                 </div>
+                {/* 关闭 canvas sandbox div (preview-canvas-sandbox) */}
 
                 {/* Subtitle Playback Control Info message */}
                 <p className="text-xs text-slate-400 mt-3 text-center leading-relaxed">
