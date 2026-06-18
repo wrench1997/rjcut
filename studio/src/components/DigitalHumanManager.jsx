@@ -929,6 +929,10 @@ export default function DigitalHumanManager({ apiKey, vfs, onCreateVideo }) {
       }
     } catch (err) {
       console.error('加载数据失败:', err)
+      // 显示后端返回的详细错误信息
+      const backendMsg = err.responseData?.message || err.message || '未知错误'
+      const errorCode = err.code ? ` (错误码：${err.code})` : ''
+      alert('加载数据失败：' + backendMsg + errorCode)
     } finally {
       if (isMountedRef.current) setLoading(false)
     }

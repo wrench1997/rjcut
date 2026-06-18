@@ -31,8 +31,20 @@ def fail(code, msg, status_code=400): return {"code": code, "message": msg}
 @router.get("/persons/common")
 def list_common_persons(_: Merchant = Depends(verify_api_key)):
     """获取公共数字人列表（包含所有可选形象类型）"""
-    api = get_chanjing_api()
-    res = api.list_common_digital_persons(page=1, size=100)
+    import logging
+    logger = logging.getLogger("uvicorn.error")
+    try:
+        api = get_chanjing_api()
+        res = api.list_common_digital_persons(page=1, size=100)
+        
+        # 检查蝉镜 API 返回状态码
+        if res.get('code') != 0:
+            error_msg = res.get('msg', '获取数字人列表失败')
+            logger.error(f"蝉镜 API 返回错误：{error_msg} (code: {res.get('code')})")
+            return {"code": 50000, "message": f"蝉镜 API 错误：{error_msg}", "data": None}
+    except Exception as e:
+        logger.error(f"获取公共数字人列表异常：{e}")
+        return {"code": 50000, "message": f"服务器错误：{str(e)}", "data": None}
     
     persons = res.get("data", {}).get("list", [])
     
@@ -511,9 +523,22 @@ def _get_person_status_text(status: int) -> str:
 
 @router.get("/voices")
 def list_voices(_: Merchant = Depends(verify_api_key)):
-    api = get_chanjing_api()
-    res = api.list_common_audio_mans(page=1, size=100)
-    return ok(res.get("data", {}).get("list", []))
+    import logging
+    logger = logging.getLogger("uvicorn.error")
+    try:
+        api = get_chanjing_api()
+        res = api.list_common_audio_mans(page=1, size=100)
+        
+        # 检查蝉镜 API 返回状态码
+        if res.get('code') != 0:
+            error_msg = res.get('msg', '获取声音列表失败')
+            logger.error(f"蝉镜 API 返回错误：{error_msg} (code: {res.get('code')})")
+            return {"code": 50000, "message": f"蝉镜 API 错误：{error_msg}", "data": None}
+        
+        return ok(res.get("data", {}).get("list", []))
+    except Exception as e:
+        logger.error(f"获取声音列表异常：{e}")
+        return {"code": 50000, "message": f"服务器错误：{str(e)}", "data": None}
 
 # ----- 2. 创建异步生成任务 -----
 

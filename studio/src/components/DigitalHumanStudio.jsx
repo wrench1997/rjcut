@@ -1156,7 +1156,10 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
         }
       } catch (err) {
         console.error('[DigitalHumanStudio] 加载数据失败:', err)
-        setStatusMsg('加载数据失败：' + err.message)
+        // 优先显示后端返回的详细错误信息
+        const backendMsg = err.responseData?.message || err.message || '未知错误'
+        const errorCode = err.code ? ` (错误码：${err.code})` : ''
+        setStatusMsg('加载数据失败：' + backendMsg + errorCode)
       } finally {
         setLoadingProjects(false)
       }

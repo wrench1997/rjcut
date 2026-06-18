@@ -32,6 +32,48 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
+// 响应拦截器 - 统一错误处理
+apiClient.interceptors.response.use(
+  (response) => {
+    // 检查后端返回的业务错误码
+    const data = response.data;
+    if (data && typeof data === 'object') {
+      // 如果后端返回了 code 字段且不为 0，表示业务错误
+      if (data.code !== undefined && data.code !== 0 && data.code !== 200) {
+        const error = new Error(data.message || '请求失败');
+        error.code = data.code;
+        error.data = data.data;
+        throw error;
+      }
+    }
+    return response;
+  },
+  (error) => {
+    // 统一处理 HTTP 错误
+    const errorMsg = error.response?.data?.message || error.message || '网络错误';
+    const errorCode = error.response?.data?.code || error.response?.status || -1;
+    
+    // 创建带详细信息的错误对象
+    const enhancedError = new Error(errorMsg);
+    enhancedError.code = errorCode;
+    enhancedError.originalError = error;
+    enhancedError.responseData = error.response?.data;
+    
+    // 打印错误日志（开发环境）
+    if (process.env.NODE_ENV === 'development') {
+      console.error('[API Error]', {
+        url: error.config?.url,
+        method: error.config?.method,
+        code: errorCode,
+        message: errorMsg,
+        responseData: error.response?.data,
+      });
+    }
+    
+    return Promise.reject(enhancedError);
+  }
+);
+
 // 设置 API Key
 export const setApiKey = (apiKey) => {
   apiClient.defaults.headers.common['Authorization'] = `Bearer ${apiKey}`;
