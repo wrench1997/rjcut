@@ -190,6 +190,12 @@ def resync_subtitle(
     ad_keywords: Optional[List[str]] = None,
     # 🆕 新增：明确指定 resync json 输出路径
     resync_json_path: Optional[str] = None,
+    # 🎨 与前端统一的字幕样式参数
+    stroke_color: Optional[str] = None,
+    stroke_width: Optional[int] = None,
+    background_color: Optional[str] = None,
+    background_padding: Optional[int] = None,
+    background_radius: Optional[int] = None,
 ) -> str:
     from subtitle_effects import burn_whisper_subtitle
 
@@ -240,6 +246,12 @@ def resync_subtitle(
             corrections=corrections,
             corrections_file=corrections_file,
             ad_keywords=ad_keywords,
+            # 🎨 与前端统一的字幕样式参数
+            stroke_color=stroke_color,
+            stroke_width=stroke_width,
+            background_color=background_color,
+            background_padding=background_padding,
+            background_radius=background_radius,
         )
     finally:
         os.unlink(tmp_json.name)

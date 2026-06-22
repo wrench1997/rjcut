@@ -256,7 +256,16 @@ const getLabelTip = (label) => {
 // --- 文件选择器组件（简化版）---
 function FileSelector({ label, vfs, selectedFile, onSelect, accept, disabled, multiple = false, allowDirectorySelection = false }) {
   const [showBrowser, setShowBrowser] = useState(false)
-  const [browserPath, setBrowserPath] = useState('/projects')
+  // 根据 label 类型设置默认路径：场景相关文件默认在根目录，其他在 /projects
+  const getDefaultPath = () => {
+    if (label.includes('场景文件夹')) return '/'
+    if (label.includes('数字人视频')) return '/'
+    if (label.includes('脚本文件')) return '/'
+    if (label.includes('背景音乐')) return '/'
+    if (label.includes('全局修正')) return '/'
+    return '/projects'
+  }
+  const [browserPath, setBrowserPath] = useState(getDefaultPath())
   const [browserItems, setBrowserItems] = useState([])
 
   const loadDirectory = useCallback(async (path) => {
@@ -499,22 +508,67 @@ export default function BatchProcessor({ vfs, apiKey }) {
 
   const stats = getTaskStats()
 
-  const prepareTasks = useCallback(() => {
+  const prepareTasks = useCallback(async () => {
     if (!digitalHumanVideo) return []
     if (!sceneConfigs || sceneConfigs.length === 0) return []
     
     // 一个数字人视频 + 多个场景（每个场景有自己的脚本和 BGM）= 多个任务
-    return sceneConfigs.map((config, index) => ({
-      id: `scene_${index + 1}_${config.scenePath?.split('/').pop() || 'unknown'}`,
-      vfsVideoPath: digitalHumanVideo,
-      vfsScriptPath: config.scriptPath,
-      vfsCorrectionsPath: correctionsFile,
-      vfsBgmPath: config.bgmPath,
-      vfsScenesPath: config.scenePath,
-      stage: 'idle',
-      progress: 0,
-    }))
-  }, [digitalHumanVideo, sceneConfigs, correctionsFile])
+    const tasks = []
+    
+    for (const config of sceneConfigs) {
+      let scriptPath = config.scriptPath
+      let scenePath = config.scenePath
+      
+      // 如果选择了脚本文件和场景文件夹，自动处理脚本中的 scene_file 路径
+      if (scriptPath && scenePath && vfs) {
+        try {
+          // 读取脚本文件内容
+          const scriptContent = await vfs.readFile(scriptPath)
+          const scriptText = scriptContent instanceof ArrayBuffer
+            ? new TextDecoder('utf-8').decode(scriptContent)
+            : String(scriptContent)
+          
+          const script = JSON.parse(scriptText)
+          
+          // 如果脚本中有 segments 数组，处理每个 segment 的 scene_file
+          if (script.segments && Array.isArray(script.segments)) {
+            let modified = false
+            for (const segment of script.segments) {
+              if (segment.scene_file && !segment.scene_file.startsWith('/')) {
+                // scene_file 是相对路径，需要加上场景文件夹路径
+                segment.scene_file = `${scenePath}/${segment.scene_file}`
+                modified = true
+              }
+            }
+            
+            // 如果修改了脚本，保存回临时文件
+            if (modified) {
+              const tempScriptPath = `${scriptPath}.resolved.json`
+              await vfs.writeFile(tempScriptPath, JSON.stringify(script, null, 2))
+              scriptPath = tempScriptPath
+              console.log('[BatchProcessor] 脚本 scene_file 已自动解析为完整路径:', tempScriptPath)
+            }
+          }
+        } catch (e) {
+          console.error('[BatchProcessor] 处理脚本文件失败:', e)
+          // 如果处理失败，继续使用原始脚本路径
+        }
+      }
+      
+      tasks.push({
+        id: `scene_${tasks.length + 1}_${scenePath?.split('/').pop() || 'unknown'}`,
+        vfsVideoPath: digitalHumanVideo,
+        vfsScriptPath: scriptPath,
+        vfsCorrectionsPath: correctionsFile,
+        vfsBgmPath: config.bgmPath,
+        vfsScenesPath: scenePath,
+        stage: 'idle',
+        progress: 0,
+      })
+    }
+    
+    return tasks
+  }, [digitalHumanVideo, sceneConfigs, correctionsFile, vfs])
 
   const handleStartBatch = async () => {
     setLocalError('')
@@ -536,7 +590,7 @@ export default function BatchProcessor({ vfs, apiKey }) {
       return
     }
 
-    const taskItems = prepareTasks()
+    const taskItems = await prepareTasks()
     if (taskItems.length === 0) {
       setLocalError('没有可处理的任务')
       return

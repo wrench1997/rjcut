@@ -385,7 +385,7 @@ function FileGridItem({ item, onSelect, onOpen, selected, onDelete, onContextMen
 // =====================================================
 // 右键菜单组件
 // =====================================================
-function ContextMenu({ x, y, item, onClose, onCopy, onCut, onPaste, canPaste, onDelete, onRename, onDownload }) {
+function ContextMenu({ x, y, item, onClose, onCopy, onCut, onPaste, canPaste, onDelete, onRename, onDownload, onUpload }) {
   useEffect(() => {
     const handleClick = () => onClose()
     document.addEventListener('click', handleClick)
@@ -431,12 +431,21 @@ function ContextMenu({ x, y, item, onClose, onCopy, onCut, onPaste, canPaste, on
           </Tooltip>
         </>
       )}
-      {!item && canPaste && (
-        <Tooltip tip="粘贴剪贴板中的内容到当前位置" delay={1000} position="right">
-          <div className="context-menu-item" onClick={() => { onPaste?.(); onClose(); }}>
-            <Clipboard size={14} /> 粘贴
-          </div>
-        </Tooltip>
+      {!item && (
+        <>
+          <Tooltip tip="上传文件到当前目录" delay={1000} position="right">
+            <div className="context-menu-item" onClick={() => { onUpload?.(); onClose(); }}>
+              <ArrowUp size={14} /> 上传文件
+            </div>
+          </Tooltip>
+          {canPaste && (
+            <Tooltip tip="粘贴剪贴板中的内容到当前位置" delay={1000} position="right">
+              <div className="context-menu-item" onClick={() => { onPaste?.(); onClose(); }}>
+                <Clipboard size={14} /> 粘贴
+              </div>
+            </Tooltip>
+          )}
+        </>
       )}
     </div>
   )
@@ -1736,6 +1745,7 @@ function FileBrowser({ vfs, onFileSelect, onFileOpen, className, initialPath = '
             setShowRenameDialog(true)
           }}
           onDownload={handleDownload}
+          onUpload={handleUpload}
         />
       )}
     </div>
