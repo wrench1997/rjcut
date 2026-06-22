@@ -788,7 +788,21 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
     figure_type: 'whole_body', // 形象类型
     hide_subtitle: false, // 隐藏字幕
     drive_mode: 'random', // 驱动模式
-    action_id: null    // 动作 ID（由数字人详情自动同步）
+    action_id: null,   // 动作 ID（由数字人详情自动同步）
+    // 🎨 字幕配置（与 GlobalParamsVisualEditor.jsx 统一）
+    subtitle_config: {
+      position: 'bottom',
+      font_size: 72,
+      x_offset: 0,
+      y_offset: -80,
+      color: '#FFFF00',
+      stroke_color: '#000000',
+      stroke_width: 3,
+      background_color: 'rgba(0, 0, 0, 0.4)',
+      background_padding: 8,
+      background_radius: 8,
+      effect: 'ad',
+    }
   })
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false)
 
@@ -1251,7 +1265,9 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
             figure_type: advancedSettings.figure_type,
             hide_subtitle: advancedSettings.hide_subtitle,
             drive_mode: advancedSettings.drive_mode,
-            client_ref_id: `dh_${task.id}`
+            client_ref_id: `dh_${task.id}`,
+            // 🎨 传递字幕配置到后端
+            subtitle_config: advancedSettings.subtitle_config
           }
           
           // 处理 audio_man_id 字段：优先使用用户选择的声音，否则使用数字人自带的 audio_man_id

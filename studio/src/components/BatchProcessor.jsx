@@ -84,18 +84,20 @@ function TaskCard({ task, vfs }) {
         // 保存到 VFS 项目输出文件夹
         const videoFilename = `${task.id}_成片.mp4`
         // 使用统一的项目结构模块构建输出路径
-        // 优先保存到场景父目录下的"输出"文件夹（场景外面）
+        // 自动根据场景路径解析项目名，保存到对应项目的"输出"文件夹
         let outputDir
-        if (task.vfsScenesPath && task.vfsScenesPath.startsWith('/projects/')) {
-          // 从场景路径解析项目名，例如 /projects/项目名/剪辑视频/场景 1 -> 项目名
+        if (task.vfsScenesPath) {
+          // 从场景路径解析项目名（支持 /项目名/场景 X 或 /projects/项目名/场景 X 格式）
           const projectName = parseProjectNameFromVFS(task.vfsScenesPath)
           if (projectName) {
+            // 使用统一的项目结构模块构建输出路径
             outputDir = buildVFSPath(projectName, PROJECT_FOLDERS.OUTPUT)
           } else {
-            outputDir = '/projects/输出'
+            // 无法解析项目名，使用默认路径
+            outputDir = '/输出'
           }
         } else {
-          outputDir = '/projects/输出'
+          outputDir = '/输出'
         }
         const outputPath = `${outputDir}/${videoFilename}`
         

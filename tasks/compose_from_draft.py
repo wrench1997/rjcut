@@ -200,8 +200,8 @@ def run_compose_from_draft_task(task_id: str, payload: dict, trace_id: str, merc
             language=payload.get("asr", {}).get("language", "zh"),
             effect=subtitle.get("effect", "ad"),
             font_file=font_path,
-            font_size=int(subtitle.get("font_size", 88)),
-            highlight_color=subtitle.get("highlight_color", "gold"),
+            font_size=int(subtitle.get("font_size", 72)),  # 🎨 与前端 GlobalParamsVisualEditor.jsx 默认值统一
+            highlight_color=subtitle.get("color", "#FFFF00"),  # 🎨 使用前端 color 参数
             max_chars_per_line=int(subtitle.get("max_chars_per_line", 18)),
             alignment=alignment,
             margin_v=actual_margin_v,

@@ -145,8 +145,8 @@ def run_agent_compose_task(task_id: str, payload: dict, trace_id: str, merchant_
                 language=payload.get("asr", {}).get("language", "zh"),
                 effect=subtitle.get("effect", "ad"),
                 font_file=context.font_path,
-                font_size=int(subtitle.get("font_size", 88)),
-                highlight_color=subtitle.get("highlight_color", "gold"),
+                font_size=int(subtitle.get("font_size", 72)),  # 🎨 与前端 GlobalParamsVisualEditor.jsx 默认值统一
+                highlight_color=subtitle.get("color", "#FFFF00"),  # 🎨 使用前端 color 参数
                 max_chars_per_line=int(subtitle.get("max_chars_per_line", 18)),
                 alignment=alignment,
                 margin_v=actual_margin_v,
@@ -155,6 +155,12 @@ def run_agent_compose_task(task_id: str, payload: dict, trace_id: str, merchant_
                 offset_x=int(subtitle.get("offset_x", 0)),
                 offset_y=int(subtitle.get("offset_y", 0)),
                 corrections_file=context.corrections_path,
+                # 🎨 传递字幕样式参数到 lip_sync.py
+                stroke_color=subtitle.get("stroke_color", "#000000"),
+                stroke_width=int(subtitle.get("stroke_width", 3)),
+                background_color=subtitle.get("background_color", "rgba(0, 0, 0, 0.4)"),
+                background_padding=int(subtitle.get("background_padding", 8)),
+                background_radius=int(subtitle.get("background_radius", 8)),
             )
         else:
             if os.path.isfile(cleaned_video):

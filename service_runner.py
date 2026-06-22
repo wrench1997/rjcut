@@ -95,6 +95,7 @@ def convert_subtitle_params(subtitle: dict, video_width: int = 1920, video_heigh
     - x_offset (百分比) → offset_x (像素)
     - y_offset (百分比) → offset_y + margin_v (结合 position 计算)
     - color (HEX) → highlight_color (ASS 格式)
+    - stroke_color, stroke_width, background_color 等样式参数直接传递
     """
     # 1. position → alignment
     position = subtitle.get("position", "bottom")
@@ -126,8 +127,14 @@ def convert_subtitle_params(subtitle: dict, video_width: int = 1920, video_heigh
         "offset_x": offset_x,
         "offset_y": offset_y,
         "highlight_color": highlight_color,
-        "font_size": int(subtitle.get("font_size", 52)),
-        "effect": subtitle.get("effect", "karaoke"),
+        "font_size": int(subtitle.get("font_size", 72)),  # 🎨 与前端 GlobalParamsVisualEditor.jsx 默认值统一
+        "effect": subtitle.get("effect", "ad"),  # 🎨 与前端默认值统一
+        # 🎨 新增：传递字幕样式参数到后端
+        "stroke_color": subtitle.get("stroke_color", "#000000"),
+        "stroke_width": int(subtitle.get("stroke_width", 3)),
+        "background_color": subtitle.get("background_color", "rgba(0, 0, 0, 0.4)"),
+        "background_padding": int(subtitle.get("background_padding", 8)),
+        "background_radius": int(subtitle.get("background_radius", 8)),
     }
 
 
@@ -302,6 +309,12 @@ def run_agent_compose_task(task_id: str, payload: dict, trace_id: str):
                 # 🆕 Task 1: 纯场景模式参数
                 mode=pipeline_mode,
                 subtitle_json=subtitle_json,
+                # 🎨 传递字幕样式参数到 lip_sync.py
+                stroke_color=subtitle_params.get("stroke_color"),
+                stroke_width=subtitle_params.get("stroke_width"),
+                background_color=subtitle_params.get("background_color"),
+                background_padding=subtitle_params.get("background_padding"),
+                background_radius=subtitle_params.get("background_radius"),
             )
         else:
             shutil.copy2(cleaned_video, final_output)
