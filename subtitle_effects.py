@@ -240,13 +240,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         if effect == "karaoke":
             events.extend(_eff_karaoke(seg, highlight_color, final_x, final_y, res_x, res_y))
         elif effect == "highlight":
-            events.extend(_eff_highlight(seg, highlight_color, final_x, final_y, res_x, res_y))
+            events.extend(_eff_highlight(seg, highlight_color, final_x, final_y, res_x, res_y, margin_v))
         elif effect == "typewriter":
-            events.extend(_eff_typewriter(seg, highlight_color, final_x, final_y, res_x, res_y))
+            events.extend(_eff_typewriter(seg, highlight_color, final_x, final_y, res_x, res_y, margin_v))
         elif effect == "bounce":
-            events.extend(_eff_bounce(seg, highlight_color, final_x, final_y, res_x, res_y))
+            events.extend(_eff_bounce(seg, highlight_color, final_x, final_y, res_x, res_y, margin_v))
         elif effect == "ad":
-            events.extend(_eff_ad(seg, highlight_color, ad_keywords, max_chars_per_line, final_x, final_y, res_x, res_y))
+            # 🎨 关键：传递 margin_v 到 _eff_ad，否则 Dialogue 行会硬编码为 0
+            events.extend(_eff_ad(seg, highlight_color, ad_keywords, max_chars_per_line, final_x, final_y, res_x, res_y, margin_v))
         else:
             events.extend(_eff_karaoke(seg, highlight_color, final_x, final_y, res_x, res_y))
 
@@ -291,7 +292,8 @@ def _eff_karaoke(seg: dict, hl_color: str,
 
 def _eff_highlight(seg: dict, hl_color: str,
                    pos_x: Optional[int] = None, pos_y: Optional[int] = None,
-                   res_x: int = 1920, res_y: int = 1080) -> List[str]:
+                   res_x: int = 1920, res_y: int = 1080,
+                   margin_v: int = 50) -> List[str]:
     from video_utils import format_ass_time
     words = seg["words"]
     full_text = seg["text"]
@@ -340,7 +342,7 @@ def _eff_highlight(seg: dict, hl_color: str,
 
         events.append(
             f"Dialogue: 0,{format_ass_time(start_t)},"
-            f"{format_ass_time(end_t)},Default,,0,0,0,,{line_text}"
+            f"{format_ass_time(end_t)},Default,,0,0,{margin_v},,{line_text}"
         )
 
     return events
@@ -348,7 +350,8 @@ def _eff_highlight(seg: dict, hl_color: str,
 
 def _eff_typewriter(seg: dict, hl_color: str,
                     pos_x: Optional[int] = None, pos_y: Optional[int] = None,
-                    res_x: int = 1920, res_y: int = 1080) -> List[str]:
+                    res_x: int = 1920, res_y: int = 1080,
+                    margin_v: int = 50) -> List[str]:
     from video_utils import format_ass_time
     words = seg["words"]
     seg_end = seg["end"]
@@ -383,17 +386,17 @@ def _eff_typewriter(seg: dict, hl_color: str,
             full = f"{{\\fad(0,400)}}{{\\c&HFFFFFF&}}{seg['text']}"
             events.append(
                 f"Dialogue: 0,{format_ass_time(start_t)},"
-                f"{format_ass_time(w['end'])},Default,,0,0,0,,{display}"
+                f"{format_ass_time(w['end'])},Default,,0,0,{margin_v},,{display}"
             )
             events.append(
                 f"Dialogue: 0,{format_ass_time(w['end'])},"
-                f"{format_ass_time(seg_end + 0.5)},Default,,0,0,0,,{full}"
+                f"{format_ass_time(seg_end + 0.5)},Default,,0,0,{margin_v},,{full}"
             )
             continue
 
         events.append(
             f"Dialogue: 0,{format_ass_time(start_t)},"
-            f"{format_ass_time(end_t)},Default,,0,0,0,,{display}"
+            f"{format_ass_time(end_t)},Default,,0,0,{margin_v},,{display}"
         )
 
     return events
@@ -401,7 +404,8 @@ def _eff_typewriter(seg: dict, hl_color: str,
 
 def _eff_bounce(seg: dict, hl_color: str,
                 pos_x: Optional[int] = None, pos_y: Optional[int] = None,
-                res_x: int = 1920, res_y: int = 1080) -> List[str]:
+                res_x: int = 1920, res_y: int = 1080,
+                margin_v: int = 50) -> List[str]:
     from video_utils import format_ass_time
     words = seg["words"]
     full_text = seg["text"]
@@ -453,7 +457,7 @@ def _eff_bounce(seg: dict, hl_color: str,
 
         events.append(
             f"Dialogue: 0,{format_ass_time(start_t)},"
-            f"{format_ass_time(end_t)},Default,,0,0,0,,{line_text}"
+            f"{format_ass_time(end_t)},Default,,0,0,{margin_v},,{line_text}"
         )
 
     return events
@@ -563,6 +567,7 @@ def _eff_ad(
     max_chars_per_line: int = 12,
     pos_x: Optional[int] = None, pos_y: Optional[int] = None,
     res_x: int = 1920, res_y: int = 1080,
+    margin_v: int = 50,  # 🎨 关键：传递 margin_v 到 Dialogue 行，否则会被覆盖为 0
 ) -> List[str]:
     from video_utils import format_ass_time
 
@@ -643,9 +648,11 @@ def _eff_ad(
 
         end_t = max(end_t, start_t + 0.05)
 
+        # 🎨 关键：使用传入的 margin_v，而不是硬编码 0
+        # ASS Dialogue 格式：Dialogue: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         events.append(
             f"Dialogue: 0,{format_ass_time(start_t)},"
-            f"{format_ass_time(end_t)},Default,,0,0,0,,{line_text}"
+            f"{format_ass_time(end_t)},Default,,0,0,{margin_v},,{line_text}"
         )
 
     return events
