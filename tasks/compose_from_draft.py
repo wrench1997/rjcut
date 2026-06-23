@@ -295,7 +295,8 @@ def run_compose_from_draft_task(task_id: str, payload: dict, trace_id: str, merc
             # 🆕 明确产物路径
             ass_output_path=ass_file,
             resync_json_output_path=resync_json,
-            # 🎨 与前端统一的字幕样式参数（已转换为 ASS 格式）
+            # 🎨 与前端统一的字幕样式参数
+            color=subtitle.get("color", "#FFFF00"),  # 字幕主色（HEX 格式）
             stroke_color=stroke_color,
             stroke_width=stroke_width,
             background_color=background_color,

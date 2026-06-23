@@ -189,10 +189,11 @@ def resync_subtitle(
     ad_keywords: Optional[List[str]] = None,
     # 🆕 新增：明确指定 resync json 输出路径
     resync_json_path: Optional[str] = None,
-    # 🎨 与前端统一的字幕样式参数 (ASS 格式)
-    stroke_color: Optional[str] = "&H00000000",  # ASS 格式
+    # 🎨 与前端统一的字幕样式参数
+    color: Optional[str] = "#FFFF00",  # 字幕主色（HEX 格式）
+    stroke_color: Optional[str] = None,  # 描边颜色（HEX 格式）
     stroke_width: Optional[int] = 3,
-    background_color: Optional[str] = "&H80000000",  # ASS 格式
+    background_color: Optional[str] = None,  # 背景颜色（rgba 格式）
     background_padding: Optional[int] = 8,
     background_radius: Optional[int] = 8,
     # 🎨 逐字高亮开关
@@ -248,6 +249,7 @@ def resync_subtitle(
             corrections_file=corrections_file,
             ad_keywords=ad_keywords,
             # 🎨 与前端统一的字幕样式参数
+            color=color,
             stroke_color=stroke_color,
             stroke_width=stroke_width,
             background_color=background_color,
@@ -600,10 +602,11 @@ def compose_from_timeline(
     # 🆕 Task 1: pipeline.mode 支持纯场景模式
     mode: str = "normal",
     subtitle_json: Optional[str] = None,
-    # 🎨 与前端统一的字幕样式参数 (ASS 格式)
-    stroke_color: Optional[str] = "&H00000000",  # ASS 格式
+    # 🎨 与前端统一的字幕样式参数
+    color: Optional[str] = "#FFFF00",  # 字幕主色（HEX 格式）
+    stroke_color: Optional[str] = None,  # 描边颜色（HEX 格式）
     stroke_width: Optional[int] = 3,
-    background_color: Optional[str] = "&H80000000",  # ASS 格式
+    background_color: Optional[str] = None,  # 背景颜色（rgba 格式）
     background_padding: Optional[int] = 8,
     background_radius: Optional[int] = 8,
     # 🎨 逐字高亮开关
@@ -717,6 +720,7 @@ def compose_from_timeline(
                     corrections_file=corrections_file,
                     ad_keywords=ad_keywords,
                     # 🎨 与前端统一的字幕样式参数
+                    color=color,
                     stroke_color=stroke_color,
                     stroke_width=stroke_width,
                     background_color=background_color,
@@ -774,6 +778,7 @@ def compose_from_timeline(
                 # 🆕 关键：把 resync json 写到指定路径
                 resync_json_path=resync_json_output_path,
                 # 🎨 与前端统一的字幕样式参数
+                color=color,
                 stroke_color=stroke_color,
                 stroke_width=stroke_width,
                 background_color=background_color,

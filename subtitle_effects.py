@@ -239,6 +239,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             else:
                 color_bgr = "00FFFF"
             
+            # 🎨 普通字颜色：使用 base_color 参数（前端配置的 color），转换为 BBGGRR 格式
+            # base_color 格式：&HAABBGGRR → 提取 BBGGRR
+            if base_color.startswith("&H") and base_color.endswith("&"):
+                base_color_bgr = base_color[4:-1]  # 提取 BBGGRR
+            else:
+                base_color_bgr = "00FFFF"  # 默认黄色
+            
             # 计算每个字在整句中的起始位置
             positions = []
             pos = 0
@@ -256,12 +263,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 # 构建整句文本：前面普通 + 当前字高亮放大 + 后面普通
                 line_parts = []
                 if before:
-                    line_parts.append("{\\c&HFFFFFF&\\b0\\fscx100\\fscy100}" + before)
+                    line_parts.append("{\\c&H" + base_color_bgr + "&\\b0\\fscx100\\fscy100}" + before)
                 line_parts.append(
                     "{\\c&H" + color_bgr + "&\\b1\\fscx120\\fscy120}" + wt
                 )
                 if after:
-                    line_parts.append("{\\c&HFFFFFF&\\b0\\fscx100\\fscy100}" + after)
+                    line_parts.append("{\\c&H" + base_color_bgr + "&\\b0\\fscx100\\fscy100}" + after)
                 
                 line_text = "".join(line_parts)
                 
@@ -346,6 +353,7 @@ def burn_whisper_subtitle(
     position_y: Optional[int] = None,   # 精确 Y 坐标（像素），如 900 表示垂直方向 900px
     use_relative_pos: bool = False,     # 是否使用相对坐标 (0-1 之间的小数)
     # === 新增：与前端统一参数 ===
+    color: Optional[str] = "#FFFF00",  # 字幕主色（如 "#FFFF00"）
     stroke_color: Optional[str] = None,  # 描边颜色（如 "#000000"）
     stroke_width: Optional[int] = None,  # 描边宽度
     background_color: Optional[str] = None,  # 背景颜色（如 "rgba(0,0,0,0.4)"）
@@ -418,6 +426,10 @@ def burn_whisper_subtitle(
 
     try:
         hl_color = COLOR_PRESETS.get(highlight_color, highlight_color)
+        
+        # 🎨 将前端 color 参数转换为 base_color (ASS 格式)
+        # 前端 color 是 HEX 格式 (#FFFF00)，需要转换为 ASS 格式 (&HAABBGGRR)
+        base_color_ass = _hex_to_ass_color(color)
 
         generate_word_ass(
             segments=segments,
@@ -428,6 +440,7 @@ def burn_whisper_subtitle(
             res_x=res_x,
             res_y=res_y,
             highlight_color=hl_color,
+            base_color=base_color_ass,  # 🎨 传递 base_color
             alignment=alignment,
             margin_v=margin_v,
             margin_l=margin_l,
