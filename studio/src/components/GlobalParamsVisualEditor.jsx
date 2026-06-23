@@ -513,6 +513,12 @@ export default function GlobalParamsVisualEditor({
         ...prev,
         [section]: updatedSection
       };
+      // 🎨 保存到 localStorage，供 BatchProcessor 使用
+      try {
+        localStorage.setItem('rjcut_global_params_v1', JSON.stringify(newConfig))
+      } catch (e) {
+        console.error('[GlobalParamsVisualEditor] 保存配置失败:', e)
+      }
       setTimeout(() => {
         onChange?.(newConfig);
       }, 0);

@@ -491,7 +491,16 @@ export default function BatchProcessor({ vfs, apiKey }) {
   const [correctionsFile, setCorrectionsFile] = useState(null)
   const [maxConcurrent, setMaxConcurrent] = useState(3)
   const [localError, setLocalError] = useState('')
-  const [globalParams, setGlobalParams] = useState(null)
+  // 🎨 从 localStorage 加载全局参数配置（与 GlobalParamsVisualEditor 一致）
+  const [globalParams, setGlobalParams] = useState(() => {
+    try {
+      const saved = localStorage.getItem('rjcut_global_params_v1')
+      return saved ? JSON.parse(saved) : null
+    } catch (e) {
+      console.error('[BatchProcessor] 加载全局参数失败:', e)
+      return null
+    }
+  })
 
   const {
     tasks,
@@ -599,6 +608,7 @@ export default function BatchProcessor({ vfs, apiKey }) {
     }
     
     // 将全局参数配置传递给后台
+    console.log('[BatchProcessor] 使用全局参数:', JSON.stringify(globalParams, null, 2))
     startBatch(taskItems, maxConcurrent, globalParams)
   }
 
