@@ -160,12 +160,24 @@ def run_compose_from_draft_task(task_id: str, payload: dict, trace_id: str, merc
             offset_y=offset_y,
         )
         
-        # 🎨 新增：与前端统一的字幕样式参数
-        stroke_color = subtitle.get("stroke_color")  # 如 "#000000"
-        stroke_width = subtitle.get("stroke_width")  # 如 3
-        background_color = subtitle.get("background_color")  # 如 "rgba(0,0,0,0.4)"
-        background_padding = subtitle.get("background_padding")  # 如 8
-        background_radius = subtitle.get("background_radius")  # 如 8（ASS 不支持，仅用于前端预览）
+        # 🎨 与前端统一的字幕样式参数 - 颜色格式转换
+        # 前端 color 是 HEX 格式 (#FFFF00)，需要转换为 ASS 格式 (&HAABBGGRR)
+        highlight_color = _hex_to_ass_color(subtitle.get("color", "#FFFF00"))
+        
+        # stroke_color: 前端 HEX 格式 -> ASS 格式
+        stroke_color_raw = subtitle.get("stroke_color", "#000000")
+        stroke_color = _hex_to_ass_color(stroke_color_raw) if stroke_color_raw else None
+        
+        # stroke_width: 直接使用
+        stroke_width = int(subtitle.get("stroke_width", 3))
+        
+        # background_color: 前端 rgba/HEX 格式 -> ASS 格式
+        background_color_raw = subtitle.get("background_color", "rgba(0, 0, 0, 0.4)")
+        background_color = _rgba_to_ass_color(background_color_raw) if background_color_raw else None
+        
+        # background_padding & radius
+        background_padding = int(subtitle.get("background_padding", 8))
+        background_radius = int(subtitle.get("background_radius", 8))
 
         _update_task(task_id, progress=50, stage="composing_video")
 
@@ -201,7 +213,7 @@ def run_compose_from_draft_task(task_id: str, payload: dict, trace_id: str, merc
             effect=subtitle.get("effect", "ad"),
             font_file=font_path,
             font_size=int(subtitle.get("font_size", 72)),  # 🎨 与前端 GlobalParamsVisualEditor.jsx 默认值统一
-            highlight_color=subtitle.get("color", "#FFFF00"),  # 🎨 使用前端 color 参数
+            highlight_color=highlight_color,  # 🎨 使用前端 color 参数转换后的 ASS 格式
             max_chars_per_line=int(subtitle.get("max_chars_per_line", 18)),
             alignment=alignment,
             margin_v=actual_margin_v,
@@ -224,7 +236,7 @@ def run_compose_from_draft_task(task_id: str, payload: dict, trace_id: str, merc
             # 🆕 明确产物路径
             ass_output_path=ass_file,
             resync_json_output_path=resync_json,
-            # 🎨 与前端统一的字幕样式参数
+            # 🎨 与前端统一的字幕样式参数（已转换为 ASS 格式）
             stroke_color=stroke_color,
             stroke_width=stroke_width,
             background_color=background_color,
@@ -347,6 +359,60 @@ def _calc_actual_margin_v(position: str, margin_v: int, offset_y: int) -> int:
             actual_margin_v = max(0, margin_v - offset_y)
     return actual_margin_v
 
+def _hex_to_ass_color(hex_color: str) -> str:
+    """
+    将前端 HEX 颜色 (#RRGGBB) 转换为 ASS 格式 (&H00BBGGRR)
+    ASS 格式：&H00BBGGRR (BGR 顺序，前两位是透明度)
+    """
+    if not hex_color:
+        return "&H0000DDFF"  # 默认金色
+    if hex_color.startswith("#"):
+        hex_color = hex_color[1:]
+    if len(hex_color) == 6:
+        r = hex_color[0:2]
+        g = hex_color[2:4]
+        b = hex_color[4:6]
+        return f"&H00{b}{g}{r}"
+    return "&H0000DDFF"  # 默认金色
+
+
+def _rgba_to_ass_color(rgba_color: str) -> str:
+    """
+    将前端 rgba 颜色 (rgba(R,G,B,A) 或 rgba(R,G,B,A%)) 转换为 ASS 颜色格式 (&HAABBGGRR)
+    A 值范围：0-1 或 0%-100%，ASS 中 00=透明，FF=不透明
+    """
+    if not rgba_color:
+        return "&H80000000"
+    
+    rgba_color = rgba_color.strip()
+    
+    if rgba_color == "transparent":
+        return "&H00000000"
+    
+    import re
+    match = re.match(r'rgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+%?))?\s*\)', rgba_color)
+    if not match:
+        # 尝试解析 hex
+        if rgba_color.startswith('#'):
+            return _hex_to_ass_color(rgba_color)
+        return "&H80000000"
+    
+    r = int(match.group(1))
+    g = int(match.group(2))
+    b = int(match.group(3))
+    a_str = match.group(4) if match.group(4) else "1"
+    
+    # 解析 alpha 值
+    if a_str.endswith('%'):
+        a = int(float(a_str[:-1]) / 100 * 255)
+    else:
+        a_float = float(a_str)
+        if a_float > 1:
+            a = int(a_float)  # 已经是 0-255
+        else:
+            a = int(a_float * 255)  # 0-1 范围
+    
+    return f"&H{a:02X}{b:02X}{g:02X}{r:02X}"
 
 def _safe_name_from_url(url: str, default_name: str) -> str:
     from urllib.parse import urlparse

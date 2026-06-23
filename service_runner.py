@@ -86,6 +86,45 @@ def hex_to_ass_color(hex_color: str) -> str:
     return "&H0000DDFF"  # 默认金色
 
 
+def rgba_to_ass_color(rgba_color: str) -> str:
+    """
+    将前端 rgba 颜色 (rgba(R,G,B,A) 或 rgba(R,G,B,A%)) 转换为 ASS 颜色格式 (&HAABBGGRR)
+    A 值范围：0-1 或 0%-100%，ASS 中 00=透明，FF=不透明
+    """
+    if not rgba_color:
+        return "&H80000000"
+    
+    rgba_color = rgba_color.strip()
+    
+    if rgba_color == "transparent":
+        return "&H00000000"
+    
+    import re
+    match = re.match(r'rgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+%?))?\s*\)', rgba_color)
+    if not match:
+        # 尝试解析 hex
+        if rgba_color.startswith('#'):
+            return hex_to_ass_color(rgba_color)
+        return "&H80000000"
+    
+    r = int(match.group(1))
+    g = int(match.group(2))
+    b = int(match.group(3))
+    a_str = match.group(4) if match.group(4) else "1"
+    
+    # 解析 alpha 值
+    if a_str.endswith('%'):
+        a = int(float(a_str[:-1]) / 100 * 255)
+    else:
+        a_float = float(a_str)
+        if a_float > 1:
+            a = int(a_float)  # 已经是 0-255
+        else:
+            a = int(a_float * 255)  # 0-1 范围
+    
+    return f"&H{a:02X}{b:02X}{g:02X}{r:02X}"
+
+
 def convert_subtitle_params(subtitle: dict, video_width: int = 1920, video_height: int = 1080) -> dict:
     """
     将前端字幕参数转换为后端 burn_whisper_subtitle 接受的参数
@@ -95,7 +134,9 @@ def convert_subtitle_params(subtitle: dict, video_width: int = 1920, video_heigh
     - x_offset (百分比) → offset_x (像素)
     - y_offset (百分比) → offset_y + margin_v (结合 position 计算)
     - color (HEX) → highlight_color (ASS 格式)
-    - stroke_color, stroke_width, background_color 等样式参数直接传递
+    - stroke_color (HEX) → stroke_color (ASS 格式)
+    - background_color (rgba/HEX) → background_color (ASS 格式)
+    - stroke_width, background_padding, background_radius 直接传递
     """
     # 1. position → alignment
     position = subtitle.get("position", "bottom")
@@ -119,6 +160,14 @@ def convert_subtitle_params(subtitle: dict, video_width: int = 1920, video_heigh
     color = subtitle.get("color", "#FFFF00")
     highlight_color = hex_to_ass_color(color)
 
+    # 4. stroke_color: 前端 HEX → ASS 格式
+    stroke_color_raw = subtitle.get("stroke_color", "#000000")
+    stroke_color = hex_to_ass_color(stroke_color_raw) if stroke_color_raw else None
+
+    # 5. background_color: 前端 rgba/HEX → ASS 格式
+    background_color_raw = subtitle.get("background_color", "rgba(0, 0, 0, 0.4)")
+    background_color = rgba_to_ass_color(background_color_raw) if background_color_raw else None
+
     return {
         "alignment": alignment,
         "margin_v": base_margin_v,
@@ -129,10 +178,10 @@ def convert_subtitle_params(subtitle: dict, video_width: int = 1920, video_heigh
         "highlight_color": highlight_color,
         "font_size": int(subtitle.get("font_size", 72)),  # 🎨 与前端 GlobalParamsVisualEditor.jsx 默认值统一
         "effect": subtitle.get("effect", "ad"),  # 🎨 与前端默认值统一
-        # 🎨 新增：传递字幕样式参数到后端
-        "stroke_color": subtitle.get("stroke_color", "#000000"),
+        # 🎨 新增：传递字幕样式参数到后端（已转换为 ASS 格式）
+        "stroke_color": stroke_color,
         "stroke_width": int(subtitle.get("stroke_width", 3)),
-        "background_color": subtitle.get("background_color", "rgba(0, 0, 0, 0.4)"),
+        "background_color": background_color,
         "background_padding": int(subtitle.get("background_padding", 8)),
         "background_radius": int(subtitle.get("background_radius", 8)),
     }
