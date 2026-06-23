@@ -238,7 +238,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             continue
 
         if effect == "karaoke":
-            events.extend(_eff_karaoke(seg, highlight_color, final_x, final_y, res_x, res_y))
+            events.extend(_eff_karaoke(seg, highlight_color, final_x, final_y, res_x, res_y, margin_v))
         elif effect == "highlight":
             events.extend(_eff_highlight(seg, highlight_color, final_x, final_y, res_x, res_y, margin_v))
         elif effect == "typewriter":
@@ -263,7 +263,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 def _eff_karaoke(seg: dict, hl_color: str, 
                  pos_x: Optional[int] = None, pos_y: Optional[int] = None,
-                 res_x: int = 1920, res_y: int = 1080) -> List[str]:
+                 res_x: int = 1920, res_y: int = 1080,
+                 margin_v: int = 50) -> List[str]:
     from video_utils import format_ass_time
     words = seg["words"]
     seg_start = seg["start"]
@@ -286,7 +287,7 @@ def _eff_karaoke(seg: dict, hl_color: str,
 
     return [
         f"Dialogue: 0,{format_ass_time(seg_start)},"
-        f"{format_ass_time(seg_end + 0.3)},Default,,0,0,0,,{text}"
+        f"{format_ass_time(seg_end + 0.3)},Default,,0,0,{margin_v},,{text}"
     ]
 
 

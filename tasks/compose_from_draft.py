@@ -148,7 +148,14 @@ def run_compose_from_draft_task(task_id: str, payload: dict, trace_id: str, merc
 
         subtitle = payload.get("subtitle", {})
         position = subtitle.get("position", "bottom")
-        alignment = _resolve_position_to_alignment(position)
+        y_offset_pct = float(subtitle.get("y_offset", subtitle.get("offset_y", 0)))
+        # 🎨 关键：根据 y_offset 正负决定 alignment 方向
+        # y_offset > 0（向上）：字幕在屏幕上半部分，用顶部对齐 (alignment=8)
+        # y_offset < 0（向下）：字幕在屏幕下半部分，用底部对齐 (alignment=2)
+        if position == "custom":
+            alignment = 8 if y_offset_pct > 0 else 2
+        else:
+            alignment = _resolve_position_to_alignment(position)
         
         # 🎨 使用与前端 service_runner.py 一致的 margin_v 计算逻辑
         # 前端 y_offset: -100~100 百分比，0 是基准位置，负数向下，正数向上
@@ -167,20 +174,40 @@ def run_compose_from_draft_task(task_id: str, payload: dict, trace_id: str, merc
         
         top_percent = base_y_percent - (y_offset_pct / 2)
         
+        # 🎨 获取字幕参数用于精确计算 margin_v
+        font_size = int(subtitle.get("font_size", 72))
+        line_spacing = float(subtitle.get("line_spacing", 1.3))
+        
+        # 估算字幕高度（像素）：font_size * 行间距
+        # 注意：这是单行字幕的高度，多行字幕会更高
+        subtitle_height = font_size * line_spacing
+        subtitle_half_height = subtitle_height / 2
+        
         print(f"🎨 [字幕参数] base_y_percent={base_y_percent}, top_percent={top_percent}%")
+        print(f"🎨 [字幕参数] font_size={font_size}, line_spacing={line_spacing}, subtitle_height≈{subtitle_height:.1f}px")
         
         # 根据 alignment 计算 ASS margin_v (从屏幕边缘的距离)
-        # alignment=2 (底部对齐): margin_v = (100 - topPercent) * video_height / 100
-        # topPercent=90% → margin_v = (100-90) * 1080 / 100 = 108px (距离底部 108px)
+        # 关键：前端 topPercent 是字幕中心的位置，不是字幕边缘！
+        # alignment=2 (底部对齐): margin_v = 从底部到字幕底部的距离
+        #   字幕中心位置 = top_percent * video_height / 100
+        #   字幕底部位置 = 字幕中心位置 + subtitle_half_height
+        #   margin_v = video_height - 字幕底部位置
         if alignment in [7, 8, 9]:  # 顶部对齐
-            actual_margin_v = int(top_percent * 1080 / 100)
+            # margin_v = 从顶部到字幕顶部的距离
+            # 字幕顶部位置 = 字幕中心位置 - subtitle_half_height
+            subtitle_center = top_percent * 1080 / 100
+            subtitle_top = subtitle_center - subtitle_half_height
+            actual_margin_v = int(max(0, subtitle_top))
         elif alignment in [1, 2, 3]:  # 底部对齐
-            actual_margin_v = int((100 - top_percent) * 1080 / 100)
+            subtitle_center = top_percent * 1080 / 100
+            subtitle_bottom = subtitle_center + subtitle_half_height
+            actual_margin_v = int(max(0, 1080 - subtitle_bottom))
         else:  # 居中对齐 (alignment=5)
+            # margin_v = 从顶部到字幕中心的距离
             actual_margin_v = int(top_percent * 1080 / 100)
         
         actual_margin_v = max(0, actual_margin_v)
-        print(f"🎨 [字幕参数] alignment={alignment}, actual_margin_v={actual_margin_v}px")
+        print(f"🎨 [字幕参数] alignment={alignment}, actual_margin_v={actual_margin_v}px (字幕中心≈{int(top_percent * 1080 / 100)}px)")
         
         # 🎨 与前端统一的字幕样式参数 - 颜色格式转换
         # 前端 color 是 HEX 格式 (#FFFF00)，需要转换为 ASS 格式 (&HAABBGGRR)
@@ -363,12 +390,25 @@ def _restore_scene_assets(scene_assets: dict, scene_dir: str):
 
 
 def _resolve_position_to_alignment(position: str) -> int:
+    """
+    将前端 position 转换为 ASS alignment
+    
+    ASS alignment:
+    - 1=左下，2=中下，3=右下
+    - 4=左中，5=正中，6=右中
+    - 7=左上，8=中上，9=右上
+    
+    前端 position='custom' 时，根据 y_offset 决定：
+    - y_offset > 0（向上）：用顶部对齐 (alignment=8)
+    - y_offset < 0（向下）：用底部对齐 (alignment=2)
+    """
     mapping = {
-        "bottom": 2,
-        "top": 8,
-        "middle": 5,
-        "center": 5,
+        "bottom": 2,  # 底部对齐
+        "top": 8,     # 顶部对齐
+        "middle": 5,  # 居中对齐
+        "center": 5,  # 居中对齐
     }
+    # custom 位置默认用底部对齐，实际位置由 margin_v 精确控制
     return mapping.get(position, 2)
 
 
