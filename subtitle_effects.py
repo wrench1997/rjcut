@@ -221,12 +221,17 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     # 🎨 根据 word_by_word_highlight 参数决定显示模式
     if word_by_word_highlight:
-        # 模式 1：逐字显示高亮 - 念到哪个字哪个字就变大
-        # 使用 ASS \K 标签实现卡拉 OK 效果，\K 单位是 1/100 秒
+        # 模式 1：逐字高亮 - 整句显示，念到哪个字哪个字就变大
+        # 实现方式：两层字幕叠加
+        #   底层：整句文字（普通颜色，正常大小）
+        #   上层：逐个字高亮放大（按时间顺序出现）
         for seg in segments:
             words = seg["words"]
             if not words:
                 continue
+            
+            seg_start = words[0]["start"]
+            seg_end = words[-1]["end"]
             
             # 构建坐标前缀
             pos_prefix = ""
@@ -240,8 +245,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             else:
                 color_bgr = "00FFFF"
             
-            # 逐字构建：每个字单独显示，念到哪个字哪个字高亮变大
-            for i, w in enumerate(words):
+            # 底层：整句文字（普通颜色，正常大小）- 始终显示
+            base_text = "{\\c&HFFFFFF&\\fscx100\\fscy100}" + "".join(w["text"] for w in words)
+            events.append(
+                f"Dialogue: 0,{format_ass_time(seg_start)},"
+                f"{format_ass_time(seg_end)},Default,,0,0,{margin_v},,{pos_prefix}{base_text}"
+            )
+            
+            # 上层：逐个字高亮放大（每个字一个事件，按时间出现）
+            for w in words:
                 start_t = w["start"]
                 end_t = w["end"]
                 
@@ -249,20 +261,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 if end_t <= start_t:
                     end_t = start_t + 0.15
                 
-                # 计算持续时间（毫秒），用于 \K 标签
-                duration_ms = int((end_t - start_t) * 100)
-                
-                # 当前字：高亮颜色 + 放大效果
-                # \K 标签实现卡拉 OK 填充效果
-                # \fscx\fscy 缩放实现变大效果（120%）
-                word_text = "{\\K" + str(duration_ms) + "}{\\c&H" + color_bgr + "&\\fscx120\\fscy120}" + w["text"]
-                
-                # 添加淡入淡出
-                line_text = "{\\fad(30,30)}" + pos_prefix + word_text
-                
+                # 高亮放大当前字
+                highlight_text = "{\\c&H" + color_bgr + "&\\fscx120\\fscy120\\b1}" + w["text"]
                 events.append(
                     f"Dialogue: 0,{format_ass_time(start_t)},"
-                    f"{format_ass_time(end_t)},Default,,0,0,{margin_v},,{line_text}"
+                    f"{format_ass_time(end_t)},Default,,0,0,{margin_v},,{pos_prefix}{highlight_text}"
                 )
     else:
         # 模式 2：整句显示 - 传统字幕模式
