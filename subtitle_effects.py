@@ -217,34 +217,38 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     events: List[str] = []
 
-    # 🎨 前端只使用普通字幕样式，逐字显示
+    # 🎨 前端效果：整句显示，当前字高亮
+    # 后端简化：每句话生成一条字幕，显示完整文本（不做逐字高亮）
     for seg in segments:
         words = seg["words"]
         if not words:
             continue
-
-        # 逐字生成字幕事件（无特效，仅基础显示）
-        for i, w in enumerate(words):
-            start_t = w["start"]
-            if i < len(words) - 1:
-                end_t = max(w["end"], words[i + 1]["start"] - 0.02)
-            else:
-                end_t = w["end"] + 0.10
-            end_t = max(end_t, start_t + 0.05)
-
-            # 构建坐标前缀
-            pos_prefix = ""
-            if final_x is not None and final_y is not None:
-                pos_prefix = "{\\pos(" + str(final_x) + "," + str(final_y) + ")}"
-
-            line_text = "{\\fad(80,0)}" + pos_prefix + "{\\c&H" + base_color[4:] + "&\\b1}" + w["text"]
-            if i == len(words) - 1:
-                line_text = line_text.replace("{\\fad(80,0)}", "{\\fad(0,120)}")
-
-            events.append(
-                f"Dialogue: 0,{format_ass_time(start_t)},"
-                f"{format_ass_time(end_t)},Default,,0,0,{margin_v},,{line_text}"
-            )
+        
+        seg_start = words[0]["start"]
+        seg_end = words[-1]["end"]
+        
+        # 构建整句文本
+        full_text = "".join(w["text"] for w in words)
+        
+        # 构建坐标前缀
+        pos_prefix = ""
+        if final_x is not None and final_y is not None:
+            pos_prefix = "{\\pos(" + str(final_x) + "," + str(final_y) + ")}"
+        
+        # 🎨 颜色格式转换
+        if highlight_color.startswith("&H") and highlight_color.endswith("&"):
+            color_full = highlight_color[2:-1]
+            color_bgr = color_full[2:]
+        else:
+            color_bgr = "00FFFF"
+        
+        # 整句显示，带简单淡入淡出
+        line_text = "{\\fad(150,200)}" + pos_prefix + "{\\c&H" + color_bgr + "&\\b1}" + full_text
+        
+        events.append(
+            f"Dialogue: 0,{format_ass_time(seg_start)},"
+            f"{format_ass_time(seg_end)},Default,,0,0,{margin_v},,{line_text}"
+        )
 
     with open(output_path, "w", encoding="utf-8-sig") as f:
         f.write(header)

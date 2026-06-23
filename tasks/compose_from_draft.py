@@ -179,35 +179,40 @@ def run_compose_from_draft_task(task_id: str, payload: dict, trace_id: str, merc
         line_spacing = float(subtitle.get("line_spacing", 1.3))
         
         # 估算字幕高度（像素）：font_size * 行间距
-        # 注意：这是单行字幕的高度，多行字幕会更高
         subtitle_height = font_size * line_spacing
         subtitle_half_height = subtitle_height / 2
+        
+        # 🎨 关键：获取实际视频高度（不是硬编码 1080！）
+        # 从主视频文件获取分辨率
+        video_height = 1920  # 默认竖屏高度
+        try:
+            from video_utils import get_video_info
+            video_info = get_video_info(cleaned_video)
+            video_height = video_info.get("height", 1920)
+            print(f"🎨 [视频信息] 分辨率：{video_info.get('width')}x{video_height}")
+        except Exception as e:
+            print(f"⚠️ 无法获取视频分辨率，使用默认高度 1920: {e}")
         
         print(f"🎨 [字幕参数] base_y_percent={base_y_percent}, top_percent={top_percent}%")
         print(f"🎨 [字幕参数] font_size={font_size}, line_spacing={line_spacing}, subtitle_height≈{subtitle_height:.1f}px")
         
         # 根据 alignment 计算 ASS margin_v (从屏幕边缘的距离)
         # 关键：前端 topPercent 是字幕中心的位置，不是字幕边缘！
-        # alignment=2 (底部对齐): margin_v = 从底部到字幕底部的距离
-        #   字幕中心位置 = top_percent * video_height / 100
-        #   字幕底部位置 = 字幕中心位置 + subtitle_half_height
-        #   margin_v = video_height - 字幕底部位置
+        subtitle_center = top_percent * video_height / 100
+        
         if alignment in [7, 8, 9]:  # 顶部对齐
             # margin_v = 从顶部到字幕顶部的距离
-            # 字幕顶部位置 = 字幕中心位置 - subtitle_half_height
-            subtitle_center = top_percent * 1080 / 100
             subtitle_top = subtitle_center - subtitle_half_height
             actual_margin_v = int(max(0, subtitle_top))
         elif alignment in [1, 2, 3]:  # 底部对齐
-            subtitle_center = top_percent * 1080 / 100
             subtitle_bottom = subtitle_center + subtitle_half_height
-            actual_margin_v = int(max(0, 1080 - subtitle_bottom))
+            actual_margin_v = int(max(0, video_height - subtitle_bottom))
         else:  # 居中对齐 (alignment=5)
             # margin_v = 从顶部到字幕中心的距离
-            actual_margin_v = int(top_percent * 1080 / 100)
+            actual_margin_v = int(subtitle_center)
         
         actual_margin_v = max(0, actual_margin_v)
-        print(f"🎨 [字幕参数] alignment={alignment}, actual_margin_v={actual_margin_v}px (字幕中心≈{int(top_percent * 1080 / 100)}px)")
+        print(f"🎨 [字幕参数] alignment={alignment}, actual_margin_v={actual_margin_v}px (字幕中心≈{int(subtitle_center)}px, 视频高度={video_height}px)")
         
         # 🎨 与前端统一的字幕样式参数 - 颜色格式转换
         # 前端 color 是 HEX 格式 (#FFFF00)，需要转换为 ASS 格式 (&HAABBGGRR)
