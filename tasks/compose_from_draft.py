@@ -151,10 +151,12 @@ def run_compose_from_draft_task(task_id: str, payload: dict, trace_id: str, merc
         y_offset_pct = float(subtitle.get("y_offset", subtitle.get("offset_y", 0)))
         
         # 🎨 与前端 GlobalParamsVisualEditor.jsx 一致的 alignment 逻辑
-        # 前端：所有 position 都是通过 topPercent 定位字幕中心
-        # ASS alignment=5 (居中对齐): margin_v = 从顶部到字幕中心的距离（与前端 topPercent 一致）
-        # 这样最简单直接，不需要考虑字幕高度
-        alignment = 5  # 统一使用居中对齐
+        # 🎯 ASS alignment 说明 (ASS 规范，numpad 布局):
+        #   7 8 9 = 顶部对齐 (7=左上，8=中上，9=右上)
+        #   4 5 6 = 垂直居中 (4=左中，5=中中，6=右中)
+        #   1 2 3 = 底部对齐 (1=左下，2=中下，3=右下)
+        # 我们使用 alignment=8（中上），MarginV = 从顶部到字幕**顶部**的距离
+        alignment = 8  # 中上对齐：MarginV = 从顶部到字幕顶部的距离
         
         # 🎨 使用与前端 service_runner.py 一致的 margin_v 计算逻辑
         # 前端 y_offset: -100~100 百分比，0 是基准位置，负数向下，正数向上
@@ -210,13 +212,14 @@ def run_compose_from_draft_task(task_id: str, payload: dict, trace_id: str, merc
         print(f"🎨 [字幕参数] font_size={font_size} (ASS={ass_font_size:.1f}), line_spacing={line_spacing}, subtitle_height≈{subtitle_height:.1f}px")
         
         # 根据 alignment 计算 ASS margin_v (从屏幕边缘的距离)
-        # alignment=5 (居中对齐): margin_v = 从顶部到字幕中心的距离
-        # 这与前端 topPercent 完全一致！
-        subtitle_center = top_percent * video_height / 100
-        actual_margin_v = int(subtitle_center)
+        # 🎯 alignment=8 (中上对齐): MarginV = 从顶部到字幕**顶部**的距离
+        # 前端 topPercent 是字幕中心的百分比，需要减去半个字幕高度
+        subtitle_center_from_top = top_percent * video_height / 100
+        # margin_v = 字幕中心位置 - 半个字幕高度 = 字幕顶部位置
+        actual_margin_v = int(subtitle_center_from_top - (subtitle_height / 2))
         
         actual_margin_v = max(0, min(actual_margin_v, video_height))
-        print(f"🎨 [字幕参数] alignment={alignment}, actual_margin_v={actual_margin_v}px (字幕中心≈{int(subtitle_center)}px, 视频高度={video_height}px)")
+        print(f"🎨 [字幕参数] alignment={alignment}, subtitle_center_from_top={int(subtitle_center_from_top)}px, subtitle_half_height={subtitle_height/2:.1f}px, actual_margin_v={actual_margin_v}px (视频高度={video_height}px)")
         
         # 🎨 与前端统一的字幕样式参数 - 颜色格式转换
         # 前端 color 是 HEX 格式 (#FFFF00)，需要转换为 ASS 格式 (&HAABBGGRR)

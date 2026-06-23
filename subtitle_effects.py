@@ -326,6 +326,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     print(f"     📄 ASS 字幕已生成：{output_path}")
     print(f"        共 {len(events)} 条字幕事件，{len(segments)} 段")
+    print(f"        🎨 [DEBUG] Style alignment={alignment}, margin_v={margin_v}")
+    # 打印完整的 Style 行和第一条 Dialogue 用于调试
+    style_lines = header.split('\n')
+    for line in style_lines:
+        if line.startswith('Style:'):
+            print(f"        🎨 [DEBUG] {line}")
+            break
+    if events:
+        print(f"        🎨 [DEBUG] Dialogue: {events[0]}")
     return output_path
 
 
@@ -466,10 +475,12 @@ def burn_whisper_subtitle(
 
         # ── 烧录 ASS ──
         esc_ass = _esc_filter_path(tmp_ass.name)
-        vf = f"ass='{esc_ass}'"
+        # 🎨 使用 force_style 覆盖 ASS 文件中的样式（确保 margin_v 和 alignment 生效）
+        vf = f"ass='{esc_ass}':force_style='Alignment={alignment},MarginV={margin_v}'"
         if font_dir:
             esc_dir = _esc_filter_path(font_dir)
-            vf = f"ass='{esc_ass}':fontsdir='{esc_dir}'"
+            vf = f"ass='{esc_ass}':fontsdir='{esc_dir}':force_style='Alignment={alignment},MarginV={margin_v}'"
+        print(f"        🎨 [FFmpeg] vf={vf}")
 
         cmd = [
             "ffmpeg", "-nostdin", "-y", "-hide_banner", "-loglevel", "warning",
