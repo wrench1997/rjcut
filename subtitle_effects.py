@@ -219,53 +219,70 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     events: List[str] = []
 
-    # 🎨 根据 word_by_word_highlight 参数决定显示模式
+# 🎨 根据 word_by_word_highlight 参数决定显示模式
     if word_by_word_highlight:
-        # 模式 1：逐字高亮 - 整句显示，念到哪个字哪个字就变大
-        # 实现方式：两层字幕叠加
-        #   底层：整句文字（普通颜色，正常大小）
-        #   上层：逐个字高亮放大（按时间顺序出现）
+        # 模式 1：逐字高亮 - 整句显示，念到哪个字哪个字就变大变色
+        # 参考 fa2024e5 之前的 _eff_highlight 实现
+        # 每个时间点生成一条完整字幕，当前字高亮放大，其他字普通显示
         for seg in segments:
             words = seg["words"]
             if not words:
                 continue
             
-            seg_start = words[0]["start"]
-            seg_end = words[-1]["end"]
+            full_text = seg["text"]
             
             # 构建坐标前缀
             pos_prefix = ""
             if final_x is not None and final_y is not None:
                 pos_prefix = "{\\pos(" + str(final_x) + "," + str(final_y) + ")}"
             
-            # 🎨 颜色格式转换
+            # 🎨 颜色格式转换（提取 BGR 部分）
             if highlight_color.startswith("&H") and highlight_color.endswith("&"):
-                color_full = highlight_color[2:-1]
-                color_bgr = color_full[2:]
+                color_bgr = highlight_color[4:-1]  # 提取 BBGGRR
             else:
                 color_bgr = "00FFFF"
             
-            # 底层：整句文字（普通颜色，正常大小）- 始终显示
-            base_text = "{\\c&HFFFFFF&\\fscx100\\fscy100}" + "".join(w["text"] for w in words)
-            events.append(
-                f"Dialogue: 0,{format_ass_time(seg_start)},"
-                f"{format_ass_time(seg_end)},Default,,0,0,{margin_v},,{pos_prefix}{base_text}"
-            )
-            
-            # 上层：逐个字高亮放大（每个字一个事件，按时间出现）
+            # 计算每个字在整句中的起始位置
+            positions = []
+            pos = 0
             for w in words:
+                positions.append(pos)
+                pos += len(w["text"])
+            
+            # 为每个字生成一条完整字幕事件
+            for i, w in enumerate(words):
+                p = positions[i]
+                wt = w["text"]
+                before = full_text[:p]
+                after = full_text[p + len(wt):]
+                
+                # 构建整句文本：前面普通 + 当前字高亮放大 + 后面普通
+                line_parts = []
+                if before:
+                    line_parts.append("{\\c&HFFFFFF&\\b0\\fscx100\\fscy100}" + before)
+                line_parts.append(
+                    "{\\c&H" + color_bgr + "&\\b1\\fscx120\\fscy120}" + wt
+                )
+                if after:
+                    line_parts.append("{\\c&HFFFFFF&\\b0\\fscx100\\fscy100}" + after)
+                
+                line_text = "".join(line_parts)
+                
+                # 添加淡入淡出
+                if i == 0:
+                    line_text = "{\\fad(200,0)}" + pos_prefix + line_text
+                elif i == len(words) - 1:
+                    line_text = "{\\fad(0,300)}" + pos_prefix + line_text
+                else:
+                    line_text = pos_prefix + line_text
+                
+                # 计算时间：当前字开始 -> 下一个字开始（或当前字结束 + 缓冲）
                 start_t = w["start"]
-                end_t = w["end"]
+                end_t = words[i + 1]["start"] if i < len(words) - 1 else w["end"] + 0.3
                 
-                # 确保最小持续时间
-                if end_t <= start_t:
-                    end_t = start_t + 0.15
-                
-                # 高亮放大当前字
-                highlight_text = "{\\c&H" + color_bgr + "&\\fscx120\\fscy120\\b1}" + w["text"]
                 events.append(
                     f"Dialogue: 0,{format_ass_time(start_t)},"
-                    f"{format_ass_time(end_t)},Default,,0,0,{margin_v},,{pos_prefix}{highlight_text}"
+                    f"{format_ass_time(end_t)},Default,,0,0,{margin_v},,{line_text}"
                 )
     else:
         # 模式 2：整句显示 - 传统字幕模式
