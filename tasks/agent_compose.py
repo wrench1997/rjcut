@@ -177,6 +177,8 @@ def run_agent_compose_task(task_id: str, payload: dict, trace_id: str, merchant_
                 background_color=subtitle.get("background_color", "rgba(0, 0, 0, 0.4)"),
                 background_padding=int(subtitle.get("background_padding", 8)),
                 background_radius=int(subtitle.get("background_radius", 8)),
+                # 🎨 逐字高亮开关
+                word_by_word_highlight=bool(subtitle.get("word_by_word_highlight", True)),
             )
         else:
             if os.path.isfile(cleaned_video):

@@ -195,6 +195,8 @@ def resync_subtitle(
     background_color: Optional[str] = "&H80000000",  # ASS 格式
     background_padding: Optional[int] = 8,
     background_radius: Optional[int] = 8,
+    # 🎨 逐字高亮开关
+    word_by_word_highlight: bool = True,
 ) -> str:
     from subtitle_effects import burn_whisper_subtitle
 
@@ -251,6 +253,8 @@ def resync_subtitle(
             background_color=background_color,
             background_padding=background_padding,
             background_radius=background_radius,
+            # 🎨 逐字高亮开关
+            word_by_word_highlight=word_by_word_highlight,
         )
     finally:
         os.unlink(tmp_json.name)
@@ -602,6 +606,8 @@ def compose_from_timeline(
     background_color: Optional[str] = "&H80000000",  # ASS 格式
     background_padding: Optional[int] = 8,
     background_radius: Optional[int] = 8,
+    # 🎨 逐字高亮开关
+    word_by_word_highlight: bool = True,
 ):
     """
     从 timeline.json 进行最终合成
@@ -716,6 +722,8 @@ def compose_from_timeline(
                     background_color=background_color,
                     background_padding=background_padding,
                     background_radius=background_radius,
+                    # 🎨 逐字高亮开关
+                    word_by_word_highlight=word_by_word_highlight,
                 )
                 
                 # 复制 resync JSON 到指定路径（如果提供了）
@@ -771,6 +779,8 @@ def compose_from_timeline(
                 background_color=background_color,
                 background_padding=background_padding,
                 background_radius=background_radius,
+                # 🎨 逐字高亮开关
+                word_by_word_highlight=word_by_word_highlight,
             )
 
             # 🆕 关键：把 work_dir 里的 subtitled.ass 拷贝到指定路径
