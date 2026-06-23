@@ -187,9 +187,19 @@ def run_compose_from_draft_task(task_id: str, payload: dict, trace_id: str, merc
         video_height = 1920  # 默认竖屏高度
         try:
             from video_utils import get_video_info
-            video_info = get_video_info(cleaned_video)
-            video_height = video_info.get("height", 1920)
-            print(f"🎨 [视频信息] 分辨率：{video_info.get('width')}x{video_height}")
+            # 从 parts 中获取第一个视频文件
+            first_video = None
+            for part_key in sorted(parts.keys()):
+                part_info = parts[part_key]
+                if isinstance(part_info, dict) and part_info.get("video_url"):
+                    first_video = os.path.join(input_dir, os.path.basename(part_info["video_url"]))
+                    break
+            if first_video and os.path.exists(first_video):
+                video_info = get_video_info(first_video)
+                video_height = video_info.get("height", 1920)
+                print(f"🎨 [视频信息] 分辨率：{video_info.get('width')}x{video_height}")
+            else:
+                print(f"⚠️ 未找到视频文件，使用默认高度 1920")
         except Exception as e:
             print(f"⚠️ 无法获取视频分辨率，使用默认高度 1920: {e}")
         

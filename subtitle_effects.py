@@ -224,17 +224,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         # 模式 1：逐字高亮 - 整句显示，念到哪个字哪个字就变大变色
         # 参考 fa2024e5 之前的 _eff_highlight 实现
         # 每个时间点生成一条完整字幕，当前字高亮放大，其他字普通显示
+        # 🎨 注意：不使用 \pos 标签，让字幕使用 Style 中定义的 alignment 和 margin_v
+        #        前端的位置参数（y_offset/x_offset）已经转换成 margin_v 和 alignment
         for seg in segments:
             words = seg["words"]
             if not words:
                 continue
             
             full_text = seg["text"]
-            
-            # 构建坐标前缀
-            pos_prefix = ""
-            if final_x is not None and final_y is not None:
-                pos_prefix = "{\\pos(" + str(final_x) + "," + str(final_y) + ")}"
             
             # 🎨 颜色格式转换（提取 BGR 部分）
             if highlight_color.startswith("&H") and highlight_color.endswith("&"):
@@ -268,13 +265,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 
                 line_text = "".join(line_parts)
                 
-                # 添加淡入淡出
+                # 添加淡入淡出（首尾字）
                 if i == 0:
-                    line_text = "{\\fad(200,0)}" + pos_prefix + line_text
+                    line_text = "{\\fad(200,0)}" + line_text
                 elif i == len(words) - 1:
-                    line_text = "{\\fad(0,300)}" + pos_prefix + line_text
-                else:
-                    line_text = pos_prefix + line_text
+                    line_text = "{\\fad(0,300)}" + line_text
                 
                 # 计算时间：当前字开始 -> 下一个字开始（或当前字结束 + 缓冲）
                 start_t = w["start"]
