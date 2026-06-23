@@ -186,7 +186,7 @@ function TrainPersonDialog({ onClose, onTrainingComplete, apiKey, vfs }) {
   const [showFileBrowser, setShowFileBrowser] = useState(false)
   
   // VFS 简化文件浏览器状态
-  const [vfsBrowserPath, setVfsBrowserPath] = useState('/projects')
+  const [vfsBrowserPath, setVfsBrowserPath] = useState('/')
   const [vfsBrowserItems, setVfsBrowserItems] = useState([])
   const [vfsBrowserLoading, setVfsBrowserLoading] = useState(false)
   

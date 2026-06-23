@@ -32,6 +32,8 @@ function TailwindProgressBar({ progress, status }) {
 function TaskCard({ task, vfs }) {
   const [downloadProgress, setDownloadProgress] = useState(null)
   const [isDownloading, setIsDownloading] = useState(false)
+  const [savedVideoPath, setSavedVideoPath] = useState(null)
+  const [showPlayer, setShowPlayer] = useState(false)
   
   const stageLabels = {
     idle: '等待中',
@@ -150,6 +152,7 @@ function TaskCard({ task, vfs }) {
         
         setDownloadProgress(100)
         setTimeout(() => {
+          setSavedVideoPath(outputPath)
           alert(`视频已保存到：${outputPath}`)
           setIsDownloading(false)
           setDownloadProgress(null)
@@ -210,6 +213,30 @@ function TaskCard({ task, vfs }) {
                     下载中... {downloadProgress || 0}%
                   </p>
                 </div>
+              ) : savedVideoPath ? (
+                <>
+                  <button
+                    className="w-full py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 text-sm font-medium rounded-lg transition-colors border border-blue-200 flex items-center justify-center gap-2"
+                    onClick={() => setShowPlayer(true)}
+                    title="播放已保存的视频"
+                  >
+                    <Clapperboard size={14} style={{ display: 'inline', verticalAlign: 'middle' }} /> 播放视频
+                  </button>
+                  <button
+                    className="w-full py-2 bg-green-50 hover:bg-green-100 text-green-700 text-sm font-medium rounded-lg transition-colors border border-green-200 flex items-center justify-center gap-2"
+                    onClick={() => handleDownload(true)}
+                    title="重新保存到 VFS 项目输出文件夹"
+                  >
+                    <Folder size={14} style={{ display: 'inline', verticalAlign: 'middle' }} /> 重新保存
+                  </button>
+                  <button
+                    className="w-full py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 text-sm font-medium rounded-lg transition-colors border border-slate-200 flex items-center justify-center gap-2"
+                    onClick={() => handleDownload(false)}
+                    title="直接在浏览器中下载"
+                  >
+                    <Download size={14} style={{ display: 'inline', verticalAlign: 'middle' }} /> 浏览器下载
+                  </button>
+                </>
               ) : (
                 <>
                   <button
@@ -230,7 +257,33 @@ function TaskCard({ task, vfs }) {
               )}
             </div>
           )}
-        </div>
+        
+        {/* 视频播放器弹窗 */}
+        {showPlayer && savedVideoPath && (
+          <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50" onClick={() => setShowPlayer(false)}>
+            <div className="bg-white rounded-xl p-4 max-w-4xl w-full mx-4" onClick={e => e.stopPropagation()}>
+              <div className="flex justify-between items-center mb-3">
+                <h3 className="font-bold text-lg">视频预览</h3>
+                <button 
+                  className="p-2 hover:bg-slate-100 rounded-lg"
+                  onClick={() => setShowPlayer(false)}
+                >
+                  <X size={20} />
+                </button>
+              </div>
+              <video 
+                controls 
+                autoPlay 
+                className="w-full rounded-lg"
+                src={vfs.getFileUrl(savedVideoPath)}
+              >
+                您的浏览器不支持视频播放
+              </video>
+              <p className="text-xs text-slate-500 mt-2">路径：{savedVideoPath}</p>
+            </div>
+          </div>
+        )}
+      </div>
   )
 }
 
@@ -258,14 +311,9 @@ const getLabelTip = (label) => {
 // --- 文件选择器组件（简化版）---
 function FileSelector({ label, vfs, selectedFile, onSelect, accept, disabled, multiple = false, allowDirectorySelection = false }) {
   const [showBrowser, setShowBrowser] = useState(false)
-  // 根据 label 类型设置默认路径：场景相关文件默认在根目录，其他在 /projects
+  // 根据 label 类型设置默认路径：全部默认为根目录
   const getDefaultPath = () => {
-    if (label.includes('场景文件夹')) return '/'
-    if (label.includes('数字人视频')) return '/'
-    if (label.includes('脚本文件')) return '/'
-    if (label.includes('背景音乐')) return '/'
-    if (label.includes('全局修正')) return '/'
-    return '/projects'
+    return '/'
   }
   const [browserPath, setBrowserPath] = useState(getDefaultPath())
   const [browserItems, setBrowserItems] = useState([])
@@ -398,10 +446,7 @@ function FileSelector({ label, vfs, selectedFile, onSelect, accept, disabled, mu
             
             <div className="p-4 border-b border-slate-100 flex justify-between items-center gap-2">
               <div className="flex items-center gap-2 flex-1">
-                <button className="px-3 py-1.5 text-sm bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1" onClick={() => loadDirectory('/projects')}><Folder size={14} />项目</button>
-                <button className="px-3 py-1.5 text-sm bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1" onClick={() => loadDirectory('/drafts')}><FileText size={14} />草稿</button>
-                <button className="px-3 py-1.5 text-sm bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1" onClick={() => loadDirectory('/audio')}><Music size={14} />音频</button>
-                <div className="w-px h-4 bg-slate-300" />
+                <button className="px-3 py-1.5 text-sm bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1" onClick={() => loadDirectory('/')}><Folder size={14} />根目录</button>
                 <button 
                   className="px-3 py-1.5 text-sm bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1 disabled:opacity-50"
                   onClick={() => {

@@ -552,9 +552,9 @@ function ProjectSidebar({ vfs, currentPath, onNavigate }) {
         <span className="sidebar-section-title">快速访问</span>
         <button 
           className="quick-nav-item"
-          onClick={() => onNavigate('/projects')}
+          onClick={() => onNavigate('/')}
         >
-          <FolderOpen size={14} /> 全部项目
+          <FolderOpen size={14} /> 根目录
         </button>
       </div>
     </div>
@@ -1189,7 +1189,7 @@ function StorageInfo({ vfs }) {
 // =====================================================
 // 主文件浏览器组件
 // =====================================================
-function FileBrowser({ vfs, onFileSelect, onFileOpen, className, initialPath = '/projects' }) {
+function FileBrowser({ vfs, onFileSelect, onFileOpen, className, initialPath = '/' }) {
   const [currentPath, setCurrentPath] = useState(initialPath)
   const [items, setItems] = useState([])
   const [selectedFile, setSelectedFile] = useState(null)
@@ -1217,17 +1217,17 @@ function FileBrowser({ vfs, onFileSelect, onFileOpen, className, initialPath = '
       
       // 如果没有指定 initialPath，尝试从 VFS 获取保存的路径
       if (!targetPath) {
-        targetPath = vfs.currentPath || '/projects'
+        targetPath = vfs.currentPath || '/'
       }
       
       // 确保目标路径存在
       if (targetPath && !vfs.exists(targetPath)) {
         try {
-          // 尝试创建路径，如果失败则回退到 /projects
+          // 尝试创建路径，如果失败则回退到根路径
           await vfs.mkdir(targetPath, true)
         } catch (e) {
           console.error('创建初始路径失败:', e)
-          targetPath = '/projects'
+          targetPath = '/'
         }
       }
       
@@ -1237,7 +1237,7 @@ function FileBrowser({ vfs, onFileSelect, onFileOpen, className, initialPath = '
           setCurrentPath(vfs.pwd())
         } catch (e) {
           console.error('初始化路径失败:', e)
-          setCurrentPath('/projects')
+          setCurrentPath('/')
         }
       }
     }
