@@ -151,11 +151,15 @@ def run_compose_from_draft_task(task_id: str, payload: dict, trace_id: str, merc
         alignment = _resolve_position_to_alignment(position)
         
         # 🎨 使用与前端 service_runner.py 一致的 margin_v 计算逻辑
-        # 前端 y_offset: -100~100 百分比，0 是基准位置
-        y_offset_pct = float(subtitle.get("y_offset", 0))
+        # 前端 y_offset: -100~100 百分比，0 是基准位置，负数向下，正数向上
+        y_offset_pct = float(subtitle.get("y_offset", subtitle.get("offset_y", 0)))
         offset_x = int(subtitle.get("x_offset", subtitle.get("offset_x", 0)))
         
+        print(f"🎨 [字幕参数] position={position}, y_offset={y_offset_pct}, x_offset={offset_x}")
+        
         # 计算前端的 topPercent (从顶部的百分比位置)
+        # 前端逻辑：topPercent = baseYPercent - (y_offset / 2)
+        # y_offset=-80 → topPercent = 50 - (-80/2) = 50 + 40 = 90% (靠近底部)
         if position == "top":
             base_y_percent = 25
         else:  # bottom, center, custom
@@ -163,7 +167,11 @@ def run_compose_from_draft_task(task_id: str, payload: dict, trace_id: str, merc
         
         top_percent = base_y_percent - (y_offset_pct / 2)
         
+        print(f"🎨 [字幕参数] base_y_percent={base_y_percent}, top_percent={top_percent}%")
+        
         # 根据 alignment 计算 ASS margin_v (从屏幕边缘的距离)
+        # alignment=2 (底部对齐): margin_v = (100 - topPercent) * video_height / 100
+        # topPercent=90% → margin_v = (100-90) * 1080 / 100 = 108px (距离底部 108px)
         if alignment in [7, 8, 9]:  # 顶部对齐
             actual_margin_v = int(top_percent * 1080 / 100)
         elif alignment in [1, 2, 3]:  # 底部对齐
@@ -172,6 +180,7 @@ def run_compose_from_draft_task(task_id: str, payload: dict, trace_id: str, merc
             actual_margin_v = int(top_percent * 1080 / 100)
         
         actual_margin_v = max(0, actual_margin_v)
+        print(f"🎨 [字幕参数] alignment={alignment}, actual_margin_v={actual_margin_v}px")
         
         # 🎨 与前端统一的字幕样式参数 - 颜色格式转换
         # 前端 color 是 HEX 格式 (#FFFF00)，需要转换为 ASS 格式 (&HAABBGGRR)

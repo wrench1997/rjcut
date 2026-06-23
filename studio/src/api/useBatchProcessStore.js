@@ -234,6 +234,9 @@ await vfs.init()
       updateTask(taskId, { stage: 'composing', progress: 70 })
       
       // 使用全局参数配置（如果提供），否则使用默认值
+      // 🎨 关键：必须使用用户在 GlobalParamsVisualEditor.jsx 中调整的实际参数
+      console.log('[BatchProcess] globalParams:', JSON.stringify(globalParams, null, 2))
+      
       const composeReq = {
         draft_task_id: draftTaskId,
         pipeline: globalParams?.pipeline || {
@@ -244,10 +247,10 @@ await vfs.init()
         },
         subtitle: globalParams?.subtitle || {
           effect: "ad",
-          font_size: 72,  // 🎨 与 GlobalParamsVisualEditor.jsx 默认值统一
+          font_size: 72,
           position: "bottom",
           x_offset: 0,
-          y_offset: -80,
+          y_offset: -80,  // 前端：负数向下，正数向上
           color: "#FFFF00",
           stroke_color: "#000000",
           stroke_width: 3,
