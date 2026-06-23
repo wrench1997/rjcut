@@ -59,15 +59,7 @@ def resolve_position_to_alignment(position: str) -> int:
     return mapping.get(position, 2)
 
 
-def calc_actual_margin_v(position: str, margin_v: int, offset_y: int) -> int:
-    alignment = resolve_position_to_alignment(position)
-    actual_margin_v = margin_v
-    if offset_y != 0:
-        if alignment in [7, 8, 9]:
-            actual_margin_v = max(0, margin_v + offset_y)
-        elif alignment in [1, 2, 3]:
-            actual_margin_v = max(0, margin_v - offset_y)
-    return actual_margin_v
+# calc_actual_margin_v 函数已废弃，改用 topPercent 计算逻辑（与前端 GlobalParamsVisualEditor.jsx 一致）
 
 def hex_to_ass_color(hex_color: str) -> str:
     """
@@ -176,7 +168,7 @@ def convert_subtitle_params(subtitle: dict, video_width: int = 1920, video_heigh
     # 5. x_offset 转换为像素偏移
     offset_x = int(x_offset_pct * video_width / 100)
 
-    # 6. offset_y 设为 0，因为位置已经通过 margin_v 精确计算
+    # 6. offset_y 设为 0，因为垂直位置已经通过 margin_v 精确计算（前端 y_offset → topPercent → margin_v）
     offset_y = 0
 
     # 7. color → highlight_color (前端 HEX → 后端 ASS 格式)
@@ -191,15 +183,15 @@ def convert_subtitle_params(subtitle: dict, video_width: int = 1920, video_heigh
     background_color_raw = subtitle.get("background_color", "rgba(0, 0, 0, 0.4)")
     background_color = rgba_to_ass_color(background_color_raw) if background_color_raw else None
 
-    print(f"  🎨 字幕参数转换：position={position}, alignment={alignment}, top_percent={top_percent:.1f}%, margin_v={margin_v}px, offset_x={offset_x}px")
+    print(f"  🎨 字幕参数转换：position={position}, alignment={alignment}, top_percent={top_percent:.1f}%, margin_v={margin_v}px, x_offset={offset_x}px")
 
     return {
         "alignment": alignment,
         "margin_v": margin_v,
         "margin_l": int(subtitle.get("margin_l", 10)),
         "margin_r": int(subtitle.get("margin_r", 10)),
-        "offset_x": offset_x,
-        "offset_y": offset_y,
+        "x_offset": offset_x,  # 水平偏移像素（前端 x_offset 转换）
+        "y_offset": 0,  # 垂直位置已通过 margin_v 精确计算，此处设为 0
         "highlight_color": highlight_color,
         "font_size": int(subtitle.get("font_size", 72)),
         "effect": subtitle.get("effect", "ad"),
@@ -377,8 +369,8 @@ def run_agent_compose_task(task_id: str, payload: dict, trace_id: str):
                 margin_v=subtitle_params["margin_v"],
                 margin_l=subtitle_params["margin_l"],
                 margin_r=subtitle_params["margin_r"],
-                offset_x=subtitle_params["offset_x"],
-                offset_y=subtitle_params["offset_y"],
+                x_offset=subtitle_params["x_offset"],
+                y_offset=subtitle_params["y_offset"],
                 corrections_file=corrections_path,
                 # 🆕 Task 1: 纯场景模式参数
                 mode=pipeline_mode,

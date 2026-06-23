@@ -126,11 +126,27 @@ def run_agent_compose_task(task_id: str, payload: dict, trace_id: str, merchant_
             subtitle = payload.get("subtitle", {})
             position = subtitle.get("position", "bottom")
             alignment = _resolve_position_to_alignment(position)
-            actual_margin_v = _calc_actual_margin_v(
-                position=position,
-                margin_v=int(subtitle.get("margin_v", 50)),
-                offset_y=int(subtitle.get("offset_y", 0)),
-            )
+            
+            # 🎨 使用与前端 service_runner.py 一致的 margin_v 计算逻辑
+            y_offset_pct = float(subtitle.get("y_offset", subtitle.get("offset_y", 0)))
+            
+            # 计算前端的 topPercent
+            if position == "top":
+                base_y_percent = 25
+            else:
+                base_y_percent = 50
+            
+            top_percent = base_y_percent - (y_offset_pct / 2)
+            
+            # 根据 alignment 计算 ASS margin_v
+            if alignment in [7, 8, 9]:
+                actual_margin_v = int(top_percent * 1080 / 100)
+            elif alignment in [1, 2, 3]:
+                actual_margin_v = int((100 - top_percent) * 1080 / 100)
+            else:
+                actual_margin_v = int(top_percent * 1080 / 100)
+            
+            actual_margin_v = max(0, actual_margin_v)
 
             compose_from_timeline(
                 timeline_path=timeline_json,
@@ -145,15 +161,15 @@ def run_agent_compose_task(task_id: str, payload: dict, trace_id: str, merchant_
                 language=payload.get("asr", {}).get("language", "zh"),
                 effect=subtitle.get("effect", "ad"),
                 font_file=context.font_path,
-                font_size=int(subtitle.get("font_size", 72)),  # 🎨 与前端 GlobalParamsVisualEditor.jsx 默认值统一
-                highlight_color=subtitle.get("color", "#FFFF00"),  # 🎨 使用前端 color 参数
+                font_size=int(subtitle.get("font_size", 72)),
+                highlight_color=subtitle.get("color", "#FFFF00"),
                 max_chars_per_line=int(subtitle.get("max_chars_per_line", 18)),
                 alignment=alignment,
                 margin_v=actual_margin_v,
                 margin_l=int(subtitle.get("margin_l", 10)),
                 margin_r=int(subtitle.get("margin_r", 10)),
-                offset_x=int(subtitle.get("offset_x", 0)),
-                offset_y=int(subtitle.get("offset_y", 0)),
+                x_offset=int(subtitle.get("x_offset", subtitle.get("offset_x", 0))),
+                y_offset=0,  # 垂直位置已通过 margin_v 精确计算
                 corrections_file=context.corrections_path,
                 # 🎨 传递字幕样式参数到 lip_sync.py
                 stroke_color=subtitle.get("stroke_color", "#000000"),

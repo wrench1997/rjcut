@@ -182,8 +182,8 @@ def resync_subtitle(
     margin_v: int = 50,
     margin_l: int = 10,
     margin_r: int = 10,
-    offset_x: int = 0,
-    offset_y: int = 0,
+    x_offset: int = 0,  # 水平偏移像素（前端 x_offset 转换）
+    y_offset: int = 0,  # 垂直位置已通过 margin_v 精确计算，此处设为 0
     corrections: Optional[Dict[str, str]] = None,
     corrections_file: Optional[str] = None,
     ad_keywords: Optional[List[str]] = None,
@@ -223,8 +223,8 @@ def resync_subtitle(
     try:
         print(f"\n  🎬 烧录逐字字幕 (特效: {effect}) ...")
 
-        actual_margin_l = margin_l + (offset_x if offset_x > 0 else 0)
-        actual_margin_r = margin_r + (abs(offset_x) if offset_x < 0 else 0)
+        actual_margin_l = margin_l + (x_offset if x_offset > 0 else 0)
+        actual_margin_r = margin_r + (abs(x_offset) if x_offset < 0 else 0)
 
         burn_whisper_subtitle(
             input_video=input_video,
@@ -240,8 +240,8 @@ def resync_subtitle(
             margin_v=margin_v,
             margin_l=actual_margin_l,
             margin_r=actual_margin_r,
-            offset_x=offset_x,
-            offset_y=offset_y,
+            x_offset=x_offset,
+            y_offset=y_offset,
             corrections=corrections,
             corrections_file=corrections_file,
             ad_keywords=ad_keywords,
@@ -580,8 +580,8 @@ def compose_from_timeline(
     margin_v: int = 50,
     margin_l: int = 10,
     margin_r: int = 10,
-    offset_x: int = 0,
-    offset_y: int = 0,  # 像素，正数向上
+    x_offset: int = 0,  # 水平偏移像素（前端 x_offset 转换）
+    y_offset: int = 0,  # 垂直位置已通过 margin_v 精确计算，此处设为 0
     corrections_file: Optional[str] = None,
     bgm_url: Optional[str] = None,
     bgm_volume: float = 0.3,
@@ -689,8 +689,8 @@ def compose_from_timeline(
             tmp_subtitle_json.close()
             
             try:
-                actual_margin_l = margin_l + (offset_x if offset_x > 0 else 0)
-                actual_margin_r = margin_r + (abs(offset_x) if offset_x < 0 else 0)
+                actual_margin_l = margin_l + (x_offset if x_offset > 0 else 0)
+                actual_margin_r = margin_r + (abs(x_offset) if x_offset < 0 else 0)
                 
                 burn_whisper_subtitle(
                     input_video=tmp_merged,
@@ -706,8 +706,8 @@ def compose_from_timeline(
                     margin_v=margin_v,
                     margin_l=actual_margin_l,
                     margin_r=actual_margin_r,
-                    offset_x=offset_x,
-                    offset_y=offset_y,
+                    x_offset=x_offset,
+                    y_offset=y_offset,
                     corrections_file=corrections_file,
                     ad_keywords=ad_keywords,
                     # 🎨 与前端统一的字幕样式参数
@@ -759,8 +759,8 @@ def compose_from_timeline(
                 margin_v=margin_v,
                 margin_l=margin_l,
                 margin_r=margin_r,
-                offset_x=offset_x,
-                offset_y=offset_y,
+                x_offset=x_offset,
+                y_offset=y_offset,
                 corrections_file=corrections_file,
                 ad_keywords=ad_keywords,
                 # 🆕 关键：把 resync json 写到指定路径
@@ -843,8 +843,8 @@ def main():
     sg.add_argument("--margin-v", type=int, default=50)
     sg.add_argument("--margin-l", type=int, default=10)
     sg.add_argument("--margin-r", type=int, default=10)
-    sg.add_argument("--offset-x", type=int, default=0)
-    sg.add_argument("--offset-y", type=int, default=0)
+    sg.add_argument("--x-offset", type=int, default=0, dest="x_offset")
+    sg.add_argument("--y-offset", type=int, default=0, dest="y_offset")
     sg.add_argument("--corrections", default=None)
 
     tg = parser.add_argument_group("🎬 时间线合成")
@@ -868,12 +868,9 @@ def main():
     elif args.position == "middle":
         alignment = 5
 
+    # CLI 中的 offset_y 处理逻辑已废弃，垂直位置应通过 margin_v 直接控制
+    # 此处保留兼容性，但建议用户使用 margin_v 直接设置
     actual_margin_v = args.margin_v
-    if args.offset_y != 0:
-        if alignment in [7, 8, 9]:
-            actual_margin_v = max(0, args.margin_v + args.offset_y)
-        elif alignment in [1, 2, 3]:
-            actual_margin_v = max(0, args.margin_v - args.offset_y)
 
     if args.compare:
         for jp in args.compare:
@@ -912,8 +909,8 @@ def main():
             margin_v=actual_margin_v,
             margin_l=args.margin_l,
             margin_r=args.margin_r,
-            offset_x=args.offset_x,
-            offset_y=args.offset_y,
+            x_offset=args.x_offset if hasattr(args, 'x_offset') else 0,
+            y_offset=args.y_offset if hasattr(args, 'y_offset') else 0,
             corrections_file=args.corrections,
         )
         print("✅ 时间线合成完成")
@@ -985,8 +982,8 @@ def main():
         margin_v=actual_margin_v,
         margin_l=args.margin_l,
         margin_r=args.margin_r,
-        offset_x=args.offset_x,
-        offset_y=args.offset_y,
+        x_offset=args.x_offset,
+        y_offset=args.y_offset,
         corrections_file=args.corrections,
         ad_keywords=[],
     )

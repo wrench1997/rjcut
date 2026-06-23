@@ -38,8 +38,8 @@ class SubtitleConfig(BaseModel):
     margin_v: int = 50
     margin_l: int = 10
     margin_r: int = 10
-    offset_x: int = 0
-    offset_y: int = 0
+    x_offset: int = 0  # 水平偏移像素（前端 x_offset 转换）
+    y_offset: int = 0  # 垂直位置已通过 margin_v 精确计算，此处设为 0
 
 
 class OutputConfig(BaseModel):

@@ -232,9 +232,10 @@ def run_compose_from_draft_task(task_id: str, payload: dict, trace_id: str, merc
             margin_v=actual_margin_v,
             margin_l=int(subtitle.get("margin_l", 10)),
             margin_r=int(subtitle.get("margin_r", 10)),
-            # 兼容前端字段名：优先使用 x_offset/y_offset，其次兼容 offset_x/offset_y
-            offset_x=offset_x,
-            offset_y=offset_y,
+            # x_offset: 水平偏移像素（前端 x_offset 转换）
+            x_offset=offset_x,
+            # y_offset: 设为 0，垂直位置已通过 margin_v 精确计算（前端 y_offset → topPercent → margin_v）
+            y_offset=0,
             corrections_file=corrections_file,
             bgm_url=bgm_path,
             bgm_volume=float(audio_config.get("bgm_volume", 0.3)),

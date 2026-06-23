@@ -102,8 +102,8 @@ def generate_word_ass(
     margin_v: int = 50,
     margin_l: int = 10,
     margin_r: int = 10,
-    offset_x: int = 0,
-    offset_y: int = 0,
+    x_offset: int = 0,  # 水平偏移像素（前端 x_offset 转换）
+    y_offset: int = 0,  # 垂直位置已通过 margin_v 精确计算，此处设为 0
     alignment: int = 2,
     highlight_color: str = "&H0000DDFF",
     base_color: str = "&H00FFFFFF",
@@ -159,17 +159,17 @@ def generate_word_ass(
         margin_r = margin_r + background_padding
         margin_v = margin_v + background_padding
 
-    # 🎨 offset_y 处理说明
+    # 🎨 y_offset 处理说明
     # 注意：margin_v 已经由上层（service_runner.py 或 compose_from_draft.py）根据前端 y_offset 百分比精确计算
-    # 此处的 offset_y 参数仅用于额外的微调（默认应为 0）
-    # 如果 offset_y 不为 0，则在此基础上叠加偏移
-    if offset_y != 0:
+    # 此处的 y_offset 参数仅用于额外的微调（默认应为 0）
+    # 如果 y_offset 不为 0，则在此基础上叠加偏移
+    if y_offset != 0:
         if alignment in [7, 8, 9]:  # 顶部对齐 (alignment=8)
-            # offset_y 正数向上 = 远离顶部 = margin_v 增加
-            margin_v = max(0, margin_v + offset_y)
+            # y_offset 正数向上 = 远离顶部 = margin_v 增加
+            margin_v = max(0, margin_v + y_offset)
         elif alignment in [1, 2, 3]:  # 底部对齐 (alignment=2)
-            # offset_y 正数向上 = 远离底部 = margin_v 增加
-            margin_v = max(0, margin_v + offset_y)
+            # y_offset 正数向上 = 远离底部 = margin_v 增加
+            margin_v = max(0, margin_v + y_offset)
 
     header = f"""[Script Info]
 Title: Word-Sync Subtitles
@@ -667,8 +667,8 @@ def burn_whisper_subtitle(
     margin_v: int = 50,
     margin_l: int = 10,
     margin_r: int = 10,
-    offset_x: int = 0,
-    offset_y: int = 0,
+    x_offset: int = 0,  # 水平偏移像素（前端 x_offset 转换）
+    y_offset: int = 0,  # 垂直位置已通过 margin_v 精确计算，此处设为 0
     corrections: Optional[Dict[str, str]] = None,
     corrections_file: Optional[str] = None,
     ad_keywords: Optional[List[str]] = None,
@@ -761,8 +761,8 @@ def burn_whisper_subtitle(
             margin_v=margin_v,
             margin_l=margin_l,
             margin_r=margin_r,
-            offset_x=offset_x,
-            offset_y=offset_y,
+            x_offset=x_offset,
+            y_offset=y_offset,
             ad_keywords=ad_keywords,
             max_chars_per_line=max_chars_per_line,
             bold=prefer_bold,  # 关键：不再无脑强制粗体

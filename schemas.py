@@ -43,9 +43,9 @@ class SubtitleConfig(BaseModel):
     margin_v: int = 50
     margin_l: int = 10
     margin_r: int = 10
-    # 支持前端字段名 x_offset/y_offset（使用 alias 兼容两种命名）
-    offset_x: int = Field(0, alias="x_offset")
-    offset_y: int = Field(0, alias="y_offset")
+    # 使用前端字段名 x_offset/y_offset（使用 alias 兼容旧的 offset_x/offset_y）
+    x_offset: int = Field(0, alias="offset_x")
+    y_offset: int = Field(0, alias="offset_y")
     
     class Config:
         populate_by_name = True  # 允许使用字段名或别名
