@@ -173,8 +173,8 @@ def resync_subtitle(
     language: str = "zh",
     effect: str = "ad",
     font_file: Optional[str] = None,
-    font_size: int = 72,  # 🎨 与前端 GlobalParamsVisualEditor.jsx 默认值统一
-    highlight_color: str = "#FFFF00",  # 🎨 与前端 color: '#FFFF00' 统一
+    font_size: int = 72,
+    highlight_color: str = "&H0000FFFF",  # ASS 格式 (&HAABBGGRR)
     filter_transition: bool = True,
     max_chars_per_line: int = 18,
     save_json: bool = True,
@@ -183,18 +183,18 @@ def resync_subtitle(
     margin_l: int = 10,
     margin_r: int = 10,
     offset_x: int = 0,
-    offset_y: int = 40,  # 🎨 与前端 y_offset: -80% 统一 (80% * 1080 / 200 ≈ 40px)
+    offset_y: int = 0,
     corrections: Optional[Dict[str, str]] = None,
     corrections_file: Optional[str] = None,
     ad_keywords: Optional[List[str]] = None,
     # 🆕 新增：明确指定 resync json 输出路径
     resync_json_path: Optional[str] = None,
-    # 🎨 与前端统一的字幕样式参数
-    stroke_color: Optional[str] = "#000000",  # 🎨 与前端 stroke_color: '#000000' 统一
-    stroke_width: Optional[int] = 3,  # 🎨 与前端 stroke_width: 3 统一
-    background_color: Optional[str] = "rgba(0, 0, 0, 0.4)",  # 🎨 与前端 background_color 统一
-    background_padding: Optional[int] = 8,  # 🎨 与前端 background_padding: 8 统一
-    background_radius: Optional[int] = 8,  # 🎨 与前端 background_radius: 8 统一
+    # 🎨 与前端统一的字幕样式参数 (ASS 格式)
+    stroke_color: Optional[str] = "&H00000000",  # ASS 格式
+    stroke_width: Optional[int] = 3,
+    background_color: Optional[str] = "&H80000000",  # ASS 格式
+    background_padding: Optional[int] = 8,
+    background_radius: Optional[int] = 8,
 ) -> str:
     from subtitle_effects import burn_whisper_subtitle
 
@@ -571,17 +571,17 @@ def compose_from_timeline(
     model_size: str = "medium",
     device: str = "cpu",
     language: str = "zh",
-    effect: str = "ad",  # 🎨 与前端 GlobalParamsVisualEditor.jsx 默认值统一
+    effect: str = "ad",
     font_file: Optional[str] = None,
-    font_size: int = 72,  # 🎨 与前端 font_size: 72 统一
-    highlight_color: str = "#FFFF00",  # 🎨 与前端 color: '#FFFF00' 统一
+    font_size: int = 72,
+    highlight_color: str = "&H0000FFFF",  # ASS 格式 (&HAABBGGRR)
     max_chars_per_line: int = 18,
     alignment: int = 2,
     margin_v: int = 50,
     margin_l: int = 10,
     margin_r: int = 10,
     offset_x: int = 0,
-    offset_y: int = 40,  # 🎨 与前端 y_offset: -80% 统一
+    offset_y: int = 0,  # 像素，正数向上
     corrections_file: Optional[str] = None,
     bgm_url: Optional[str] = None,
     bgm_volume: float = 0.3,
@@ -596,12 +596,12 @@ def compose_from_timeline(
     # 🆕 Task 1: pipeline.mode 支持纯场景模式
     mode: str = "normal",
     subtitle_json: Optional[str] = None,
-    # 🎨 与前端统一的字幕样式参数
-    stroke_color: Optional[str] = "#000000",  # 🎨 与前端 stroke_color: '#000000' 统一
-    stroke_width: Optional[int] = 3,  # 🎨 与前端 stroke_width: 3 统一
-    background_color: Optional[str] = "rgba(0, 0, 0, 0.4)",  # 🎨 与前端 background_color 统一
-    background_padding: Optional[int] = 8,  # 🎨 与前端 background_padding: 8 统一
-    background_radius: Optional[int] = 8,  # 🎨 与前端 background_radius: 8 统一
+    # 🎨 与前端统一的字幕样式参数 (ASS 格式)
+    stroke_color: Optional[str] = "&H00000000",  # ASS 格式
+    stroke_width: Optional[int] = 3,
+    background_color: Optional[str] = "&H80000000",  # ASS 格式
+    background_padding: Optional[int] = 8,
+    background_radius: Optional[int] = 8,
 ):
     """
     从 timeline.json 进行最终合成

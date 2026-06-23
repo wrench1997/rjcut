@@ -129,56 +129,81 @@ def convert_subtitle_params(subtitle: dict, video_width: int = 1920, video_heigh
     """
     将前端字幕参数转换为后端 burn_whisper_subtitle 接受的参数
     
-    参数映射：
+    参数映射逻辑：
     - position → alignment (bottom→2, center→5, top→8)
-    - x_offset (百分比) → offset_x (像素)
-    - y_offset (百分比) → offset_y + margin_v (结合 position 计算)
+    - y_offset + position → margin_v (ASS 从屏幕边缘的距离)
+    - x_offset → offset_x (水平偏移像素)
     - color (HEX) → highlight_color (ASS 格式)
     - stroke_color (HEX) → stroke_color (ASS 格式)
     - background_color (rgba/HEX) → background_color (ASS 格式)
-    - stroke_width, background_padding, background_radius 直接传递
+    
+    前端位置计算：
+    - top: baseYPercent=25, topPercent = 25 - y_offset/2
+    - bottom/custom: baseYPercent=50, topPercent = 50 - y_offset/2
+    - center: baseYPercent=50, topPercent = 50 - y_offset/2
+    
+    后端 ASS margin_v：
+    - alignment=2 (底部): margin_v = (100 - topPercent) * video_height / 100
+    - alignment=8 (顶部): margin_v = topPercent * video_height / 100
     """
     # 1. position → alignment
     position = subtitle.get("position", "bottom")
     alignment = resolve_position_to_alignment(position)
 
-    # 2. 百分比偏移 → 像素偏移
-    x_offset_pct = float(subtitle.get("x_offset", 0))
+    # 2. 获取前端 y_offset (百分比 -100~100)
     y_offset_pct = float(subtitle.get("y_offset", 0))
+    x_offset_pct = float(subtitle.get("x_offset", 0))
 
-    # x_offset: -100~100 → 像素（0 为中心）
-    offset_x = int(x_offset_pct * video_width / 200)
-
-    # y_offset: -100~100 → 像素（正数向上）
-    # 根据 position 计算实际 margin_v 和 offset_y
-    base_margin_v = int(subtitle.get("margin_v", 50))
+    # 3. 计算前端的 topPercent (从顶部的百分比位置)
+    if position == "top":
+        base_y_percent = 25
+    else:  # bottom, center, custom
+        base_y_percent = 50
     
-    # y_offset 百分比转像素（正数表示向上偏移）
-    offset_y = int(-y_offset_pct * video_height / 200)
+    top_percent = base_y_percent - (y_offset_pct / 2)
 
-    # 3. color → highlight_color (前端 HEX → 后端 ASS 格式)
+    # 4. 根据 alignment 计算 ASS margin_v (从屏幕边缘的距离)
+    if alignment in [7, 8, 9]:  # 顶部对齐
+        # margin_v 从顶部计算
+        margin_v = int(top_percent * video_height / 100)
+    elif alignment in [1, 2, 3]:  # 底部对齐
+        # margin_v 从底部计算 = (100 - topPercent) 的高度
+        margin_v = int((100 - top_percent) * video_height / 100)
+    else:  # 居中对齐 (alignment=5)
+        # 居中时使用 topPercent 计算
+        margin_v = int(top_percent * video_height / 100)
+
+    # 5. x_offset 转换为像素偏移
+    offset_x = int(x_offset_pct * video_width / 100)
+
+    # 6. offset_y 设为 0，因为位置已经通过 margin_v 精确计算
+    offset_y = 0
+
+    # 7. color → highlight_color (前端 HEX → 后端 ASS 格式)
     color = subtitle.get("color", "#FFFF00")
     highlight_color = hex_to_ass_color(color)
 
-    # 4. stroke_color: 前端 HEX → ASS 格式
+    # 8. stroke_color: 前端 HEX → ASS 格式
     stroke_color_raw = subtitle.get("stroke_color", "#000000")
     stroke_color = hex_to_ass_color(stroke_color_raw) if stroke_color_raw else None
 
-    # 5. background_color: 前端 rgba/HEX → ASS 格式
+    # 9. background_color: 前端 rgba/HEX → ASS 格式
     background_color_raw = subtitle.get("background_color", "rgba(0, 0, 0, 0.4)")
     background_color = rgba_to_ass_color(background_color_raw) if background_color_raw else None
 
+    print(f"  🎨 字幕参数转换：position={position}, alignment={alignment}, top_percent={top_percent:.1f}%, margin_v={margin_v}px, offset_x={offset_x}px")
+
     return {
         "alignment": alignment,
-        "margin_v": base_margin_v,
+        "margin_v": margin_v,
         "margin_l": int(subtitle.get("margin_l", 10)),
         "margin_r": int(subtitle.get("margin_r", 10)),
         "offset_x": offset_x,
         "offset_y": offset_y,
         "highlight_color": highlight_color,
-        "font_size": int(subtitle.get("font_size", 72)),  # 🎨 与前端 GlobalParamsVisualEditor.jsx 默认值统一
-        "effect": subtitle.get("effect", "ad"),  # 🎨 与前端默认值统一
-        # 🎨 新增：传递字幕样式参数到后端（已转换为 ASS 格式）
+        "font_size": int(subtitle.get("font_size", 72)),
+        "effect": subtitle.get("effect", "ad"),
+        # 🎨 传递字幕样式参数到后端（已转换为 ASS 格式）
         "stroke_color": stroke_color,
         "stroke_width": int(subtitle.get("stroke_width", 3)),
         "background_color": background_color,

@@ -159,6 +159,22 @@ def generate_word_ass(
         margin_r = margin_r + background_padding
         margin_v = margin_v + background_padding
 
+    # 🎨 应用 offset_y 到 margin_v（前端 y_offset 参数）
+    # 前端：y_offset 正数向上，负数向下（-100 到 100，0 是基准位置）
+    # 后端 offset_y：正数向上，负数向下（像素值）
+    # ASS margin_v：从屏幕边缘（底部/顶部）到字幕的距离
+    # 
+    # 关键：前端 y_offset=-80 表示向下 80%，对应后端需要增加 margin_v
+    if offset_y != 0:
+        if alignment in [7, 8, 9]:  # 顶部对齐 (alignment=8)
+            # offset_y 正数向上 = 远离顶部 = margin_v 增加
+            # offset_y 负数向下 = 靠近顶部 = margin_v 减小
+            margin_v = max(0, margin_v + offset_y)
+        elif alignment in [1, 2, 3]:  # 底部对齐 (alignment=2)
+            # offset_y 正数向上 = 远离底部 = margin_v 增加
+            # offset_y 负数向下 = 靠近底部 = margin_v 减小
+            margin_v = max(0, margin_v + offset_y)
+
     header = f"""[Script Info]
 Title: Word-Sync Subtitles
 ScriptType: v4.00+
