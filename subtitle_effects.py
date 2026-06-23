@@ -326,15 +326,18 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     print(f"     📄 ASS 字幕已生成：{output_path}")
     print(f"        共 {len(events)} 条字幕事件，{len(segments)} 段")
-    print(f"        🎨 [DEBUG] Style alignment={alignment}, margin_v={margin_v}")
-    # 打印完整的 Style 行和第一条 Dialogue 用于调试
+    print(f"        🎨 [DEBUG] alignment={alignment}, margin_v={margin_v}, margin_l={margin_l}, margin_r={margin_r}")
+    # 打印完整的 Style 行用于调试
     style_lines = header.split('\n')
     for line in style_lines:
         if line.startswith('Style:'):
             print(f"        🎨 [DEBUG] {line}")
             break
+    # 打印第一条和最后一条 Dialogue 用于调试
     if events:
-        print(f"        🎨 [DEBUG] Dialogue: {events[0]}")
+        print(f"        🎨 [DEBUG] First Dialogue: {events[0]}")
+        if len(events) > 1:
+            print(f"        🎨 [DEBUG] Last Dialogue: {events[-1]}")
     return output_path
 
 
@@ -475,15 +478,16 @@ def burn_whisper_subtitle(
 
         # ── 烧录 ASS ──
         esc_ass = _esc_filter_path(tmp_ass.name)
-        # 🎨 使用 force_style 覆盖 ASS 文件中的样式（确保 margin_v 和 alignment 生效）
-        vf = f"ass='{esc_ass}':force_style='Alignment={alignment},MarginV={margin_v}'"
+        # 🎨 ASS 文件中已包含正确的 alignment 和 margin_v，不需要 force_style
+        vf = f"ass='{esc_ass}'"
         if font_dir:
             esc_dir = _esc_filter_path(font_dir)
-            vf = f"ass='{esc_ass}':fontsdir='{esc_dir}':force_style='Alignment={alignment},MarginV={margin_v}'"
+            vf = f"ass='{esc_ass}':fontsdir='{esc_dir}'"
         print(f"        🎨 [FFmpeg] vf={vf}")
+        print(f"        🎨 [DEBUG] alignment={alignment}, margin_v={margin_v}")
 
         cmd = [
-            "ffmpeg", "-nostdin", "-y", "-hide_banner", "-loglevel", "warning",
+            "ffmpeg", "-nostdin", "-y", "-hide_banner", "-loglevel", "error",
             "-i", input_video,
             "-vf", vf,
             "-c:v", "libx264", "-preset", "fast", "-crf", "18",
@@ -491,7 +495,25 @@ def burn_whisper_subtitle(
             "-movflags", "+faststart",
             output_video,
         ]
-        subprocess.run(cmd, check=True, stdin=subprocess.DEVNULL)
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"        ❌ FFmpeg 错误：{result.stderr}")
+            # 尝试不带 fontsdir 的简化命令
+            vf_simple = f"ass='{esc_ass}'"
+            print(f"        🔄 尝试简化命令：vf={vf_simple}")
+            cmd_simple = [
+                "ffmpeg", "-nostdin", "-y", "-hide_banner", "-loglevel", "error",
+                "-i", input_video,
+                "-vf", vf_simple,
+                "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+                "-c:a", "copy",
+                "-movflags", "+faststart",
+                output_video,
+            ]
+            result_simple = subprocess.run(cmd_simple, capture_output=True, text=True)
+            if result_simple.returncode != 0:
+                print(f"        ❌ 简化命令也失败：{result_simple.stderr}")
+                raise subprocess.CalledProcessError(result_simple.returncode, cmd_simple)
 
     finally:
         debug_ass = output_video.rsplit(".", 1)[0] + ".ass"
