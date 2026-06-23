@@ -150,15 +150,28 @@ def run_compose_from_draft_task(task_id: str, payload: dict, trace_id: str, merc
         position = subtitle.get("position", "bottom")
         alignment = _resolve_position_to_alignment(position)
         
-        # 兼容前端字段名：优先使用 x_offset/y_offset，其次兼容 offset_x/offset_y
+        # 🎨 使用与前端 service_runner.py 一致的 margin_v 计算逻辑
+        # 前端 y_offset: -100~100 百分比，0 是基准位置
+        y_offset_pct = float(subtitle.get("y_offset", 0))
         offset_x = int(subtitle.get("x_offset", subtitle.get("offset_x", 0)))
-        offset_y = int(subtitle.get("y_offset", subtitle.get("offset_y", 0)))
         
-        actual_margin_v = _calc_actual_margin_v(
-            position=position,
-            margin_v=int(subtitle.get("margin_v", 50)),
-            offset_y=offset_y,
-        )
+        # 计算前端的 topPercent (从顶部的百分比位置)
+        if position == "top":
+            base_y_percent = 25
+        else:  # bottom, center, custom
+            base_y_percent = 50
+        
+        top_percent = base_y_percent - (y_offset_pct / 2)
+        
+        # 根据 alignment 计算 ASS margin_v (从屏幕边缘的距离)
+        if alignment in [7, 8, 9]:  # 顶部对齐
+            actual_margin_v = int(top_percent * 1080 / 100)
+        elif alignment in [1, 2, 3]:  # 底部对齐
+            actual_margin_v = int((100 - top_percent) * 1080 / 100)
+        else:  # 居中对齐 (alignment=5)
+            actual_margin_v = int(top_percent * 1080 / 100)
+        
+        actual_margin_v = max(0, actual_margin_v)
         
         # 🎨 与前端统一的字幕样式参数 - 颜色格式转换
         # 前端 color 是 HEX 格式 (#FFFF00)，需要转换为 ASS 格式 (&HAABBGGRR)

@@ -244,7 +244,7 @@ await vfs.init()
         },
         subtitle: globalParams?.subtitle || {
           effect: "ad",
-          font_size: 88,
+          font_size: 72,  // 🎨 与 GlobalParamsVisualEditor.jsx 默认值统一
           position: "bottom",
           x_offset: 0,
           y_offset: -80,
