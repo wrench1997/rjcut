@@ -96,7 +96,7 @@ def generate_word_ass(
     output_path: str,
     effect: str = "karaoke",
     font_name: str = "SimHei",
-    font_size: int = 52,
+    font_size: int = 72,  # 🎨 与前端 GlobalParamsVisualEditor.jsx 默认值统一
     res_x: int = 1080,   # 竖屏默认宽度
     res_y: int = 1920,   # 竖屏默认高度
     margin_v: int = 50,
@@ -112,7 +112,7 @@ def generate_word_ass(
     outline: int = 3,
     shadow: int = 2,
     ad_keywords: Optional[List[str]] = None,
-    max_chars_per_line: int = 12,
+    max_chars_per_line: int = 18,  # 🎨 与前端 max_chars_per_line 统一
     # === 新增：智能粗体控制 ===
     bold: bool = True,
     auto_disable_bold_for_light_fonts: bool = True,

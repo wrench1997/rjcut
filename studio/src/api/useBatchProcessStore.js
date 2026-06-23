@@ -258,7 +258,8 @@ await vfs.init()
           background_padding: 8,
           background_radius: 8,
           line_spacing: 1.3,
-          max_width: 95
+          max_width: 95,
+          max_chars_per_line: 18
         },
         audio: globalParams?.audio || {
           bgm_url: bgmOssKey || null,

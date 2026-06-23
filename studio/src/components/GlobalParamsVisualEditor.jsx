@@ -134,6 +134,7 @@ export const DEFAULT_CONFIG = {
     background_radius: 8,
     line_spacing: 1.3,
     max_width: 95,
+    max_chars_per_line: 18,  // 🎨 与后端统一的每行最大字符数
     background_border_width: 0,
     background_border_color: '#FFFFFF',
   },
@@ -992,6 +993,45 @@ export default function GlobalParamsVisualEditor({
                         <Plus className="w-3.5 h-3.5" />
                       </button>
                     </div>
+                  </div>
+
+                  {/* Input: Max Chars Per Line (Auto-wrap) */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-xs font-medium text-slate-700 flex items-center gap-1.5">
+                        <AlignLeft className="w-3.5 h-3.5 text-slate-400" />
+                        每行最大字符数
+                      </label>
+                      <span className="font-mono text-xs font-bold text-blue-600 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded">
+                        {config.subtitle.max_chars_per_line}字
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <button 
+                        onClick={() => updateConfig('subtitle', 'max_chars_per_line', Math.max(8, config.subtitle.max_chars_per_line - 2))}
+                        className="p-1.5 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg text-slate-600 transition-colors"
+                      >
+                        <Minus className="w-3.5 h-3.5" />
+                      </button>
+                      <input
+                        type="range"
+                        min="8"
+                        max="40"
+                        step="1"
+                        value={config.subtitle.max_chars_per_line}
+                        onChange={(e) => updateConfig('subtitle', 'max_chars_per_line', parseInt(e.target.value))}
+                        className="flex-1 accent-blue-500 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer"
+                      />
+                      <button 
+                        onClick={() => updateConfig('subtitle', 'max_chars_per_line', Math.min(40, config.subtitle.max_chars_per_line + 2))}
+                        className="p-1.5 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg text-slate-600 transition-colors"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-slate-500 mt-1.5">
+                      超过此字符数将自动换行，影响字幕切分密度
+                    </p>
                   </div>
 
                   {/* Dual Color Picker Blocks */}
