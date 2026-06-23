@@ -194,24 +194,31 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
         final_x = position_x
         final_y = position_y
     
+    # 🎨 前端字体大小缩放补偿
+    # 前端预览使用 scale = 300/1080 ≈ 0.278 或 640/1920 ≈ 0.333
+    # 但 ASS 是相对于视频分辨率的，所以 font_size=72 在 1080p 下就是 72px
+    # 问题：前端 CSS 有 letterSpacing: '0.08em' 和 lineHeight，ASS 需要补偿
+    # 经验值：ASS 字体需要放大 1.1~1.15 倍才能匹配前端视觉效果
+    adjusted_font_size = int(font_size * 1.12)  # 🎨 字体大小补偿系数
+    
     # 根据特效类型定义样式
     if effect == "karaoke":
         header += (
-            f"Style: Default,{font_name},{font_size},"
+            f"Style: Default,{font_name},{adjusted_font_size},"
             f"{highlight_color},{base_color},{outline_color},{back_color},"
             f"{bold_flag},0,0,0,100,100,1,0,1,{outline},{shadow},{alignment},"
             f"{margin_l},{margin_r},{margin_v},1\n"
         )
     elif effect in ("highlight", "bounce", "typewriter"):
         header += (
-            f"Style: Default,{font_name},{font_size},"
+            f"Style: Default,{font_name},{adjusted_font_size},"
             f"{base_color},{base_color},{outline_color},{back_color},"
             f"{bold_flag},0,0,0,100,100,0,0,1,{max(outline, 4)},{max(shadow, 1)},{alignment},"
             f"{margin_l},{margin_r},{margin_v},1\n"
         )
     elif effect == "ad":
         header += (
-            f"Style: Default,{font_name},{font_size},"
+            f"Style: Default,{font_name},{adjusted_font_size},"
             f"{base_color},{base_color},&H00000000,&H64000000,"
             f"{bold_flag},0,0,0,100,100,0,0,1,{max(outline, 5)},{max(shadow, 2)},{alignment},"
             f"{margin_l},{margin_r},{margin_v},1\n"
@@ -219,7 +226,7 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
     else:
         # fallback
         header += (
-            f"Style: Default,{font_name},{font_size},"
+            f"Style: Default,{font_name},{adjusted_font_size},"
             f"{base_color},{base_color},{outline_color},{back_color},"
             f"{bold_flag},0,0,0,100,100,0,0,1,{outline},{shadow},{alignment},"
             f"{margin_l},{margin_r},{margin_v},1\n"
