@@ -297,6 +297,8 @@ def run_compose_from_draft_task(task_id: str, payload: dict, trace_id: str, merc
             background_color=background_color,
             background_padding=background_padding,
             background_radius=background_radius,
+            # 🎨 逐字高亮开关
+            word_by_word_highlight=bool(subtitle.get("word_by_word_highlight", True)),
         )
 
         if _is_task_cancelled(task_id):

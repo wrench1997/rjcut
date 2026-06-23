@@ -21,7 +21,8 @@ import {
   RefreshCw,
   Film,
   Zap,
-  Cpu
+  Cpu,
+  AlignLeft
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -75,6 +76,8 @@ const TEST_BGM_TRACKS = [
  * @property {number} background_radius
  * @property {number} line_spacing
  * @property {number} max_width - Percentage
+* @property {number} max_chars_per_line - 每行最大字符数（自动换行）
+  * @property {boolean} word_by_word_highlight - 逐字高亮显示开关
  * @property {number} [background_border_width] - Background box border width
  * @property {string} [background_border_color] - Background box border color
  */
@@ -135,6 +138,7 @@ export const DEFAULT_CONFIG = {
     line_spacing: 1.3,
     max_width: 95,
     max_chars_per_line: 18,  // 🎨 与后端统一的每行最大字符数
+    word_by_word_highlight: true,  // 🎨 逐字高亮显示开关
     background_border_width: 0,
     background_border_color: '#FFFFFF',
   },
@@ -169,6 +173,7 @@ export const PRESET_STYLES = [
       stroke_width: 4,
       background_color: 'transparent',
       font_size: 80,
+      max_chars_per_line: 18,
     }
   },
   {
@@ -182,6 +187,7 @@ export const PRESET_STYLES = [
       background_padding: 12,
       background_radius: 6,
       font_size: 64,
+      max_chars_per_line: 18,
     }
   },
   {
@@ -193,6 +199,7 @@ export const PRESET_STYLES = [
       stroke_width: 2,
       background_color: 'transparent',
       font_size: 72,
+      max_chars_per_line: 18,
     }
   },
   {
@@ -277,16 +284,48 @@ function CustomTooltip({ children, tip }) {
 /**
  * @param {GlobalParamsVisualEditorProps} props
  */
+// LocalStorage key for persisting global params
+const STORAGE_KEY = 'rjcut_global_params_v1';
+
 export default function GlobalParamsVisualEditor({ 
   value, 
   onChange, 
   className 
 }) {
-  const [config, setConfig] = useState({
-    pipeline: { ...DEFAULT_CONFIG.pipeline, ...(value?.pipeline || {}) },
-    subtitle: { ...DEFAULT_CONFIG.subtitle, ...(value?.subtitle || {}) },
-    audio: { ...DEFAULT_CONFIG.audio, ...(value?.audio || {}) },
-    output: { ...DEFAULT_CONFIG.output, ...(value?.output || {}) }
+  // Load from localStorage on mount, fallback to DEFAULT_CONFIG
+  const loadFromStorage = () => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        console.log('[GlobalParams] Loaded from localStorage:', parsed);
+        return parsed;
+      }
+    } catch (e) {
+      console.warn('[GlobalParams] Failed to load from localStorage:', e);
+    }
+    return null;
+  };
+
+  const storedConfig = loadFromStorage();
+  
+  const [config, setConfig] = useState(() => {
+    if (storedConfig) {
+      // Merge stored config with defaults to ensure all fields exist
+      return {
+        pipeline: { ...DEFAULT_CONFIG.pipeline, ...storedConfig.pipeline },
+        subtitle: { ...DEFAULT_CONFIG.subtitle, ...storedConfig.subtitle },
+        audio: { ...DEFAULT_CONFIG.audio, ...storedConfig.audio },
+        output: { ...DEFAULT_CONFIG.output, ...storedConfig.output }
+      };
+    }
+    // Fallback to props value or defaults
+    return {
+      pipeline: { ...DEFAULT_CONFIG.pipeline, ...(value?.pipeline || {}) },
+      subtitle: { ...DEFAULT_CONFIG.subtitle, ...(value?.subtitle || {}) },
+      audio: { ...DEFAULT_CONFIG.audio, ...(value?.audio || {}) },
+      output: { ...DEFAULT_CONFIG.output, ...(value?.output || {}) }
+    };
   });
 
   const [activeTab, setActiveTab] = useState('subtitle');
@@ -381,6 +420,16 @@ export default function GlobalParamsVisualEditor({
       audioRef.current.loop = !!config.audio.bgm_loop;
     }
   }, [config.audio.bgm_loop]);
+
+  // Save to localStorage whenever config changes
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+      console.log('[GlobalParams] Saved to localStorage:', config);
+    } catch (e) {
+      console.warn('[GlobalParams] Failed to save to localStorage:', e);
+    }
+  }, [config]);
 
   // 组件卸载清理
   useEffect(() => {
@@ -1031,6 +1080,31 @@ export default function GlobalParamsVisualEditor({
                     </div>
                     <p className="text-[10px] text-slate-500 mt-1.5">
                       超过此字符数将自动换行，影响字幕切分密度
+                    </p>
+                  </div>
+
+                  {/* Toggle: Word by Word Highlight */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-xs font-medium text-slate-700 flex items-center gap-1.5">
+                        <Zap className="w-3.5 h-3.5 text-slate-400" />
+                        逐字高亮显示
+                      </label>
+                      <button
+                        onClick={() => updateConfig('subtitle', 'word_by_word_highlight', !config.subtitle.word_by_word_highlight)}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                          config.subtitle.word_by_word_highlight ? 'bg-blue-600' : 'bg-slate-200'
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                            config.subtitle.word_by_word_highlight ? 'translate-x-6' : 'translate-x-1'
+                          }`}
+                        />
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-slate-500">
+                      开启后每个字单独显示并高亮，念到哪个字哪个字变大
                     </p>
                   </div>
 
