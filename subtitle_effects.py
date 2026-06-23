@@ -201,36 +201,14 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
     # 经验值：ASS 字体需要放大 1.1~1.15 倍才能匹配前端视觉效果
     adjusted_font_size = int(font_size * 1.12)  # 🎨 字体大小补偿系数
     
-    # 根据特效类型定义样式
-    if effect == "karaoke":
-        header += (
-            f"Style: Default,{font_name},{adjusted_font_size},"
-            f"{highlight_color},{base_color},{outline_color},{back_color},"
-            f"{bold_flag},0,0,0,100,100,1,0,1,{outline},{shadow},{alignment},"
-            f"{margin_l},{margin_r},{margin_v},1\n"
-        )
-    elif effect in ("highlight", "bounce", "typewriter"):
-        header += (
-            f"Style: Default,{font_name},{adjusted_font_size},"
-            f"{base_color},{base_color},{outline_color},{back_color},"
-            f"{bold_flag},0,0,0,100,100,0,0,1,{max(outline, 4)},{max(shadow, 1)},{alignment},"
-            f"{margin_l},{margin_r},{margin_v},1\n"
-        )
-    elif effect == "ad":
-        header += (
-            f"Style: Default,{font_name},{adjusted_font_size},"
-            f"{base_color},{base_color},&H00000000,&H64000000,"
-            f"{bold_flag},0,0,0,100,100,0,0,1,{max(outline, 5)},{max(shadow, 2)},{alignment},"
-            f"{margin_l},{margin_r},{margin_v},1\n"
-        )
-    else:
-        # fallback
-        header += (
-            f"Style: Default,{font_name},{adjusted_font_size},"
-            f"{base_color},{base_color},{outline_color},{back_color},"
-            f"{bold_flag},0,0,0,100,100,0,0,1,{outline},{shadow},{alignment},"
-            f"{margin_l},{margin_r},{margin_v},1\n"
-        )
+    # 🎨 前端只使用普通字幕样式（无逐字高亮特效）
+    # 统一使用一种样式：base_color 为主色，带描边和阴影
+    header += (
+        f"Style: Default,{font_name},{adjusted_font_size},"
+        f"{base_color},{base_color},&H00000000,&H64000000,"
+        f"{bold_flag},0,0,0,100,100,0,0,1,{max(outline, 5)},{max(shadow, 2)},{alignment},"
+        f"{margin_l},{margin_r},{margin_v},1\n"
+    )
 
     header += """
 [Events]
@@ -239,442 +217,52 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     events: List[str] = []
 
+    # 🎨 前端只使用普通字幕样式，逐字显示
     for seg in segments:
         words = seg["words"]
         if not words:
             continue
 
-        if effect == "karaoke":
-            events.extend(_eff_karaoke(seg, highlight_color, final_x, final_y, res_x, res_y, margin_v))
-        elif effect == "highlight":
-            events.extend(_eff_highlight(seg, highlight_color, final_x, final_y, res_x, res_y, margin_v))
-        elif effect == "typewriter":
-            events.extend(_eff_typewriter(seg, highlight_color, final_x, final_y, res_x, res_y, margin_v))
-        elif effect == "bounce":
-            events.extend(_eff_bounce(seg, highlight_color, final_x, final_y, res_x, res_y, margin_v))
-        elif effect == "ad":
-            # 🎨 关键：传递 margin_v 到 _eff_ad，否则 Dialogue 行会硬编码为 0
-            events.extend(_eff_ad(seg, highlight_color, ad_keywords, max_chars_per_line, final_x, final_y, res_x, res_y, margin_v))
-        else:
-            events.extend(_eff_karaoke(seg, highlight_color, final_x, final_y, res_x, res_y))
+        # 逐字生成字幕事件（无特效，仅基础显示）
+        for i, w in enumerate(words):
+            start_t = w["start"]
+            if i < len(words) - 1:
+                end_t = max(w["end"], words[i + 1]["start"] - 0.02)
+            else:
+                end_t = w["end"] + 0.10
+            end_t = max(end_t, start_t + 0.05)
+
+            # 构建坐标前缀
+            pos_prefix = ""
+            if final_x is not None and final_y is not None:
+                pos_prefix = "{\\pos(" + str(final_x) + "," + str(final_y) + ")}"
+
+            line_text = "{\\fad(80,0)}" + pos_prefix + "{\\c&H" + base_color[4:] + "&\\b1}" + w["text"]
+            if i == len(words) - 1:
+                line_text = line_text.replace("{\\fad(80,0)}", "{\\fad(0,120)}")
+
+            events.append(
+                f"Dialogue: 0,{format_ass_time(start_t)},"
+                f"{format_ass_time(end_t)},Default,,0,0,{margin_v},,{line_text}"
+            )
 
     with open(output_path, "w", encoding="utf-8-sig") as f:
         f.write(header)
         for ev in events:
             f.write(ev + "\n")
 
-    print(f"     📄 ASS 字幕已生成: {output_path}")
-    print(f"        共 {len(events)} 条字幕事件, {len(segments)} 段")
+    print(f"     📄 ASS 字幕已生成：{output_path}")
+    print(f"        共 {len(events)} 条字幕事件，{len(segments)} 段")
     return output_path
-
-
-def _eff_karaoke(seg: dict, hl_color: str, 
-                 pos_x: Optional[int] = None, pos_y: Optional[int] = None,
-                 res_x: int = 1920, res_y: int = 1080,
-                 margin_v: int = 50) -> List[str]:
-    from video_utils import format_ass_time
-    words = seg["words"]
-    seg_start = seg["start"]
-    seg_end = seg["end"]
-
-    parts = []
-    prev_end = seg_start
-
-    for w in words:
-        dur = w["end"] - prev_end
-        dur_cs = max(1, round(dur * 100))
-        parts.append(f"{{\\kf{dur_cs}}}{w['text']}")
-        prev_end = w["end"]
-
-    text = "{\\fad(150,300)}" + "".join(parts)
-    
-    # 添加精确坐标
-    if pos_x is not None and pos_y is not None:
-        text = "{\\pos(" + str(pos_x) + "," + str(pos_y) + ")}" + text
-
-    return [
-        f"Dialogue: 0,{format_ass_time(seg_start)},"
-        f"{format_ass_time(seg_end + 0.3)},Default,,0,0,{margin_v},,{text}"
-    ]
-
-
-def _eff_highlight(seg: dict, hl_color: str,
-                   pos_x: Optional[int] = None, pos_y: Optional[int] = None,
-                   res_x: int = 1920, res_y: int = 1080,
-                   margin_v: int = 50) -> List[str]:
-    from video_utils import format_ass_time
-    words = seg["words"]
-    full_text = seg["text"]
-    events = []
-
-    hl_bgr = hl_color[4:]
-    dim_bgr = "999999"
-
-    positions = []
-    pos = 0
-    for w in words:
-        positions.append(pos)
-        pos += len(w["text"])
-
-    # 构建坐标前缀
-    pos_prefix = ""
-    if pos_x is not None and pos_y is not None:
-        pos_prefix = "{\\pos(" + str(pos_x) + "," + str(pos_y) + ")}"
-
-    for i, w in enumerate(words):
-        p = positions[i]
-        wt = w["text"]
-        before = full_text[:p]
-        after = full_text[p + len(wt):]
-
-        line_parts = []
-        if before:
-            line_parts.append(f"{{\\c&H{dim_bgr}&\\b0}}{before}")
-        line_parts.append(
-            f"{{\\c&H{hl_bgr}&\\b1\\fscx115\\fscy115}}{wt}"
-        )
-        if after:
-            line_parts.append(
-                f"{{\\c&H{dim_bgr}&\\b0\\fscx100\\fscy100}}{after}"
-            )
-
-        line_text = "".join(line_parts)
-
-        if i == 0:
-            line_text = "{\\fad(200,0)}" + pos_prefix + line_text
-        if i == len(words) - 1:
-            line_text = "{\\fad(0,300)}" + line_text
-
-        start_t = w["start"]
-        end_t = words[i + 1]["start"] if i < len(words) - 1 else w["end"] + 0.3
-
-        events.append(
-            f"Dialogue: 0,{format_ass_time(start_t)},"
-            f"{format_ass_time(end_t)},Default,,0,0,{margin_v},,{line_text}"
-        )
-
-    return events
-
-
-def _eff_typewriter(seg: dict, hl_color: str,
-                    pos_x: Optional[int] = None, pos_y: Optional[int] = None,
-                    res_x: int = 1920, res_y: int = 1080,
-                    margin_v: int = 50) -> List[str]:
-    from video_utils import format_ass_time
-    words = seg["words"]
-    seg_end = seg["end"]
-    events = []
-    hl_bgr = hl_color[4:]
-
-    # 构建坐标前缀
-    pos_prefix = ""
-    if pos_x is not None and pos_y is not None:
-        pos_prefix = "{\\pos(" + str(pos_x) + "," + str(pos_y) + ")}"
-
-    for i, w in enumerate(words):
-        prev_text = "".join(ww["text"] for ww in words[:i])
-        cur_text = w["text"]
-
-        display_parts = []
-        if prev_text:
-            display_parts.append(f"{{\\c&HFFFFFF&}}{prev_text}")
-        display_parts.append(
-            f"{{\\c&H{hl_bgr}&\\b1}}{cur_text}"
-        )
-
-        display = "".join(display_parts)
-
-        if i == 0:
-            display = "{\\fad(150,0)}" + pos_prefix + display
-
-        start_t = w["start"]
-        end_t = words[i + 1]["start"] if i < len(words) - 1 else seg_end + 0.5
-
-        if i == len(words) - 1:
-            full = f"{{\\fad(0,400)}}{{\\c&HFFFFFF&}}{seg['text']}"
-            events.append(
-                f"Dialogue: 0,{format_ass_time(start_t)},"
-                f"{format_ass_time(w['end'])},Default,,0,0,{margin_v},,{display}"
-            )
-            events.append(
-                f"Dialogue: 0,{format_ass_time(w['end'])},"
-                f"{format_ass_time(seg_end + 0.5)},Default,,0,0,{margin_v},,{full}"
-            )
-            continue
-
-        events.append(
-            f"Dialogue: 0,{format_ass_time(start_t)},"
-            f"{format_ass_time(end_t)},Default,,0,0,{margin_v},,{display}"
-        )
-
-    return events
-
-
-def _eff_bounce(seg: dict, hl_color: str,
-                pos_x: Optional[int] = None, pos_y: Optional[int] = None,
-                res_x: int = 1920, res_y: int = 1080,
-                margin_v: int = 50) -> List[str]:
-    from video_utils import format_ass_time
-    words = seg["words"]
-    full_text = seg["text"]
-    events = []
-    hl_bgr = hl_color[4:]
-    dim_bgr = "AAAAAA"
-
-    positions = []
-    pos = 0
-    for w in words:
-        positions.append(pos)
-        pos += len(w["text"])
-
-    # 构建坐标前缀
-    pos_prefix = ""
-    if pos_x is not None and pos_y is not None:
-        pos_prefix = "{\\pos(" + str(pos_x) + "," + str(pos_y) + ")}"
-
-    for i, w in enumerate(words):
-        p = positions[i]
-        wt = w["text"]
-        before = full_text[:p]
-        after = full_text[p + len(wt):]
-
-        line_parts = []
-        if before:
-            line_parts.append(f"{{\\c&H{dim_bgr}&}}{before}")
-
-        line_parts.append(
-            f"{{\\c&H{hl_bgr}&\\b1"
-            f"\\fscx130\\fscy130"
-            f"\\t(0,120,\\fscx100\\fscy100)"
-            f"}}{wt}"
-        )
-        if after:
-            line_parts.append(
-                f"{{\\c&H{dim_bgr}&\\b0\\fscx100\\fscy100}}{after}"
-            )
-
-        line_text = "".join(line_parts)
-
-        if i == 0:
-            line_text = "{\\fad(150,0)}" + pos_prefix + line_text
-        if i == len(words) - 1:
-            line_text = "{\\fad(0,300)}" + line_text
-
-        start_t = w["start"]
-        end_t = words[i + 1]["start"] if i < len(words) - 1 else w["end"] + 0.3
-
-        events.append(
-            f"Dialogue: 0,{format_ass_time(start_t)},"
-            f"{format_ass_time(end_t)},Default,,0,0,{margin_v},,{line_text}"
-        )
-
-    return events
-
-
-def _ass_escape_text(text: str) -> str:
-    return text.replace("{", r"\{").replace("}", r"\}")
-
-
-def _split_words_for_display(words: List[dict], max_chars: int = 12) -> List[List[dict]]:
-    if not words:
-        return []
-
-    major_breaks = set("。！？；!?;")
-    minor_breaks = set("，、：,.，:")
-    all_breaks = major_breaks | minor_breaks
-
-    lines: List[List[dict]] = []
-    cur_line: List[dict] = []
-    cur_len = 0
-
-    for w in words:
-        txt = w.get("text", "")
-        wlen = len(txt)
-
-        if cur_line and cur_len + wlen > max_chars:
-            lines.append(cur_line)
-            cur_line = []
-            cur_len = 0
-
-        cur_line.append(w)
-        cur_len += wlen
-
-        if txt and txt[-1] in major_breaks:
-            lines.append(cur_line)
-            cur_line = []
-            cur_len = 0
-        elif txt and txt[-1] in minor_breaks and cur_len >= max_chars - 2:
-            lines.append(cur_line)
-            cur_line = []
-            cur_len = 0
-
-    if cur_line:
-        lines.append(cur_line)
-
-    return lines
-
-
-def _apply_keyword_emphasis(
-    text: str,
-    keywords: List[str],
-    keyword_color: str = "FFB300",
-    keyword_scale: int = 106,
-) -> str:
-    if not text:
-        return text
-
-    sorted_keywords = sorted(set(keywords), key=len, reverse=True)
-
-    result = text
-    for kw in sorted_keywords:
-        if not kw:
-            continue
-        styled = (
-            f"{{\\c&H{keyword_color}&\\b1\\fscx{keyword_scale}\\fscy{keyword_scale}}}"
-            f"{_ass_escape_text(kw)}"
-            f"{{\\c&HFFFFFF&\\b1\\fscx100\\fscy100}}"
-        )
-        result = result.replace(kw, styled)
-
-    return result
-
-
-def _slice_display_text(display_text: str, start: int, length: int):
-    before = display_text[:start]
-    current = display_text[start:start + length]
-    after = display_text[start + length:]
-    return before, current, after
-
-
-def _build_display_text_and_map(words: List[dict], max_chars: int = 12):
-    lines = _split_words_for_display(words, max_chars=max_chars)
-
-    display_parts = []
-    word_positions = []
-    pos = 0
-
-    for li, line in enumerate(lines):
-        for w in line:
-            word_positions.append(pos)
-            txt = w.get("text", "")
-            display_parts.append(txt)
-            pos += len(txt)
-
-        if li < len(lines) - 1:
-            display_parts.append(r"\N")
-            pos += 2
-
-    display_text = "".join(display_parts)
-    return display_text, word_positions
-
-
-def _eff_ad(
-    seg: dict,
-    hl_color: str,
-    ad_keywords: Optional[List[str]] = None,
-    max_chars_per_line: int = 12,
-    pos_x: Optional[int] = None, pos_y: Optional[int] = None,
-    res_x: int = 1920, res_y: int = 1080,
-    margin_v: int = 50,  # 🎨 关键：传递 margin_v 到 Dialogue 行，否则会被覆盖为 0
-) -> List[str]:
-    from video_utils import format_ass_time
-
-    ad_keywords = ad_keywords or []
-    words = seg["words"]
-    events = []
-
-    if not words:
-        return events
-
-    hl_bgr = hl_color[4:] if hl_color.startswith("&H") else "00DDFF"
-    dim_bgr = "B0B0B0"
-    keyword_bgr = "00BFFF"
-
-    display_text, positions = _build_display_text_and_map(
-        words, max_chars=max_chars_per_line
-    )
-
-    if not display_text:
-        return events
-
-    # 构建坐标前缀
-    pos_prefix = ""
-    if pos_x is not None and pos_y is not None:
-        pos_prefix = "{\\pos(" + str(pos_x) + "," + str(pos_y) + ")}"
-
-    for i, w in enumerate(words):
-        p = positions[i]
-        before, current, after = _slice_display_text(display_text, p, len(w["text"]))
-
-        line_parts = []
-
-        if before:
-            before_styled = _apply_keyword_emphasis(
-                before,
-                ad_keywords,
-                keyword_color=keyword_bgr,
-                keyword_scale=102,
-            )
-            line_parts.append(
-                f"{{\\c&H{dim_bgr}&\\b1\\fscx100\\fscy100}}{before_styled}"
-            )
-
-        current_styled = _apply_keyword_emphasis(
-            current,
-            ad_keywords,
-            keyword_color=keyword_bgr,
-            keyword_scale=104,
-        )
-        line_parts.append(
-            f"{{\\c&H{hl_bgr}&\\b1\\fscx122\\fscy122"
-            f"\\t(0,100,\\fscx108\\fscy108)}}{current_styled}"
-        )
-
-        if after:
-            after_styled = _apply_keyword_emphasis(
-                after,
-                ad_keywords,
-                keyword_color=keyword_bgr,
-                keyword_scale=112,
-            )
-            line_parts.append(
-                f"{{\\c&H{dim_bgr}&\\b1\\fscx100\\fscy100}}{after_styled}"
-            )
-
-        line_text = "".join(line_parts)
-
-        if i == 0:
-            line_text = "{\\fad(80,0)}" + pos_prefix + line_text
-        if i == len(words) - 1:
-            line_text = "{\\fad(0,120)}" + line_text
-
-        start_t = w["start"]
-        if i < len(words) - 1:
-            end_t = max(w["end"], words[i + 1]["start"] - 0.02)
-        else:
-            end_t = w["end"] + 0.10
-
-        end_t = max(end_t, start_t + 0.05)
-
-        # 🎨 关键：使用传入的 margin_v，而不是硬编码 0
-        # ASS Dialogue 格式：Dialogue: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-        events.append(
-            f"Dialogue: 0,{format_ass_time(start_t)},"
-            f"{format_ass_time(end_t)},Default,,0,0,{margin_v},,{line_text}"
-        )
-
-    return events
-
-
 
 
 def burn_whisper_subtitle(
     input_video: str,
     output_video: str,
     json_path: str,
-    effect: str = "karaoke",
+    effect: str = "ad",
     font_file: Optional[str] = None,
-    font_size: int = 52,
+    font_size: int = 72,
     highlight_color: str = "&H0000DDFF",
     filter_transition: bool = True,
     max_chars_per_line: int = 18,
