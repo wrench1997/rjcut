@@ -639,18 +639,30 @@ function VideoPreviewModal({ video, onClose, vfs }) {
   const [error, setError] = useState('')
 
   useEffect(() => {
+    let blobUrl = null
+    
     const loadVideo = async () => {
       try {
+        console.log('[VideoPreviewModal] 开始加载视频:', video.path)
+        
         if (!vfs) {
           setError('VFS 未初始化')
           setLoading(false)
           return
         }
         
-        // 从 VFS 读取视频文件
-        const blob = await vfs.readFile(video.path)
-        const url = URL.createObjectURL(blob)
-        setVideoUrl(url)
+        // 从 VFS 读取视频文件为 ArrayBuffer
+        const arrayBuffer = await vfs.readFile(video.path, 'binary')
+        console.log('[VideoPreviewModal] 读取到的 ArrayBuffer 大小:', arrayBuffer?.byteLength || arrayBuffer?.length)
+        
+        // 转换为 Blob
+        const blob = new Blob([arrayBuffer], { type: 'video/mp4' })
+        console.log('[VideoPreviewModal] Blob 大小:', blob.size)
+        
+        blobUrl = URL.createObjectURL(blob)
+        console.log('[VideoPreviewModal] Blob URL:', blobUrl.substring(0, 50) + '...')
+        
+        setVideoUrl(blobUrl)
         setLoading(false)
       } catch (err) {
         console.error('[VideoPreviewModal] 加载视频失败:', err)
@@ -662,15 +674,16 @@ function VideoPreviewModal({ video, onClose, vfs }) {
     loadVideo()
     
     return () => {
-      if (videoUrl) {
-        URL.revokeObjectURL(videoUrl)
+      if (blobUrl) {
+        URL.revokeObjectURL(blobUrl)
       }
+      setVideoUrl('')
     }
   }, [video.path, vfs])
 
   return (
     <div className="absolute inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
         <div className="p-4 border-b border-slate-100 flex justify-between items-center">
           <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
             <Film size={18} className="text-blue-500" />
@@ -682,14 +695,14 @@ function VideoPreviewModal({ video, onClose, vfs }) {
         </div>
         <div className="p-6">
           {loading ? (
-            <div className="aspect-video bg-slate-100 rounded-lg flex items-center justify-center">
+            <div className="aspect-[9/16] max-h-[70vh] bg-slate-100 rounded-lg flex items-center justify-center">
               <div className="flex flex-col items-center gap-3">
                 <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
                 <p className="text-sm text-slate-500">加载视频中...</p>
               </div>
             </div>
           ) : error ? (
-            <div className="aspect-video bg-red-50 rounded-lg flex items-center justify-center">
+            <div className="aspect-[9/16] max-h-[70vh] bg-red-50 rounded-lg flex items-center justify-center">
               <div className="flex flex-col items-center gap-2 text-red-500">
                 <AlertCircle size={32} />
                 <p className="text-sm">{error}</p>
@@ -700,7 +713,7 @@ function VideoPreviewModal({ video, onClose, vfs }) {
               src={videoUrl} 
               controls 
               autoPlay 
-              className="w-full aspect-video bg-black rounded-lg"
+              className="w-full aspect-[9/16] max-h-[70vh] bg-black rounded-lg object-contain"
             />
           )}
           <div className="mt-4 p-3 bg-slate-50 rounded-lg">

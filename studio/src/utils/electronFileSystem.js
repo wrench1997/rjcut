@@ -188,13 +188,43 @@ export class ElectronFileSystem {
     }
     
     const normalizedPath = this.normalizePath(path)
-    const buffer = await this.electronAPI.readFileAsBuffer(normalizedPath)
+    const result = await this.electronAPI.readFileAsBuffer(normalizedPath)
+    
+    console.log('[ElectronFileSystem.readFileAsBlob] 原始结果:', {
+      type: result?.type,
+      constructor: result?.constructor?.name,
+      byteLength: result?.byteLength,
+      length: result?.length,
+      isArrayBuffer: result instanceof ArrayBuffer,
+      isBuffer: result?.constructor?.name === 'Buffer'
+    })
     
     // 获取文件类型
     const fileInfo = await this.electronAPI.getFile(normalizedPath)
     const mimeType = fileInfo?.type || 'application/octet-stream'
     
-    return new Blob([buffer], { type: mimeType })
+    // 处理 ArrayBuffer
+    if (result instanceof ArrayBuffer) {
+      console.log('[ElectronFileSystem.readFileAsBlob] 使用 ArrayBuffer，byteLength:', result.byteLength)
+      return new Blob([result], { type: mimeType })
+    }
+    
+    // 处理 Uint8Array
+    if (result instanceof Uint8Array) {
+      console.log('[ElectronFileSystem.readFileAsBlob] 使用 Uint8Array，length:', result.length)
+      return new Blob([result], { type: mimeType })
+    }
+    
+    // 处理 Buffer（Node.js 类型，Electron IPC 可能序列化为对象）
+    if (result && result.type === 'Buffer' && Array.isArray(result.data)) {
+      console.log('[ElectronFileSystem.readFileAsBlob] 使用 Buffer 对象格式，data 长度:', result.data.length)
+      const uint8Array = new Uint8Array(result.data)
+      return new Blob([uint8Array], { type: mimeType })
+    }
+    
+    // 回退处理
+    console.warn('[ElectronFileSystem.readFileAsBlob] 未知格式，使用回退处理')
+    return new Blob([result], { type: mimeType })
   }
 
   /**

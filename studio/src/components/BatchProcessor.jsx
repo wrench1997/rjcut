@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import useBatchStore from '../api/useBatchProcessStore'
 import { setApiKey } from '../api/api'
 import { PROJECT_FOLDERS, parseProjectNameFromVFS, buildVFSPath } from '../utils/project-structure'
-import { Hourglass, Upload, FileText, Clapperboard, Download, CheckCircle, XCircle, Ban, Rocket, Folder, Music, X, Check, ArrowLeft, Info } from 'lucide-react'
+import { Hourglass, Upload, FileText, Clapperboard, Download, CheckCircle, XCircle, Ban, Rocket, Folder, Music, X, Check, ArrowLeft, Info, Inbox } from 'lucide-react'
 import Tooltip from './Tooltip'
 import GlobalParamsVisualEditor from './GlobalParamsVisualEditor'
 
@@ -27,6 +27,54 @@ function TailwindProgressBar({ progress, status }) {
     </div>
   )
 }
+// =====================================================
+// 最小化进度悬浮窗 (右下角)
+// =====================================================
+function MinimizedProgress({ tasks, onExpand, onClose }) {
+  if (tasks.length === 0) return null
+
+  const runningCount = tasks.filter(t => t.stage !== 'done' && t.stage !== 'failed' && t.stage !== 'cancelled').length
+  const successCount = tasks.filter(t => t.stage === 'done').length
+  const failedCount = tasks.filter(t => t.stage === 'failed').length
+  const allDone = runningCount === 0
+
+  return (
+    <div className="fixed bottom-6 right-6 z-50 flex items-end gap-2">
+      {/* 关闭按钮 */}
+      <button
+        onClick={(e) => { e.stopPropagation(); onClose() }}
+        className="bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-full p-1.5 transition-colors shadow-lg"
+        title="关闭进度查看"
+      >
+        <X size={16} />
+      </button>
+      {/* 进度悬浮球 */}
+      <div 
+        className={`bg-white rounded-full shadow-2xl border-2 cursor-pointer transition-all duration-300 hover:scale-105 ${
+          allDone ? 'border-green-500' : 'border-blue-500 animate-pulse'
+        }`}
+        onClick={onExpand}
+        style={{ width: '64px', height: '64px' }}
+      >
+        <div className="w-full h-full flex flex-col items-center justify-center">
+          <Inbox size={20} className={allDone ? 'text-green-500' : 'text-blue-500'} />
+          <span className={`text-xs font-bold ${allDone ? 'text-green-600' : 'text-blue-600'}`}>
+            {runningCount > 0 ? runningCount : (failedCount > 0 ? '!' : '✓')}
+          </span>
+        </div>
+      </div>
+      {/* 简单状态提示 */}
+      <div className="absolute bottom-full right-0 mb-2 bg-slate-800 text-white px-3 py-2 rounded-lg text-xs whitespace-nowrap shadow-lg">
+        {allDone ? (
+          <span>✓ 全部完成 ({successCount}/{tasks.length})，点击展开查看详情</span>
+        ) : (
+          <span>⟳ 进行中：{runningCount} 个任务，点击展开查看详情</span>
+        )}
+        <div className="absolute top-full right-4 mt-1 border-4 border-transparent border-t-slate-800"></div>
+      </div>
+    </div>
+  )
+}
 
 // --- 任务卡片组件 ---
 function TaskCard({ task, vfs }) {
@@ -34,6 +82,60 @@ function TaskCard({ task, vfs }) {
   const [isDownloading, setIsDownloading] = useState(false)
   const [savedVideoPath, setSavedVideoPath] = useState(null)
   const [showPlayer, setShowPlayer] = useState(false)
+  const [videoUrl, setVideoUrl] = useState(null)
+  
+  // 加载视频并创建 URL（参考 FileBrowser 的实现）
+  useEffect(() => {
+    let blobUrl = null
+    
+    const loadVideo = async () => {
+      console.log('[TaskCard] loadVideo 触发:', { savedVideoPath, vfs: !!vfs, showPlayer })
+      
+      if (!savedVideoPath || !vfs || !showPlayer) {
+        setVideoUrl(null)
+        return
+      }
+      
+      try {
+        console.log('[TaskCard] 开始加载视频:', savedVideoPath)
+        console.log('[TaskCard] vfs 方法:', {
+          readFileAsBlob: typeof vfs.readFileAsBlob,
+          readFile: typeof vfs.readFile
+        })
+        
+        // 使用 readFileAsBlob 方法（和 FileBrowser 一致）
+        const blob = await vfs.readFileAsBlob(savedVideoPath)
+        console.log('[TaskCard] Blob 对象:', {
+          size: blob.size,
+          type: blob.type,
+          constructor: blob.constructor?.name
+        })
+        
+        if (blob.size === 0) {
+          console.error('[TaskCard] Blob 大小为 0，读取失败')
+          setVideoUrl(null)
+          return
+        }
+        
+        blobUrl = URL.createObjectURL(blob)
+        console.log('[TaskCard] Blob URL 创建成功:', blobUrl)
+        setVideoUrl(blobUrl)
+      } catch (error) {
+        console.error('[TaskCard] 加载视频失败:', error)
+        setVideoUrl(null)
+      }
+    }
+    
+    loadVideo()
+    
+    // 清理函数：释放 Blob URL
+    return () => {
+      if (blobUrl) {
+        URL.revokeObjectURL(blobUrl)
+      }
+      setVideoUrl(null)
+    }
+  }, [savedVideoPath, vfs, showPlayer])
   
   const stageLabels = {
     idle: '等待中',
@@ -261,7 +363,7 @@ function TaskCard({ task, vfs }) {
         {/* 视频播放器弹窗 */}
         {showPlayer && savedVideoPath && (
           <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50" onClick={() => setShowPlayer(false)}>
-            <div className="bg-white rounded-xl p-4 max-w-4xl w-full mx-4" onClick={e => e.stopPropagation()}>
+            <div className="bg-white rounded-xl p-4 max-w-2xl w-full mx-4" onClick={e => e.stopPropagation()}>
               <div className="flex justify-between items-center mb-3">
                 <h3 className="font-bold text-lg">视频预览</h3>
                 <button 
@@ -271,14 +373,23 @@ function TaskCard({ task, vfs }) {
                   <X size={20} />
                 </button>
               </div>
-              <video 
-                controls 
-                autoPlay 
-                className="w-full rounded-lg"
-                src={vfs.getFileUrl(savedVideoPath)}
-              >
-                您的浏览器不支持视频播放
-              </video>
+              {videoUrl ? (
+                <video 
+                  controls 
+                  autoPlay 
+                  className="w-full aspect-[9/16] max-h-[70vh] bg-black rounded-lg object-contain"
+                  src={videoUrl}
+                >
+                  您的浏览器不支持视频播放
+                </video>
+              ) : (
+                <div className="aspect-[9/16] max-h-[70vh] bg-slate-100 rounded-lg flex items-center justify-center">
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                    <p className="text-sm text-slate-500">加载视频中...</p>
+                  </div>
+                </div>
+              )}
               <p className="text-xs text-slate-500 mt-2">路径：{savedVideoPath}</p>
             </div>
           </div>
@@ -536,6 +647,7 @@ export default function BatchProcessor({ vfs, apiKey }) {
   const [correctionsFile, setCorrectionsFile] = useState(null)
   const [maxConcurrent, setMaxConcurrent] = useState(3)
   const [localError, setLocalError] = useState('')
+  const [showMinimizedProgress, setShowMinimizedProgress] = useState(false)
   // 🎨 从 localStorage 加载全局参数配置（与 GlobalParamsVisualEditor 一致）
   const [globalParams, setGlobalParams] = useState(() => {
     try {
@@ -563,6 +675,17 @@ export default function BatchProcessor({ vfs, apiKey }) {
   }, [apiKey])
 
   const stats = getTaskStats()
+
+  // 监听任务状态，当所有任务完成时自动显示最小化悬浮窗
+  useEffect(() => {
+    if (tasks.length > 0) {
+      const runningCount = tasks.filter(t => t.stage !== 'done' && t.stage !== 'failed' && t.stage !== 'cancelled').length
+      if (runningCount === 0 && tasks.some(t => t.stage === 'done')) {
+        // 所有任务完成，显示最小化悬浮窗
+        setShowMinimizedProgress(true)
+      }
+    }
+  }, [tasks])
 
   const prepareTasks = useCallback(async () => {
     if (!digitalHumanVideo) return []
@@ -694,6 +817,17 @@ export default function BatchProcessor({ vfs, apiKey }) {
             {tasks.map(task => (
               <TaskCard key={task.id} task={task} vfs={vfs} />
             ))}
+          </div>
+
+          {/* 最小化按钮 */}
+          <div className="flex justify-center mt-6">
+            <button
+              onClick={() => setShowMinimizedProgress(true)}
+              className="px-6 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-lg transition-colors flex items-center gap-2"
+            >
+              <Inbox size={16} />
+              最小化进度窗口
+            </button>
           </div>
 
           {/* 控制按钮 */}
@@ -899,6 +1033,15 @@ export default function BatchProcessor({ vfs, apiKey }) {
         <div className="bg-red-50 border border-red-200 rounded-xl p-4">
           <p className="text-sm text-red-600">{localError}</p>
         </div>
+      )}
+
+      {/* 最小化进度悬浮窗 */}
+      {showMinimizedProgress && tasks.length > 0 && (
+        <MinimizedProgress 
+          tasks={tasks} 
+          onExpand={() => setShowMinimizedProgress(false)}
+          onClose={() => setShowMinimizedProgress(false)}
+        />
       )}
     </div>
   )

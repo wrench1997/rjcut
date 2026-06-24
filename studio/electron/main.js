@@ -103,7 +103,19 @@ function registerIPCHandlers() {
 
   // 读取文件为 Buffer（用于视频/图片等二进制文件）
   ipcMain.handle('fs:readFileAsBuffer', async (event, filePath) => {
-    return fsUtils.readFileAsBuffer(filePath)
+    const buffer = await fsUtils.readFileAsBuffer(filePath)
+    console.log('[fs:readFileAsBuffer] 读取文件:', filePath, '大小:', buffer.length, 'bytes')
+    // 直接返回 Buffer，Electron IPC 会自动序列化
+    return buffer
+  })
+
+  // 获取文件的 file:// URL（用于视频直接播放）
+  ipcMain.handle('fs:getFileUrl', async (event, filePath) => {
+    const resolved = fsUtils.validatePath(filePath)
+    // 将路径转换为 file:// URL
+    const fileUrl = `file:///${resolved.replace(/\\/g, '/')}`
+    console.log('[fs:getFileUrl] 文件 URL:', fileUrl)
+    return fileUrl
   })
 
   // 读取 JSON

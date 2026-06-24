@@ -366,11 +366,42 @@ export class VFSProxy {
   /**
    * 读取文件内容
    * @param {string} path - 文件路径
-   * @param {string} encoding - 编码（默认 utf-8）
-   * @returns {Promise<string|Blob>} 文件内容
+   * @param {string} encoding - 编码（默认 utf-8，二进制文件使用 'binary' 或 'arraybuffer'）
+   * @returns {Promise<string|ArrayBuffer>} 文件内容
    */
   async readFile(path, encoding = 'utf-8') {
+    // 对于二进制文件（如视频），使用 readFileAsBuffer
+    if (encoding === 'binary' || encoding === 'arraybuffer') {
+      const result = await this._callAPI('readFileAsBuffer', path)
+      console.log('[vfsClient.readFile] 读取二进制文件结果:', {
+        type: result?.type,
+        dataLength: result?.data?.length,
+        keys: result ? Object.keys(result) : null
+      })
+      // 处理 { type: 'Buffer', data: [...] } 格式
+      if (result && result.type === 'Buffer' && Array.isArray(result.data)) {
+        console.log('[vfsClient.readFile] 使用 JSON 格式转换，data 长度:', result.data.length)
+        const uint8Array = new Uint8Array(result.data)
+        return uint8Array.buffer
+      }
+      // 如果已经是 ArrayBuffer，直接返回
+      if (result instanceof ArrayBuffer) {
+        console.log('[vfsClient.readFile] 直接返回 ArrayBuffer')
+        return result
+      }
+      console.warn('[vfsClient.readFile] 未知数据类型，尝试直接返回')
+      return result
+    }
     return this._callAPI('readFile', path, encoding)
+  }
+  
+  /**
+   * 获取文件的 file:// URL（用于视频直接播放）
+   * @param {string} path - 文件路径
+   * @returns {Promise<string>} file:// URL
+   */
+  async getFileUrl(path) {
+    return await this._callAPI('getFileUrl', path)
   }
   
   /**
@@ -388,7 +419,69 @@ export class VFSProxy {
    * @returns {Promise<Blob>} Blob 对象
    */
   async readFileAsBlob(path) {
-    return this._callAPI('readFileAsBuffer', path).then(buffer => new Blob([buffer]))
+    const result = await this._callAPI('readFileAsBuffer', path)
+    
+    console.log('[readFileAsBlob] 原始结果:', {
+      type: result?.type,
+      encoding: result?.encoding,
+      dataIsString: typeof result?.data === 'string',
+      dataIsArray: Array.isArray(result?.data),
+      dataLength: result?.data ? (typeof result.data === 'string' ? result.data.length : result.data.length) : 0,
+      isArrayBuffer: result instanceof ArrayBuffer,
+      isBuffer: result?.constructor?.name === 'Buffer'
+    })
+    
+    // 处理直接返回的 Buffer（Electron IPC 序列化后可能是 Uint8Array 或 ArrayBuffer）
+    if (result instanceof ArrayBuffer) {
+      console.log('[readFileAsBlob] 使用 ArrayBuffer 格式，byteLength:', result.byteLength)
+      const uint8Array = new Uint8Array(result)
+      const blob = new Blob([uint8Array], { type: 'video/mp4' })
+      console.log('[readFileAsBlob] Blob 大小:', blob.size)
+      return blob
+    }
+    
+    // 处理直接返回的 Uint8Array
+    if (result instanceof Uint8Array) {
+      console.log('[readFileAsBlob] 使用 Uint8Array 格式，length:', result.length)
+      const blob = new Blob([result], { type: 'video/mp4' })
+      console.log('[readFileAsBlob] Blob 大小:', blob.size)
+      return blob
+    }
+    
+    // 处理 { type: 'Buffer', data: [...] } 格式（数组形式）
+    if (result && result.type === 'Buffer' && Array.isArray(result.data)) {
+      console.log('[readFileAsBlob] 使用 Buffer 数组格式，data 长度:', result.data.length)
+      const uint8Array = new Uint8Array(result.data)
+      const blob = new Blob([uint8Array], { type: 'video/mp4' })
+      console.log('[readFileAsBlob] Blob 大小:', blob.size)
+      return blob
+    }
+    
+    // 处理 base64 编码的数据
+    if (result && result.type === 'Buffer' && result.encoding === 'base64' && typeof result.data === 'string') {
+      console.log('[readFileAsBlob] 使用 base64 格式，长度:', result.data.length)
+      const binaryString = atob(result.data)
+      const bytes = new Uint8Array(binaryString.length)
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i)
+      }
+      const blob = new Blob([bytes], { type: 'video/mp4' })
+      console.log('[readFileAsBlob] Blob 大小:', blob.size)
+      return blob
+    }
+    
+    // 处理 { type: 'Uint8Array', data: [...] } 格式
+    if (result && result.type === 'Uint8Array' && Array.isArray(result.data)) {
+      console.log('[readFileAsBlob] 使用 Uint8Array JSON 格式，data 长度:', result.data.length)
+      const uint8Array = new Uint8Array(result.data)
+      const blob = new Blob([uint8Array], { type: 'video/mp4' })
+      console.log('[readFileAsBlob] Blob 大小:', blob.size)
+      return blob
+    }
+    
+    // 回退处理
+    console.warn('[readFileAsBlob] 未知格式，使用回退处理')
+    return new Blob([result], { type: 'video/mp4' })
   }
   
   /**

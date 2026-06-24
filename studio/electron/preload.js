@@ -25,6 +25,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 读取文件为 Buffer
   readFileAsBuffer: (filePath) => ipcRenderer.invoke('fs:readFileAsBuffer', filePath),
   
+  // 获取文件的 file:// URL（用于视频直接播放）
+  getFileUrl: (filePath) => ipcRenderer.invoke('fs:getFileUrl', filePath),
+  
   // 读取 JSON
   readJSON: (filePath) => ipcRenderer.invoke('fs:readJSON', filePath),
   
