@@ -59,20 +59,10 @@ export default function VideoPreview() {
 
       const videoEl = videoRef.current
       
-      // 如果源改变了，重新加载
-      if (videoEl.src !== videoUrl) {
-        videoEl.src = videoUrl
-        videoEl.load()
-      }
-
-      // 计算视频内的时间位置
-      const clipOffset = currentTime_ms - activeClip.start_ms + activeClip.offset_ms
-      videoEl.currentTime = clipOffset / 1000
-
-      // 绘制到 canvas
-      videoEl.onseeked = () => {
+      // 定义绘制函数
+      const drawFrame = () => {
         const canvas = canvasRef.current
-        if (!canvas) return
+        if (!canvas || !videoEl.videoWidth) return
         
         const ctx = canvas.getContext('2d')
         ctx.clearRect(0, 0, canvas.width, canvas.height)
@@ -98,9 +88,36 @@ export default function VideoPreview() {
         ctx.drawImage(videoEl, drawX, drawY, drawWidth, drawHeight)
       }
 
+      // 如果源改变了，重新加载
+      if (videoEl.src !== videoUrl) {
+        // 移除旧的事件监听器
+        videoEl.removeEventListener('seeked', drawFrame)
+        videoEl.removeEventListener('loadeddata', drawFrame)
+        videoEl.removeEventListener('error', handleError)
+        
+        videoEl.src = videoUrl
+        videoEl.load()
+      }
+
+      // 添加事件监听器
+      videoEl.addEventListener('seeked', drawFrame, { once: true })
+      videoEl.addEventListener('loadeddata', drawFrame, { once: true })
+      
+      const handleError = (e) => {
+        console.error('[VideoPreview] 视频加载错误:', e)
+      }
+      videoEl.addEventListener('error', handleError)
+
+      // 计算视频内的时间位置
+      const clipOffset = currentTime_ms - activeClip.start_ms + activeClip.offset_ms
+      videoEl.currentTime = Math.max(0, clipOffset / 1000)
+
       setShowingMedia(media)
       
       return () => {
+        videoEl.removeEventListener('seeked', drawFrame)
+        videoEl.removeEventListener('loadeddata', drawFrame)
+        videoEl.removeEventListener('error', handleError)
         URL.revokeObjectURL(videoUrl)
       }
     }
