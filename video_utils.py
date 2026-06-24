@@ -66,6 +66,10 @@ def get_video_info(path: str) -> dict:
         "has_audio": has_audio,
         "duration": get_duration(path),
     }
+def get_video_resolution(path: str) -> Tuple[int, int]:
+    """获取视频分辨率 (宽，高)"""
+    info = get_video_info(path)
+    return info["width"], info["height"]
 
 
 def find_chinese_font() -> Optional[str]:
