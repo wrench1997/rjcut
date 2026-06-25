@@ -126,7 +126,7 @@ function AdvancedSettings({ settings, setSettings, isOpen, onToggle, personDetai
 
       {/* 展开内容 */}
       {isOpen && (
-        <div className="p-4 pt-0 space-y-4">
+        <div className="p-4 pt-0 space-y-4 max-h-96 overflow-y-auto custom-scrollbar">
           {/* 第一行：语速和语调 */}
           <div className="grid grid-cols-2 gap-4">
             {/* 语速 */}
@@ -458,12 +458,25 @@ function BatchScriptInput({ scripts, setScripts }) {
 // =====================================================
 // 右侧：保存路径配置（选择项目）
 // =====================================================
-function SavePathConfig({ selectedProject, setSelectedProject, projects, onGenerate, isGenerating, loadingProjects }) {
+function SavePathConfig({ selectedProject, setSelectedProject, projects, onGenerate, isGenerating, loadingProjects, onNavigateToFiles }) {
   return (
     <div className="w-80 bg-white flex flex-col h-full z-10">
-      <div className="p-4 border-b border-slate-100">
-        <h2 className="text-sm font-bold text-slate-800">3. 选择保存项目</h2>
-        <p className="text-[10px] text-slate-500 mt-1">选择要保存数字人视频的项目</p>
+      <div className="p-4 border-b border-slate-100 flex justify-between items-center">
+        <div>
+          <h2 className="text-sm font-bold text-slate-800">3. 选择保存项目</h2>
+          <p className="text-[10px] text-slate-500 mt-1">选择要保存数字人视频的项目</p>
+        </div>
+        {onNavigateToFiles && selectedProject && (
+          <Tooltip tip={`跳转到文件浏览器查看：${selectedProject.path}/剪辑视频`} delay={1000}>
+            <button
+              onClick={() => onNavigateToFiles(`${selectedProject.path}/${PROJECT_FOLDERS.EDITED_VIDEO}`)}
+              className="text-xs bg-blue-100 text-blue-700 px-2.5 py-1.5 rounded-md hover:bg-blue-200 transition-colors flex items-center gap-1"
+            >
+              <Folder size={12} />
+              查看：{selectedProject.path}/剪辑视频
+            </button>
+          </Tooltip>
+        )}
       </div>
       
       <div className="flex-1 p-4 space-y-6 overflow-y-auto custom-scrollbar">
@@ -782,7 +795,7 @@ function MinimizedProgress({ tasks, onExpand, onClose }) {
 // =====================================================
 // 主组件
 // =====================================================
-export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPerson, vfs, onPreselectedPersonUsed }) {
+export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPerson, vfs, onPreselectedPersonUsed, onNavigateToFiles }) {
   const [persons, setPersons] = useState([])
   const [voices, setVoices] = useState([])
   const [selectedPerson, setSelectedPerson] = useState(null)
@@ -1472,6 +1485,7 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
         onGenerate={startPipeline}
         isGenerating={isGenerating}
         loadingProjects={loadingProjects}
+        onNavigateToFiles={onNavigateToFiles}
       />
       
       {/* 居中轻提示 */}

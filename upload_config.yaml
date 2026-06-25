@@ -1,0 +1,119 @@
+# 打包配置文件 - 用于发送给其他 AI 分析
+# 精简版：只包含核心源代码和关键文档
+
+# 要包含的文件和目录（支持 glob 模式）
+include:
+  # Python 核心代码（后端 API 和业务逻辑）
+  - "api_*.py"
+  - "models.py"
+  - "schemas.py"
+  - "database.py"
+  - "config.py"
+  - "worker.py"
+  - "auth.py"
+  - "quota.py"
+  - "oss.py"
+  
+  # 数字人相关
+  - "api_digital_human.py"
+  - "lip_sync.py"
+  - "video_utils.py"
+  
+  # 音频处理
+  - "audio_mixer.py"
+  - "whisper_parser.py"
+  - "process_transcription.py"
+  
+  # 视频处理
+  - "cut_transition.py"
+  - "transitions.py"
+  - "subtitle_effects.py"
+  
+  # 任务系统
+  - "task_runner.py"
+  - "task_watchdog.py"
+  - "draft_utils.py"
+  
+  # 服务层
+  - "service_*.py"
+  
+  # 管理 API
+  - "admin_api.py"
+  
+  # 验证器
+  - "batch_validator.py"
+  
+  # 迁移脚本（只包含最新的 2 个）
+  - "alembic/versions/004_*.py"
+  - "alembic/versions/003_*.py"
+  - "alembic/env.py"
+  - "alembic.ini"
+  
+  # 脚本
+  - "scripts/*.py"
+  
+  # 任务模块（只包含核心）
+  - "tasks/__init__.py"
+  - "tasks/agent_compose.py"
+  - "tasks/agent_draft.py"
+  
+  # Studio 核心文件（精简）
+  - "studio/electron/main.js"
+  - "studio/electron/preload.js"
+  - "studio/electron/mcp-server.js"
+  - "studio/pages/*.js"
+  - "studio/count_src_lines_yaml.py"
+  
+  # 关键配置文件
+  - "docker-compose.yml"
+  - "*.env.example"
+  
+  # 核心文档
+  - "README.MD"
+  - "DESIGN.md"
+  - "agent_skills.md"
+  - "mcp-server-specification.md"
+
+# 要排除的文件和目录
+exclude:
+  - "__pycache__/**"
+  - "*.pyc"
+  - "*.mp3"
+  - "*.mp4"
+  - "*.wav"
+  - "*.jpg"
+  - "*.png"
+  - "*.gif"
+  - "*.txt"
+  - "node_modules/**"
+  - ".git/**"
+  - "*.log"
+  - "*.bak"
+  - "studio/out/**"
+  - "studio/.next/**"
+  - "studio/public/**"
+  - "studio/example/**"
+  - "studio/echo/**"
+  - "studio/frp/**"
+  - "studio/pages/_app.js"
+  - "dir/**"
+  - "examples/**"
+  
+  # 排除测试文件
+  - "test_*.py"
+  - "*_test.sh"
+  - "digital_test.sh"
+  
+  # 排除临时文件
+  - "temp_*.txt"
+  
+  # 排除 Shell 脚本（保留关键文档即可）
+  - "*.sh"
+  
+  # 排除中文乱码文件名的文档
+  - "*.MD"
+
+# Git 历史配置
+git:
+  include: true
+  limit: 5  # 只包含最近 5 条提交记录

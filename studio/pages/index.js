@@ -58,6 +58,7 @@ export default function Home() {
   
   const [activeTab, setActiveTab] = useState('batch')
   const [preselectedPerson, setPreselectedPerson] = useState(null)
+  const [fileBrowserPath, setFileBrowserPath] = useState('/') // 文件浏览器目标路径
   
   // 🔴 处理数字人管理平台的创作视频回调
   const handleCreateVideoFromManager = useCallback((person) => {
@@ -203,7 +204,13 @@ export default function Home() {
           <>
             {activeTab === 'batch' && <BatchProcessor vfs={vfs} apiKey={apiKey} />}
             {activeTab === 'projects' && <VideoProjectManager vfs={vfs} onOpenProject={() => setActiveTab('files')} onNavigate={() => setActiveTab('files')} />}
-            {activeTab === 'files' && <FileBrowser vfs={vfs} />}
+            {activeTab === 'files' && (
+  <FileBrowser 
+    vfs={vfs} 
+    initialPath={fileBrowserPath} 
+    key={fileBrowserPath} // 路径变化时强制重新渲染组件
+  />
+)}
             
             {activeTab === 'digital-human-studio' && (
   <DigitalHumanStudio 
@@ -212,6 +219,10 @@ export default function Home() {
     preselectedPerson={preselectedPerson}
     onPreselectedPersonUsed={() => setPreselectedPerson(null)}
     vfs={vfs}
+    onNavigateToFiles={(targetPath) => {
+      setFileBrowserPath(targetPath)
+      setActiveTab('files')
+    }}
   />
 )}
             {activeTab === 'digital-human' && <DigitalHumanManager apiKey={apiKey} apiBaseUrl={apiBaseUrl} onCreateVideo={handleCreateVideoFromManager} />}

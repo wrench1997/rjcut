@@ -35,7 +35,7 @@ def list_common_persons(_: Merchant = Depends(verify_api_key)):
     logger = logging.getLogger("uvicorn.error")
     try:
         api = get_chanjing_api()
-        res = api.list_common_digital_persons(page=1, size=100)
+        res = api.list_common_digital_persons(page=1, size=100, use_cache=True)
         
         # 检查蝉镜 API 返回状态码
         if res.get('code') != 0:
@@ -116,7 +116,7 @@ def get_common_person_detail(
     
     # 蝉镜 API 没有直接的公共数字人详情接口，需要从列表中筛选
     # 或者调用 list_common_digital_persons 并找到对应的 person
-    res = api.list_common_digital_persons(page=1, size=100)
+    res = api.list_common_digital_persons(page=1, size=100, use_cache=True)
     
     if not res or "data" not in res:
         return fail(50000, "failed to fetch person details", status_code=500)
@@ -224,7 +224,8 @@ def list_custom_persons(
             logger.info(f"  *** 数据库无封面，尝试从蝉镜 API 获取详情...")
             try:
                 api = get_chanjing_api()
-                detail_resp = api.get_customised_person_status(p.chanjing_person_id)
+                # 🐌 使用缓存降低并发，但封面获取场景可以不用缓存（因为只在没有封面时调用）
+                detail_resp = api.get_customised_person_status(p.chanjing_person_id, use_cache=False)
                 logger.info(f"  *** 蝉镜 API 返回：code={detail_resp.get('code')}, data={detail_resp.get('data', {})}")
                 if ChanjingStatusCode.is_success(detail_resp.get('code')):
                     detail_data = detail_resp.get('data', {})
@@ -291,8 +292,8 @@ def get_custom_person_detail(
     """从蝉镜 API 拉取单个自定义数字人的详细信息"""
     api = get_chanjing_api()
     
-    # 先从蝉镜 API 获取最新状态
-    status_resp = api.get_customised_person_status(person_id)
+    # 先从蝉镜 API 获取最新状态（使用缓存降低并发）
+    status_resp = api.get_customised_person_status(person_id, use_cache=True)
     
     if not ChanjingStatusCode.is_success(status_resp.get('code')):
         return fail(ChanjingStatusCode.get_msg(status_resp.get('code')), status_code=400)
@@ -353,13 +354,13 @@ def sync_custom_persons(
     logger = logging.getLogger("uvicorn.error")
     api = get_chanjing_api()
     
-    # 从蝉镜 API 获取所有自定义数字人
+    # 从蝉镜 API 获取所有自定义数字人（使用缓存降低并发）
     page = 1
     page_size = 50
     all_persons = []
     
     while True:
-        resp = api.list_customised_persons(page=page, page_size=page_size, source=0)
+        resp = api.list_customised_persons(page=page, page_size=page_size, source=0, use_cache=True)
         if not ChanjingStatusCode.is_success(resp.get('code')):
             break
         
@@ -401,7 +402,8 @@ def sync_custom_persons(
         if not cover_url:
             logger.info(f"  ⚠️ 列表接口无封面，尝试从详情接口获取：{person_id}")
             try:
-                detail_resp = api.get_customised_person_status(person_id)
+                # 🐌 使用缓存降低并发
+                detail_resp = api.get_customised_person_status(person_id, use_cache=True)
                 logger.info(f"  🔍 详情接口返回完整 data: {detail_resp.get('data', {})}")
                 if ChanjingStatusCode.is_success(detail_resp.get('code')):
                     detail_data = detail_resp.get('data', {})
@@ -527,7 +529,7 @@ def list_voices(_: Merchant = Depends(verify_api_key)):
     logger = logging.getLogger("uvicorn.error")
     try:
         api = get_chanjing_api()
-        res = api.list_common_audio_mans(page=1, size=100)
+        res = api.list_common_audio_mans(page=1, size=100, use_cache=True)
         
         # 检查蝉镜 API 返回状态码
         if res.get('code') != 0:

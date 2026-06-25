@@ -29,5 +29,5 @@ dist-ssr
 .env.*.local
 
 
-studio/out/
-studio/release/
+out/
+release/

@@ -6,6 +6,8 @@ import time
 import os
 import logging
 from typing import Dict, Any, List, Union, Optional
+from functools import lru_cache
+import threading
 
 from urllib3 import response
 
@@ -62,6 +64,14 @@ class ChanjingAPI:
         self.debug = False
         self.access_token = None  # 延迟获取 token
         self._token_expired = False  # token 是否已失效标记
+# 🐌 添加缓存机制降低 API 并发量
+        self._cache = {}  # 简单内存缓存：{key: {'data': xxx, 'expire_at': timestamp}}
+        self._cache_lock = threading.Lock()
+        self._cache_ttl = {
+            'list_common_persons': 300,  # 公共数字人列表缓存 5 分钟
+            'list_common_audio': 300,    # 声音列表缓存 5 分钟
+            'customised_person_status': 60,  # 数字人状态缓存 1 分钟
+        }
     
     def _setup_logger(self):
         """设置日志记录器"""
@@ -75,6 +85,42 @@ class ChanjingAPI:
         logger.addHandler(ch)
         
         return logger
+    
+    def _cache_get(self, key: str):
+        """从缓存获取数据，如果过期则返回 None"""
+        with self._cache_lock:
+            if key in self._cache:
+                entry = self._cache[key]
+                if time.time() < entry['expire_at']:
+                    self.logger.debug(f"缓存命中：{key}")
+                    return entry['data']
+                else:
+                    # 过期了，删除
+                    del self._cache[key]
+                    self.logger.debug(f"缓存过期：{key}")
+        return None
+    
+    def _cache_set(self, key: str, data: Any, ttl: int = 60):
+        """设置缓存数据"""
+        with self._cache_lock:
+            self._cache[key] = {
+                'data': data,
+                'expire_at': time.time() + ttl
+            }
+            self.logger.debug(f"缓存设置：{key}, TTL={ttl}s")
+    
+    def _cache_clear(self, key_pattern: str = None):
+        """清除缓存，支持按前缀清除"""
+        with self._cache_lock:
+            if key_pattern:
+                keys_to_delete = [k for k in self._cache.keys() if k.startswith(key_pattern)]
+                for k in keys_to_delete:
+                    del self._cache[k]
+                self.logger.info(f"清除缓存：{key_pattern}*, 共 {len(keys_to_delete)} 个")
+            else:
+                count = len(self._cache)
+                self._cache.clear()
+                self.logger.info(f"清除所有缓存，共 {count} 个")
     
     def set_debug(self, debug: bool = True):
         """启用或禁用调试模式"""
@@ -258,8 +304,21 @@ class ChanjingAPI:
         return file_id
     
     # 数字人相关方法
-    def list_common_digital_persons(self, page: int = 1, size: int = 20) -> Dict[str, Any]:
-        """获取平台提供的公共数字人列表"""
+    def list_common_digital_persons(self, page: int = 1, size: int = 20, use_cache: bool = True) -> Dict[str, Any]:
+        """获取平台提供的公共数字人列表
+        
+        Args:
+            page: 页码
+            size: 每页数量
+            use_cache: 是否使用缓存（默认 True）
+        """
+        # 🐌 使用缓存降低 API 调用频率
+        cache_key = f"list_common_persons:{page}:{size}"
+        if use_cache:
+            cached = self._cache_get(cache_key)
+            if cached is not None:
+                return cached
+        
         endpoint = "/list_common_dp"
         params = {"page": page, "size": size}
         
@@ -272,6 +331,11 @@ class ChanjingAPI:
             for p in response['data']['list'][:3]:  # 只打印前 3 个
                 pass
                 #self.logger.info(f"  - 数字人：{p.get('name')}, figures={p.get('figures')}, cover_url={p.get('cover_url')}")
+        
+        # 🐌 缓存结果
+        if use_cache and response.get('code') == 0:
+            ttl = self._cache_ttl.get('list_common_persons', 300)
+            self._cache_set(cache_key, response, ttl)
         
         return response
     
@@ -300,32 +364,93 @@ class ChanjingAPI:
         self.logger.info(f"正在创建自定义数字人: {name}...")
         return self._request("POST", endpoint, data=data)
     
-    def get_customised_person_status(self, person_id: str) -> Dict[str, Any]:
-        """获取自定义数字人的创建状态"""
+    def get_customised_person_status(self, person_id: str, use_cache: bool = True) -> Dict[str, Any]:
+        """获取自定义数字人的创建状态
+        
+        Args:
+            person_id: 数字人 ID
+            use_cache: 是否使用缓存（默认 True）
+        """
+        # 🐌 使用缓存降低 API 调用频率
+        cache_key = f"customised_person_status:{person_id}"
+        if use_cache:
+            cached = self._cache_get(cache_key)
+            if cached is not None:
+                return cached
+        
         endpoint = "/customised_person"
         params = {"id": person_id}
         
         self.logger.info(f"正在获取数字人 {person_id} 的状态...")
-        return self._request("GET", endpoint, params=params)
+        response = self._request("GET", endpoint, params=params)
+        
+        # 🐌 缓存结果（状态变更不频繁，缓存 1 分钟）
+        if use_cache and response.get('code') == 0:
+            ttl = self._cache_ttl.get('customised_person_status', 60)
+            self._cache_set(cache_key, response, ttl)
+        
+        return response
     
     
-    def list_customised_persons(self, page: int = 1, page_size: int = 10, source: int = 0) -> Dict[str, Any]:
+    def list_customised_persons(self, page: int = 1, page_size: int = 10, source: int = 0, use_cache: bool = True) -> Dict[str, Any]:
+        """获取自定义数字人列表
+        
+        Args:
+            page: 页码
+            page_size: 每页数量
+            source: 来源类型
+            use_cache: 是否使用缓存（默认 True）
+        """
+        # 🐌 使用缓存降低 API 调用频率
+        cache_key = f"list_customised_persons:{page}:{page_size}:{source}"
+        if use_cache:
+            cached = self._cache_get(cache_key)
+            if cached is not None:
+                return cached
+        
         endpoint = "/list_customised_person"
         data = {
             "page": page,
             "page_size": page_size,
             "source": source
         }
-        return self._request("POST", endpoint, data=data)
+        response = self._request("POST", endpoint, data=data)
+        
+        # 🐌 缓存结果
+        if use_cache and response.get('code') == 0:
+            ttl = 60  # 列表数据缓存 1 分钟
+            self._cache_set(cache_key, response, ttl)
+        
+        return response
 
     # 音频相关方法
-    def list_common_audio_mans(self, page: int = 1, size: int = 20) -> Dict[str, Any]:
-        """获取平台提供的公共声音模型列表"""
+    def list_common_audio_mans(self, page: int = 1, size: int = 20, use_cache: bool = True) -> Dict[str, Any]:
+        """获取平台提供的公共声音模型列表
+        
+        Args:
+            page: 页码
+            size: 每页数量
+            use_cache: 是否使用缓存（默认 True）
+        """
+        # 🐌 使用缓存降低 API 调用频率
+        cache_key = f"list_common_audio:{page}:{size}"
+        if use_cache:
+            cached = self._cache_get(cache_key)
+            if cached is not None:
+                return cached
+        
         endpoint = "/list_common_audio"
         params = {"page": page, "size": size}
         
         self.logger.info("正在获取公共声音模型列表...")
-        return self._request("GET", endpoint, params=params)
+        response = self._request("GET", endpoint, params=params)
+        
+        # 🐌 缓存结果
+        if use_cache and response.get('code') == 0:
+            ttl = self._cache_ttl.get('list_common_audio', 300)
+            self._cache_set(cache_key, response, ttl)
+        
+        return response
     
     def create_video(
         self,

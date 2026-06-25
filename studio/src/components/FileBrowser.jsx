@@ -1243,7 +1243,7 @@ function FileBrowser({ vfs, onFileSelect, onFileOpen, className, initialPath = '
     }
     
     initPath()
-  }, [])
+  }, [vfs, initialPath])
   
   const loadDirectory = useCallback(async () => {
     if (!vfs) {
