@@ -1,8 +1,9 @@
 import React, { useState, useRef, useCallback } from 'react'
 import { useTimelineStore, mediaFileRegistry } from '../../stores/timelineStore'
-import { Rocket, CheckCircle, AlertCircle, Settings, Download } from 'lucide-react'
+import { Rocket, CheckCircle, AlertCircle, Settings, Download, Layers } from 'lucide-react'
 import { videoEditorEngine } from '../../utils/videoEditorEngine'
 import { PROJECT_FOLDERS, buildVFSPath } from '../../utils/project-structure'
+import FadeControl from './FadeControl'
 
 /**
  * 导出面板 - 将剪辑完成的视频导出并保存到 VFS
@@ -172,11 +173,17 @@ export default function ExportPanelVFS({ vfs }) {
   }, [])
 
   return (
-    <div className="flex flex-col h-full p-4 bg-slate-900/50">
-      <h3 className="font-bold text-sm mb-4 border-b border-slate-800 pb-2 flex items-center gap-2">
-        <Settings size={14} />
-        输出设置
-      </h3>
+    <div className="flex flex-col h-full p-0 bg-slate-900/50 overflow-hidden">
+      {/* 可滚动内容区 */}
+      <div className="flex-1 overflow-y-auto">
+        {/* 淡入淡出控制 */}
+        <FadeControl />
+        
+        <div className="p-4 border-t border-slate-800">
+          <h3 className="font-bold text-sm mb-4 flex items-center gap-2">
+            <Settings size={14} />
+            输出设置
+          </h3>
       
       {/* 格式选择 */}
       <div className="space-y-3 mb-4">
@@ -281,43 +288,45 @@ export default function ExportPanelVFS({ vfs }) {
       )}
 
       {/* 导出按钮 */}
-      <button 
-        onClick={handleExport}
-        disabled={status === 'processing' || totalDuration_ms <= 0 || clips.length === 0}
-        className={`w-full py-3 rounded font-bold text-sm flex items-center justify-center gap-2 transition-all ${
-          status === 'complete'
-            ? 'bg-green-600 hover:bg-green-500 text-white'
-            : status === 'processing'
-            ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
-            : totalDuration_ms <= 0 || clips.length === 0
-            ? 'bg-slate-700 text-slate-500 cursor-not-allowed'
-            : 'bg-blue-600 hover:bg-blue-500 text-white'
-        }`}
-      >
-        {status === 'complete' ? (
-          <>
-            <CheckCircle size={16} />
-            再次导出
-          </>
-        ) : status === 'processing' ? (
-          <>
-            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-            处理中...
-          </>
-        ) : (
-          <>
-            <Rocket size={16} />
-            开始导出到项目
-          </>
-        )}
-      </button>
+          <button 
+            onClick={handleExport}
+            disabled={status === 'processing' || totalDuration_ms <= 0 || clips.length === 0}
+            className={`w-full py-3 rounded font-bold text-sm flex items-center justify-center gap-2 transition-all ${
+              status === 'complete'
+                ? 'bg-green-600 hover:bg-green-500 text-white'
+                : status === 'processing'
+                ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
+                : totalDuration_ms <= 0 || clips.length === 0
+                ? 'bg-slate-700 text-slate-500 cursor-not-allowed'
+                : 'bg-blue-600 hover:bg-blue-500 text-white'
+            }`}
+          >
+            {status === 'complete' ? (
+              <>
+                <CheckCircle size={16} />
+                再次导出
+              </>
+            ) : status === 'processing' ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                处理中...
+              </>
+            ) : (
+              <>
+                <Rocket size={16} />
+                开始导出到项目
+              </>
+            )}
+          </button>
 
-      {/* 禁用提示 */}
-      {(totalDuration_ms <= 0 || clips.length === 0) && status !== 'processing' && (
-        <p className="text-xs text-slate-500 text-center mt-2">
-          请在时间轴中添加素材后导出
-        </p>
-      )}
+          {/* 禁用提示 */}
+          {(totalDuration_ms <= 0 || clips.length === 0) && status !== 'processing' && (
+            <p className="text-xs text-slate-500 text-center mt-2">
+              请在时间轴中添加素材后导出
+            </p>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

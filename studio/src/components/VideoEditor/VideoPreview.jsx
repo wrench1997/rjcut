@@ -59,6 +59,11 @@ export default function VideoPreview() {
 
       const videoEl = videoRef.current
       
+      // 定义错误处理函数（移到前面）
+      const handleError = (e) => {
+        console.error('[VideoPreview] 视频加载错误:', e)
+      }
+      
       // 定义绘制函数
       const drawFrame = () => {
         const canvas = canvasRef.current
@@ -102,10 +107,6 @@ export default function VideoPreview() {
       // 添加事件监听器
       videoEl.addEventListener('seeked', drawFrame, { once: true })
       videoEl.addEventListener('loadeddata', drawFrame, { once: true })
-      
-      const handleError = (e) => {
-        console.error('[VideoPreview] 视频加载错误:', e)
-      }
       videoEl.addEventListener('error', handleError)
 
       // 计算视频内的时间位置

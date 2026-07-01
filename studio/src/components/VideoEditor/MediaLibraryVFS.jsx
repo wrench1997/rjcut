@@ -6,41 +6,72 @@ import { useTimelineStore, mediaFileRegistry, timelineStore } from '../../stores
  * 媒体库组件 - 支持从 VFS 导入和本地上传
  */
 export default function MediaLibraryVFS({ vfs }) {
-  const { mediaFiles, addMediaFile, removeMediaFile } = useTimelineStore()
+  const { mediaFiles, addMediaFile, removeMediaFile, addClip, clips, seek, play } = useTimelineStore()
   const [showVfsBrowser, setShowVfsBrowser] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
 
-  // 从 VFS 导入文件
-  const importFromVFS = async (vfsPath) => {
+  // 从 VFS 导入目录（批量导入媒体文件）
+  const importFromVFS = async (dirPath) => {
     setIsProcessing(true)
     try {
-      const blob = await vfs.readFileAsBlob(vfsPath)
-      const filename = vfsPath.split('/').pop()
-      const ext = filename.split('.').pop().toLowerCase()
+      console.log('[MediaLibraryVFS] 开始导入目录:', dirPath)
       
-      // 推断类型
-      let type = 'video'
-      if (['mp3', 'wav', 'aac', 'm4a'].includes(ext)) type = 'audio'
-      if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext)) type = 'image'
-
-      // 将 Blob 封装为 File 对象
-      const file = new File([blob], filename, { type: `${type}/${ext}` })
-
-      // 提取媒体信息
-      const info = await extractMediaInfo(file, type)
+      // 列出目录内容
+      const entries = await vfs.listDirectory(dirPath)
+      console.log('[MediaLibraryVFS] 目录内容:', entries)
       
-      const id = `media_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
-      addMediaFile({
-        id,
-        name: filename,
-        duration_ms: info.duration * 1000,
-        type,
-        thumbnail: info.thumbnail,
-        width: info.width,
-        height: info.height,
-        vfsPath, // 记录原始 VFS 路径
-      }, file)
+      // 过滤媒体文件
+      const mediaFiles = entries.filter(entry => {
+        if (!entry.isFile && !(entry.type && entry.type.includes('file'))) return false
+        const ext = entry.name.split('.').pop().toLowerCase()
+        return ['mp4', 'mov', 'avi', 'mkv', 'webm', 'mp3', 'wav', 'aac', 'png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext)
+      })
+      
+      if (mediaFiles.length === 0) {
+        alert('当前目录没有支持的媒体文件')
+        return
+      }
+      
+      console.log('[MediaLibraryVFS] 找到', mediaFiles.length, '个媒体文件')
+      
+      // 批量导入
+      for (const entry of mediaFiles) {
+        try {
+          const filePath = entry.path
+          const blob = await vfs.readFileAsBlob(filePath)
+          const filename = entry.name
+          const ext = filename.split('.').pop().toLowerCase()
+          
+          // 推断类型
+          let type = 'video'
+          if (['mp3', 'wav', 'aac', 'm4a'].includes(ext)) type = 'audio'
+          if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext)) type = 'image'
 
+          // 将 Blob 封装为 File 对象
+          const file = new File([blob], filename, { type: `${type}/${ext}` })
+
+          // 提取媒体信息
+          const info = await extractMediaInfo(file, type)
+          
+          const id = `media_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
+          addMediaFile({
+            id,
+            name: filename,
+            duration_ms: info.duration * 1000,
+            type,
+            thumbnail: info.thumbnail,
+            width: info.width,
+            height: info.height,
+            vfsPath: filePath, // 记录原始 VFS 路径
+          }, file)
+          
+          console.log('[MediaLibraryVFS] 导入成功:', filename)
+        } catch (e) {
+          console.error('[MediaLibraryVFS] 单个文件导入失败:', entry.name, e)
+        }
+      }
+      
+      alert(`成功导入 ${mediaFiles.length} 个文件`)
       setShowVfsBrowser(false)
     } catch (e) {
       console.error('[MediaLibraryVFS] 导入失败:', e)
@@ -88,15 +119,50 @@ export default function MediaLibraryVFS({ vfs }) {
     const media = mediaFiles[mediaId]
     if (!media) return
 
-    const { addClip } = timelineStore.getState()
     addClip({
       mediaId,
-      start_ms: 0, // 默认添加到开头
+      start_ms: 0,
       duration_ms: media.duration_ms,
       track: media.type === 'audio' ? 'audio_1' : 'video_1',
       type: media.type,
       offset_ms: 0,
     })
+  }
+
+  // 预览视频 - 直接添加到时间轴并在预览窗口播放
+  const handlePreview = (media) => {
+    console.log('[MediaLibraryVFS] 预览请求:', media)
+    if (media.type !== 'video') {
+      console.warn('[MediaLibraryVFS] 非视频类型，无法预览:', media.type)
+      return
+    }
+
+    // 检查是否已经在时间轴上
+    const existingClip = clips.find(c => c.mediaId === media.id)
+    
+    if (existingClip) {
+      // 已存在，直接跳转到该片段
+      console.log('[MediaLibraryVFS] 跳转到已有片段:', existingClip.id)
+      seek(existingClip.start_ms)
+      play()
+    } else {
+      // 不存在，添加到时间轴视频轨道开头
+      console.log('[MediaLibraryVFS] 添加新片段到时间轴')
+      addClip({
+        mediaId: media.id,
+        start_ms: 0,
+        duration_ms: media.duration_ms,
+        track: 'video_1',
+        type: media.type,
+        offset_ms: 0,
+      })
+      
+      // 跳转到开头并播放
+      setTimeout(() => {
+        seek(0)
+        play()
+      }, 100)
+    }
   }
 
   return (
@@ -156,6 +222,7 @@ export default function MediaLibraryVFS({ vfs }) {
                 media={m} 
                 onDelete={() => removeMediaFile(m.id)}
                 onAddToTimeline={() => addToTimeline(m.id)}
+                onPreview={handlePreview}
               />
             ))}
           </div>
@@ -177,7 +244,7 @@ export default function MediaLibraryVFS({ vfs }) {
 /**
  * 素材网格项
  */
-function MediaGridItem({ media, onDelete, onAddToTimeline }) {
+function MediaGridItem({ media, onDelete, onAddToTimeline, onPreview }) {
   const formatDuration = (ms) => {
     const seconds = Math.floor(ms / 1000)
     const mins = Math.floor(seconds / 60)
@@ -185,12 +252,28 @@ function MediaGridItem({ media, onDelete, onAddToTimeline }) {
     return mins > 0 ? `${mins}:${secs.toString().padStart(2, '0')}` : `${secs.toFixed(1)}s`
   }
 
+  const handleDoubleClick = (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    console.log('[MediaGridItem] 双击:', media.name, '类型:', media.type)
+    if (onPreview && media.type === 'video') {
+      console.log('[MediaGridItem] 调用预览')
+      onPreview(media)
+    }
+  }
+
+  // 根据类型设置不同的宽高比
+  const aspectRatio = media.type === 'image' ? 'aspect-square' : 'aspect-[9/16]'
+
   return (
-    <div className="group bg-slate-800 border border-slate-700 rounded overflow-hidden hover:border-blue-500 transition-all">
-      {/* 缩略图 */}
-      <div className="aspect-video bg-black flex items-center justify-center relative">
+    <div 
+      className="group bg-slate-800 border border-slate-700 rounded overflow-hidden hover:border-blue-500 transition-all cursor-pointer"
+      onDoubleClick={handleDoubleClick}
+    >
+      {/* 缩略图 - 视频 9:16，图片正方形 */}
+      <div className={`${aspectRatio} bg-black flex items-center justify-center relative`}>
         {media.thumbnail ? (
-          <img src={media.thumbnail} className="w-full h-full object-cover" alt={media.name} />
+          <img src={media.thumbnail} className="w-full h-full object-contain" alt={media.name} />
         ) : (
           <Film size={20} className="text-slate-600" />
         )}
@@ -208,19 +291,37 @@ function MediaGridItem({ media, onDelete, onAddToTimeline }) {
         {/* 悬停操作 */}
         <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
           <button 
-            onClick={onAddToTimeline}
+            onClick={(e) => {
+              e.stopPropagation()
+              onAddToTimeline()
+            }}
             className="bg-blue-600 hover:bg-blue-500 text-white p-1.5 rounded-full"
             title="添加到时间轴"
           >
             <Plus size={14} />
           </button>
           <button 
-            onClick={onDelete}
+            onClick={(e) => {
+              e.stopPropagation()
+              onDelete()
+            }}
             className="bg-red-600 hover:bg-red-500 text-white p-1.5 rounded-full"
             title="删除"
           >
             <Trash2 size={14} />
           </button>
+          {media.type === 'video' && (
+            <button 
+              onClick={(e) => {
+                e.stopPropagation()
+                onPreview(media)
+              }}
+              className="bg-green-600 hover:bg-green-500 text-white p-1.5 rounded-full"
+              title="预览"
+            >
+              <Film size={14} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -238,8 +339,9 @@ function MediaGridItem({ media, onDelete, onAddToTimeline }) {
  * VFS 浏览器弹窗
  */
 function VfsBrowserModal({ vfs, onClose, onSelect }) {
-  const [currentPath, setCurrentPath] = useState('/')
+  const [currentPath, setCurrentPath] = useState('')
   const [entries, setEntries] = useState([])
+  const [pathHistory, setPathHistory] = useState([])
 
   React.useEffect(() => {
     loadDirectory(currentPath)
@@ -247,12 +349,20 @@ function VfsBrowserModal({ vfs, onClose, onSelect }) {
 
   const loadDirectory = async (path) => {
     try {
-      const result = vfs.ls(path)
-      const files = result.filter(entry => {
-        const ext = entry.name.split('.').pop().toLowerCase()
-        return ['mp4', 'mov', 'avi', 'mkv', 'webm', 'mp3', 'wav', 'aac', 'png', 'jpg', 'jpeg'].includes(ext)
-      })
-      setEntries(files)
+      // VFSProxy 使用 listDirectory API，返回格式：[{ name, path, isDirectory, isFile, ... }]
+      // path 是完整的虚拟路径
+      const result = await vfs.listDirectory(path)
+      console.log('[VfsBrowserModal] 加载目录结果:', path, result)
+      
+      // 只返回目录项，不进入文件
+      const dirs = result.filter(entry => entry.isDirectory || (entry.type && entry.type.includes('directory')))
+        .map(entry => ({
+          name: entry.name,
+          path: entry.path,
+          type: 'dir',
+        }))
+      
+      setEntries(dirs)
     } catch (e) {
       console.error('[VfsBrowserModal] 加载目录失败:', e)
       setEntries([])
@@ -261,18 +371,25 @@ function VfsBrowserModal({ vfs, onClose, onSelect }) {
 
   const handleSelect = (entry) => {
     if (entry.type === 'dir') {
-      const newPath = currentPath === '/' ? `/${entry.name}` : `${currentPath}/${entry.name}`
-      setCurrentPath(newPath)
-    } else {
-      const filePath = currentPath === '/' ? `/${entry.name}` : `${currentPath}/${entry.name}`
-      onSelect(filePath)
+      // 进入目录，保存历史
+      setPathHistory([...pathHistory, currentPath])
+      setCurrentPath(entry.path)
     }
+    // 文件不能进入，只能选择
   }
 
   const goUp = () => {
-    if (currentPath !== '/') {
-      const parent = currentPath.split('/').slice(0, -1).join('/') || '/'
-      setCurrentPath(parent)
+    if (pathHistory.length > 0) {
+      const prevPath = pathHistory[pathHistory.length - 1]
+      setPathHistory(pathHistory.slice(0, -1))
+      setCurrentPath(prevPath)
+    }
+  }
+
+  const selectCurrentDirectory = () => {
+    // 选择当前目录作为素材目录
+    if (currentPath) {
+      onSelect(currentPath)
     }
   }
 
@@ -284,7 +401,7 @@ function VfsBrowserModal({ vfs, onClose, onSelect }) {
       >
         {/* 标题 */}
         <div className="p-3 border-b border-slate-700 flex justify-between items-center">
-          <h3 className="font-bold text-slate-200">从 VFS 选择素材</h3>
+          <h3 className="font-bold text-slate-200">选择素材目录</h3>
           <button onClick={onClose} className="text-slate-400 hover:text-white">
             <Trash2 size={16} className="rotate-45" />
           </button>
@@ -294,19 +411,19 @@ function VfsBrowserModal({ vfs, onClose, onSelect }) {
         <div className="p-2 border-b border-slate-700 flex items-center gap-2 bg-slate-800/50">
           <button 
             onClick={goUp}
-            disabled={currentPath === '/'}
-            className="text-slate-400 hover:text-white disabled:opacity-30"
+            disabled={pathHistory.length === 0}
+            className="text-slate-400 hover:text-white disabled:opacity-30 text-xs px-2 py-1"
           >
-            📁 上级
+            ⬅ 返回
           </button>
-          <span className="text-xs text-slate-400 flex-1 truncate">{currentPath}</span>
+          <span className="text-xs text-slate-400 flex-1 truncate">{currentPath || '根目录'}</span>
         </div>
 
-        {/* 文件列表 */}
+        {/* 目录列表 */}
         <div className="flex-1 overflow-y-auto p-2">
           {entries.length === 0 ? (
             <div className="text-center py-8 text-slate-500 text-sm">
-              当前目录没有支持的媒体文件
+              当前目录为空
             </div>
           ) : (
             <div className="space-y-1">
@@ -314,27 +431,32 @@ function VfsBrowserModal({ vfs, onClose, onSelect }) {
                 <div
                   key={entry.path}
                   onClick={() => handleSelect(entry)}
-                  className={`flex items-center gap-2 p-2 rounded cursor-pointer transition ${
-                    entry.type === 'dir' 
-                      ? 'hover:bg-slate-700 text-slate-300' 
-                      : 'hover:bg-blue-600/20 text-slate-200'
-                  }`}
+                  className="flex items-center gap-2 p-2 rounded hover:bg-slate-700 text-slate-300 cursor-pointer transition"
                 >
-                  {entry.type === 'dir' ? (
-                    <Folder size={16} className="text-yellow-500" />
-                  ) : (
-                    <Film size={16} className="text-blue-400" />
-                  )}
+                  <Folder size={16} className="text-yellow-500" />
                   <span className="text-sm flex-1 truncate">{entry.name}</span>
-                  {entry.type === 'file' && (
-                    <span className="text-xs text-slate-500">
-                      {entry.size ? Math.round(entry.size / 1024) + ' KB' : ''}
-                    </span>
-                  )}
+                  <span className="text-xs text-slate-500">→</span>
                 </div>
               ))}
             </div>
           )}
+        </div>
+
+        {/* 底部按钮 */}
+        <div className="p-3 border-t border-slate-700 flex gap-2">
+          <button
+            onClick={onClose}
+            className="flex-1 px-3 py-2 text-sm text-slate-300 hover:text-white transition"
+          >
+            取消
+          </button>
+          <button
+            onClick={selectCurrentDirectory}
+            disabled={!currentPath}
+            className="flex-1 px-3 py-2 text-sm bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded transition"
+          >
+            选择此目录
+          </button>
         </div>
       </div>
     </div>

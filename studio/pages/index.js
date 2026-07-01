@@ -41,7 +41,7 @@ const NAV_ITEMS = [
   
   { id: 'digital-human-studio', label: '数字人创作平台', icon: Sparkles, tip: '选择数字人和场景，创作专属数字人视频' },
   { id: 'digital-human', label: '数字人管理', icon: Users, tip: '管理数字人形象，查看已创建的 digital human' },
-  { id: 'advanced-editor', label: '高级视频剪辑 (开发中)', icon: Scissors, tip: '专业视频剪辑功能（正在开发中）' },
+  { id: 'advanced-editor', label: '高级剪辑', icon: Scissors, tip: '专业视频剪辑功能：多轨道编辑、分割、修剪、淡入淡出' },
   { id: 'settings', label: '系统设置', icon: Settings, tip: '配置 API 连接参数和系统偏好设置' },
 ]
 
