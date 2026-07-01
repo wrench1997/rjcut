@@ -1,0 +1,23 @@
+# FRP 客户端 Docker Compose - 本地服务器连接公网
+services:
+  # FRP 客户端
+  frp-client:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rjcut-frp-client
+    volumes:
+      - ./frpc.ini:/frp/frpc.ini
+      - frp-logs:/frp/log
+    restart: unless-stopped
+    networks:
+      - frp-network
+
+# 网络配置
+networks:
+  frp-network:
+    driver: bridge
+
+# 数据卷配置
+volumes:
+  frp-logs:
