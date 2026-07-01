@@ -5,11 +5,11 @@ services:
   # FRP 服务端
   frp-server:
     build:
-      context: ./frp
+      context: .
       dockerfile: Dockerfile.server
     container_name: rjcut-frp-server
     volumes:
-      - ./frp/frps.ini:/frp/frps.ini
+      - ./frps.ini:/frp/frps.ini
       - frp-logs:/frp/log
     ports:
       # FRP 客户端连接端口
