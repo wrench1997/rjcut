@@ -1084,7 +1084,9 @@ async def generate_script(
     """
     try:
         body = await request.json()
-    except Exception:
+        print(f"[DEBUG] 收到 AI 生成模板请求：{body}")
+    except Exception as e:
+        print(f"[ERROR] 解析请求体失败：{e}")
         return fail(40001, "无效的 JSON 请求体")
 
     product_name = body.get("product_name", "")
@@ -1202,7 +1204,9 @@ async def generate_template(
     """
     try:
         body = await request.json()
-    except Exception:
+        print(f"[DEBUG] 收到 AI 生成模板请求：{body}")
+    except Exception as e:
+        print(f"[ERROR] 解析请求体失败：{e}")
         return fail(40001, "无效的 JSON 请求体")
 
     product_name = body.get("product_name", "")
