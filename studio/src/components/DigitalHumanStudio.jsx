@@ -1095,14 +1095,21 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
       })
 
       // 将生成的文案转换为脚本格式
-      // 过滤掉 transition 和 scene 类型的段落（这些是转场提示，不需要生成文案条目）
-      const humanSegments = generatedSegments.filter(s => s.flag === 'hook' || s.flag === 'ending' || s.flag === 'human')
+      // 包含所有段落（hook、human、ending 有文案，transition 作为转场提示）
+      const validSegments = generatedSegments.filter(s => 
+        s.flag === 'hook' || 
+        s.flag === 'ending' || 
+        s.flag === 'human' ||
+        s.flag === 'transition'
+      )
 
-      if (humanSegments.length > 0) {
-        // 更新脚本列表
-        const newScripts = humanSegments.map((segment, idx) => ({
+      if (validSegments.length > 0) {
+        // 更新脚本列表，包含文案和转场提示
+        const newScripts = validSegments.map((segment, idx) => ({
           id: Date.now() + idx,
-          text: segment.text || '',
+          text: segment.text || '',  // transition 段落 text 为空
+          flag: segment.flag,  // 保留段落类型标识
+          note: segment.note,  // 保留转场提示说明
         }))
 
         // 如果当前只有一个空脚本，替换它；否则追加
@@ -1112,7 +1119,9 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
           setScripts([...scripts, ...newScripts])
         }
 
-        alert(`✅ AI 文案生成成功！生成了 ${newScripts.length} 条文案（包含${generatedSegments.filter(s => s.flag === 'transition').length}个转场提示）`)
+        const transitionCount = generatedSegments.filter(s => s.flag === 'transition').length
+        const textCount = generatedSegments.filter(s => s.text).length
+        alert(`✅ AI 文案生成成功！生成了 ${textCount} 条文案 + ${transitionCount}个转场提示，共 ${validSegments.length} 段`)
       } else {
         alert('⚠️ 模板中没有可生成文案的段落')
       }

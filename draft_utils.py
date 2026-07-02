@@ -134,8 +134,23 @@ async def ai_generate_script_via_gateway(
 1. 文案要口语化、自然流畅
 2. 符合指定的风格调性
 3. 突出产品卖点和优势
-4. 控制每段文案长度，适合短视频节奏"""
+4. 控制每段文案长度，适合短视频节奏
+5. **必须为 hook、human、ending 段落生成具体的文案内容**
+6. transition 段落不需要文案，保持原样即可
 
+【输出格式】
+请按行输出，每一行对应一个需要文案的段落（hook、human、ending），顺序与模板结构一致。
+例如：
+第一行：hook 段落的文案
+第二行：human 段落 1 的文案
+第三行：human 段落 2 的文案
+...
+最后一行：ending 段落的文案
+"""
+
+    # 统计需要生成文案的段落数量
+    text_segment_count = sum(1 for s in template_structure if s.get("flag") in ("hook", "human", "ending"))
+    
     user_prompt = f"""请为以下产品创作口播文案：
 
 【产品信息】
@@ -147,7 +162,10 @@ async def ai_generate_script_via_gateway(
 【模板结构】
 {template_structure}
 
-请按照模板结构中的 human 段落位置，生成对应的口播文案。保持其他非 human 段落不变。
+【任务】
+模板中共有 {text_segment_count} 个段落需要文案（包括 hook、human、ending）。
+请按顺序输出 {text_segment_count} 行文案，每行对应一个段落的口播词。
+不要输出段落标识，只输出纯文案内容。
 """
 
     payload = {
@@ -177,8 +195,11 @@ async def ai_generate_script_via_gateway(
             if not ai_text:
                 raise ValueError("AI 返回内容为空")
 
+            print(f"[DEBUG] AI 返回的原始文本:\n{ai_text}")
+            
             # 将 AI 生成的文案填充到模板结构中
             generated_segments = parse_ai_script_to_segments(ai_text, template_structure)
+            print(f"[DEBUG] 解析后的 segments:\n{generated_segments}")
 
             return {
                 "success": True,
@@ -380,8 +401,8 @@ def parse_ai_script_to_segments(ai_text: str, template_structure: List[Dict]) ->
     """
     将 AI 生成的文案解析并填充到模板结构中
 
-    简单实现：按行分割，依次填充到 human 段落
-    实际项目中可以根据 AI 返回的结构化数据更精确匹配
+    支持填充 hook、human、ending 段落的 text 字段
+    transition 段落保持原样（仅作为转场提示）
     """
     import re
 
@@ -390,7 +411,10 @@ def parse_ai_script_to_segments(ai_text: str, template_structure: List[Dict]) ->
     ai_index = 0
 
     for segment in template_structure:
-        if segment.get("flag") == "human":
+        flag = segment.get("flag")
+        
+        # 需要填充文案的段落类型：hook、human、ending
+        if flag in ("hook", "human", "ending"):
             # 从 AI 文案中取一行作为该段落的文案
             if ai_index < len(ai_lines):
                 text = ai_lines[ai_index]
@@ -404,8 +428,12 @@ def parse_ai_script_to_segments(ai_text: str, template_structure: List[Dict]) ->
                 "note": (segment.get("note") or "") + "（AI 生成）",
             })
         else:
-            # 非 human 段落保持原样
-            generated_segments.append(segment)
+            # transition、scene 等段落保持原样（作为转场提示）
+            generated_segments.append({
+                **segment,
+                "text": "",  # 转场段落不需要文案
+                "note": (segment.get("note") or "") + "（AI 生成 - 转场提示）",
+            })
 
     return generated_segments
 

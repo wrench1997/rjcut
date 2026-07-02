@@ -159,111 +159,60 @@ export async function aiGenerateScript({
   templateId,
   segments,
 }) {
-  // TODO: 调用后端 AI 接口
-  // const response = await fetch('/v1/copywriting/generate', {
-  //   method: 'POST',
-  //   headers: { 'Content-Type': 'application/json' },
-  //   body: JSON.stringify({
-  //     productName,
-  //     sellingPoints,
-  //     targetAudience,
-  //     tone,
-  //     templateId,
-  //     structure: segments
-  //   })
-  // })
-  // return response.json()
-
-  // 模拟 AI 生成（基于模板结构）
-  await new Promise((resolve) => setTimeout(resolve, 1500))
-
-  // 根据风格生成不同的文案
-  const toneStyles = {
-    direct_sale: {
-      hook: '家人们！今天必须给你们安利这个{product}！',
-      ending: '点击评论区链接，现在下单还有优惠！',
-    },
-    premium: {
-      hook: '在快节奏的生活中，你是否也在寻找一份品质？',
-      ending: '{product}，为懂生活的你而来。',
-    },
-    social_review: {
-      hook: '用了{product}一个月，来跟大家说说真实感受。',
-      ending: '真心推荐给需要的姐妹们！',
-    },
-    explainer: {
-      hook: '很多人问我{product}到底好不好，今天详细给大家讲讲。',
-      ending: '有任何问题欢迎在评论区留言。',
-    },
+  // 调用后端 AI 文案生成接口
+  const baseUrl = typeof localStorage !== 'undefined' 
+    ? localStorage.getItem('rjcut_api_base_url') || 'http://192.168.166.151:8000'
+    : 'http://192.168.166.151:8000'
+  
+  // 验证必填参数
+  if (!productName || !productName.trim()) {
+    throw new Error('产品名称不能为空')
   }
+  
+  try {
+    const requestBody = {
+      product_name: productName,
+      selling_points: sellingPoints || '',
+      target_audience: targetAudience || '',
+      tone: tone,
+      template_structure: segments,
+    }
+    
+    console.log('[AI 生成文案] 请求 URL:', `${baseUrl}/v1/ai/generate-script`)
+    console.log('[AI 生成文案] 请求体:', requestBody)
+    
+    const response = await fetch(`${baseUrl}/v1/ai/generate-script`, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer rjk_oG3u1bRu10myprstb5o2AYVW6v9HipNT33ALuJTmFxaqemUC',
+      },
+      body: JSON.stringify(requestBody),
+    })
 
-  const style = toneStyles[tone] || toneStyles.direct_sale
-  const product = productName || '这款产品'
-  const points = sellingPoints ? sellingPoints.split(/[,,]/).filter(Boolean) : []
-
-  // 根据模板段落结构生成文案，包含转场提示
-  const generatedSegments = segments.map((segment, index) => {
-    // hook 段落：开场吸引
-    if (segment.flag === 'hook') {
-      return {
-        ...segment,
-        text: style.hook.replace('{product}', product),
-        note: segment.note + '（AI 生成）',
-      }
+    console.log('[AI 生成文案] 响应状态:', response.status)
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      console.error('[AI 生成文案] 错误响应:', errorData)
+      throw new Error(errorData.message || `HTTP ${response.status}`)
     }
 
-    // ending 段落：结尾引导
-    if (segment.flag === 'ending') {
-      return {
-        ...segment,
-        text: style.ending.replace('{product}', product),
-        note: segment.note + '（AI 生成）',
-      }
+    const result = await response.json()
+    console.log('[AI 生成文案] 成功响应:', result)
+    
+    // 后端返回格式：{ code: 0, message: "ok", data: { segments: [...] } }
+    if (result.code === 0 && result.data?.segments) {
+      return result.data.segments
+    } else if (result.code === 200 && result.data?.segments) {
+      return result.data.segments
+    } else {
+      throw new Error(result.message || result.msg || 'AI 生成文案失败')
     }
-
-    // transition 段落：转场提示（用于后期合成时切换场景）
-    if (segment.flag === 'transition') {
-      return {
-        ...segment,
-        text: '',  // 转场段落不需要文案，只是提示后期切换场景
-        note: segment.note + '（AI 生成 - 转场提示）',
-      }
-    }
-
-    // human 段落：中间的人声讲解部分
-    if (segment.flag === 'human') {
-      // 根据卖点生成文案
-      const pointText = points.length > 0
-        ? `它{points}，非常适合{audience}。`
-        : '这款产品真的很不错，值得拥有！'
-
-      return {
-        ...segment,
-        text: pointText
-          .replace('{points}', points.join('、'))
-          .replace('{audience}', targetAudience || '大家'),
-        note: segment.note + '（AI 生成）',
-      }
-    }
-
-    // scene 段落：场景展示（类似 transition）
-    if (segment.flag === 'scene') {
-      return {
-        ...segment,
-        text: '',
-        note: segment.note + '（AI 生成 - 场景展示）',
-      }
-    }
-
-    // 其他未知类型，保持原样
-    return {
-      ...segment,
-      text: segment.text || '',
-      note: segment.note + '（AI 生成）',
-    }
-  })
-
-  return generatedSegments
+  } catch (error) {
+    console.error('AI 生成文案错误:', error)
+    throw error
+  }
 }
 
 /**
