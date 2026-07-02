@@ -12,7 +12,20 @@ import Tooltip from './Tooltip'
  */
 export default function TemplateManager({ onSelectTemplate, selectedTemplateId, onClose }) {
   const isStandalone = !onClose // 没有 onClose 时，作为独立页面显示
-  const [templates, setTemplates] = useState(DEFAULT_TEMPLATES)
+  
+  // 初始化时从 localStorage 加载自定义模板
+  const [templates, setTemplates] = useState(() => {
+    try {
+      const stored = localStorage.getItem('rjcut_custom_templates')
+      if (stored) {
+        const customTemplates = JSON.parse(stored)
+        return [...DEFAULT_TEMPLATES, ...customTemplates]
+      }
+    } catch (e) {
+      console.error('加载自定义模板失败:', e)
+    }
+    return DEFAULT_TEMPLATES
+  })
   const [editingTemplate, setEditingTemplate] = useState(null)
   const [selectedCategory, setSelectedCategory] = useState('all')
   const [showCreateForm, setShowCreateForm] = useState(false)
@@ -26,6 +39,7 @@ export default function TemplateManager({ onSelectTemplate, selectedTemplateId, 
     : templates.filter(t => t.category === selectedCategory)
 
   const handleSelectTemplate = (template) => {
+    console.log('[TemplateManager] 选择模板:', template?.id, template?.name)
     if (onSelectTemplate) {
       onSelectTemplate(template)
     }
@@ -35,24 +49,44 @@ export default function TemplateManager({ onSelectTemplate, selectedTemplateId, 
   }
 
   const handleSaveTemplate = (template) => {
+    let newTemplates
     if (editingTemplate) {
       // 编辑现有模板
-      setTemplates(templates.map(t => t.id === template.id ? template : t))
+      newTemplates = templates.map(t => t.id === template.id ? template : t)
     } else {
       // 创建新模板
       const newTemplate = {
         ...template,
         id: `custom_${Date.now()}`,
       }
-      setTemplates([...templates, newTemplate])
+      newTemplates = [...templates, newTemplate]
     }
+    setTemplates(newTemplates)
+    
+    // 保存自定义模板到 localStorage（只保存自定义模板，不保存默认模板）
+    const customTemplates = newTemplates.filter(t => t.id?.startsWith('custom_'))
+    try {
+      localStorage.setItem('rjcut_custom_templates', JSON.stringify(customTemplates))
+    } catch (e) {
+      console.error('保存自定义模板失败:', e)
+    }
+    
     setEditingTemplate(null)
     setShowCreateForm(false)
   }
 
   const handleDeleteTemplate = (templateId) => {
     if (confirm('确定要删除这个模板吗？')) {
-      setTemplates(templates.filter(t => t.id !== templateId))
+      const newTemplates = templates.filter(t => t.id !== templateId)
+      setTemplates(newTemplates)
+      
+      // 更新 localStorage 中的自定义模板
+      const customTemplates = newTemplates.filter(t => t.id?.startsWith('custom_'))
+      try {
+        localStorage.setItem('rjcut_custom_templates', JSON.stringify(customTemplates))
+      } catch (e) {
+        console.error('更新自定义模板失败:', e)
+      }
     }
   }
 
@@ -62,15 +96,48 @@ export default function TemplateManager({ onSelectTemplate, selectedTemplateId, 
       id: `copy_${template.id}_${Date.now()}`,
       name: `${template.name} (副本)`,
     }
-    setTemplates([...templates, duplicated])
+    const newTemplates = [...templates, duplicated]
+    setTemplates(newTemplates)
+    
+    // 更新 localStorage 中的自定义模板
+    const customTemplates = newTemplates.filter(t => t.id?.startsWith('custom_') || t.id?.startsWith('copy_'))
+    try {
+      localStorage.setItem('rjcut_custom_templates', JSON.stringify(customTemplates))
+    } catch (e) {
+      console.error('更新自定义模板失败:', e)
+    }
   }
 
   const handleAIGenerateTemplate = async (params) => {
     setIsGenerating(true)
     try {
-      const newTemplate = await aiGenerateTemplate(params)
-      setTemplates([...templates, newTemplate])
+      const aiTemplate = await aiGenerateTemplate(params)
+      // 确保 AI 生成的模板有 id
+      const newTemplate = {
+        ...aiTemplate,
+        id: aiTemplate.id || `ai_${Date.now()}`,
+      }
+      const newTemplates = [...templates, newTemplate]
+      setTemplates(newTemplates)
+      
+      // 保存自定义模板到 localStorage（包括手动创建、AI 生成、复制的模板）
+      const customTemplates = newTemplates.filter(t => 
+        t.id?.startsWith('custom_') || 
+        t.id?.startsWith('copy_') || 
+        t.id?.startsWith('ai_') ||
+        !DEFAULT_TEMPLATES.find(dt => dt.id === t.id)
+      )
+      try {
+        localStorage.setItem('rjcut_custom_templates', JSON.stringify(customTemplates))
+      } catch (e) {
+        console.error('保存自定义模板失败:', e)
+      }
+      
       setShowAIGenerateForm(false)
+      // 自动选新生成的模板
+      if (onSelectTemplate) {
+        onSelectTemplate(newTemplate)
+      }
     } catch (err) {
       alert('AI 生成模板失败：' + err.message)
     } finally {
@@ -229,7 +296,11 @@ function TemplateCard({ template, isSelected, onSelect, onEdit, onDuplicate, onD
           ? 'border-blue-500 bg-blue-50 shadow-md'
           : 'border-slate-200 bg-white hover:border-blue-300'
       }`}
-      onClick={onSelect}
+      onClick={(e) => {
+        e.stopPropagation()
+        console.log('[TemplateCard] 点击选择:', template?.id, template?.name)
+        onSelect(template)
+      }}
     >
       <div className="flex justify-between items-start mb-2">
         <div className="flex items-center gap-2">

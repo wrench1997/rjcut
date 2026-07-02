@@ -801,10 +801,28 @@ export default function GlobalParamsVisualEditor({
   };
 
   // Copy JSON payload utility
-  const copyJsonPayload = () => {
-    navigator.clipboard.writeText(JSON.stringify(config, null, 2));
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const copyJsonPayload = async () => {
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(config, null, 2));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      // 降级方案：使用传统方法
+      const textArea = document.createElement('textarea');
+      textArea.value = JSON.stringify(config, null, 2);
+      textArea.style.position = 'fixed';
+      textArea.style.left = '-999999px';
+      document.body.appendChild(textArea);
+      textArea.select();
+      try {
+        document.execCommand('copy');
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } catch (e) {
+        alert('复制失败，请手动复制');
+      }
+      document.body.removeChild(textArea);
+    }
   };
 
   return (

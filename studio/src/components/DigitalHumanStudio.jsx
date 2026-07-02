@@ -805,6 +805,7 @@ function MinimizedProgress({ tasks, onExpand, onClose }) {
 // AI 文案生成表单弹窗
 // =====================================================
 function AIScriptForm({ template, productInfo, setProductInfo, onSubmit, onCancel, isGenerating }) {
+  console.log('[AIScriptForm] template prop:', template)
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col">
@@ -815,7 +816,7 @@ function AIScriptForm({ template, productInfo, setProductInfo, onSubmit, onCance
             AI 文案生成
           </h3>
           <p className="text-xs text-slate-500 mt-1">
-            已选择模板：<span className="font-medium text-purple-600">{template?.name}</span>
+            已选择模板：<span className="font-medium text-purple-600">{template?.name || '未选择'}</span>
             （{template?.segments?.length || 0} 段落，含{template?.segments?.filter(s => s.flag === 'transition').length || 0}个转场）
           </p>
         </div>
@@ -1042,15 +1043,25 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
   }
 
   const handleSelectTemplate = (template) => {
+    console.log('[DigitalHumanStudio] 选择模板:', template?.id, template?.name)
+    // 直接设置所有状态，React 会批量更新
     setTempSelectedTemplate(template)
     setShowTemplateManager(false)
-    // 打开表单弹窗，让用户填写产品信息
     setShowScriptForm(true)
+    console.log('[DigitalHumanStudio] 表单已打开，template:', template?.id, template?.name)
   }
 
   const handleSubmitScriptForm = () => {
+    console.log('[handleSubmitScriptForm] tempSelectedTemplate:', tempSelectedTemplate)
+    console.log('[handleSubmitScriptForm] productInfo:', productInfo)
+    
     if (!productInfo.productName) {
       alert('请输入产品名称')
+      return
+    }
+    
+    if (!tempSelectedTemplate) {
+      alert('请先选择一个模板')
       return
     }
     
@@ -1070,6 +1081,9 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
   const generateScriptFromTemplate = async (template, productName, sellingPoints, targetAudience, tone) => {
     setIsGeneratingScript(true)
     try {
+      if (!template) {
+        throw new Error('未选择模板，请先选择一个模板')
+      }
       const segments = template.segments || []
       const generatedSegments = await aiGenerateScript({
         productName,
@@ -1809,7 +1823,8 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
           selectedTemplateId={tempSelectedTemplate?.id}
           onClose={() => {
             setShowTemplateManager(false)
-            setTempSelectedTemplate(null)
+            // 注意：不要在这里清空 tempSelectedTemplate，否则选择的模板会丢失
+            // setTempSelectedTemplate(null)
           }}
         />
       )}

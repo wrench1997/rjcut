@@ -200,8 +200,15 @@ async def ai_generate_script_via_gateway(
         }
 
 
-def extract_json_field(text, field_name):
-    """从文本中提取指定 JSON 字段的值（通用辅助函数）"""
+def extract_json_field(text, field_name, allow_partial=False):
+    """
+    从文本中提取指定 JSON 字段的值（通用辅助函数）
+    
+    Args:
+        text: 文本
+        field_name: 字段名
+        allow_partial: 如果为 True，当 JSON 被截断时尝试提取部分数据
+    """
     import re
     import json
     
@@ -253,20 +260,45 @@ def extract_json_field(text, field_name):
     
     elif first_char == '[':
         # 数组：使用括号计数找到匹配的 ]
-        end_pos = find_json_bracket_end(text, start_pos, '[', ']')
+        end_pos = find_json_bracket_end(text, start_pos, '[', ']', allow_partial=allow_partial)
         if end_pos:
             value = text[start_pos:end_pos]
+            # 如果是部分提取，尝试修复 JSON（添加闭合括号）
+            if allow_partial and end_pos == len(text) and not value.rstrip().endswith(']'):
+                # 尝试智能修复：找到最后一个完整的对象
+                value = value.rstrip()
+                # 查找最后一个 "flag": 或类似字段，确定最后一个对象的位置
+                last_obj_start = value.rfind('{')
+                if last_obj_start > 0:
+                    # 截断到最后一个完整的对象
+                    value = value[:last_obj_start].rstrip(',').rstrip() + ']'
+                else:
+                    value = value + ']'
             try:
                 return json.loads(value)
-            except:
+            except Exception as e:
+                # 如果解析失败，尝试更激进的修复
+                if allow_partial:
+                    # 提取所有完整的 {"flag": ..., "note": ...} 对象
+                    import re
+                    pattern = r'\{[^{}]*"flag"[^{}]*\}'
+                    matches = re.findall(pattern, value, re.DOTALL)
+                    if matches:
+                        try:
+                            return [json.loads(m) for m in matches]
+                        except:
+                            pass
                 return value
         return None
     
     elif first_char == '{':
         # 对象：使用括号计数找到匹配的 }
-        end_pos = find_json_bracket_end(text, start_pos, '{', '}')
+        end_pos = find_json_bracket_end(text, start_pos, '{', '}', allow_partial=allow_partial)
         if end_pos:
             value = text[start_pos:end_pos]
+            # 如果是部分提取，尝试修复 JSON（添加闭合括号）
+            if allow_partial and end_pos == len(text) and not value.rstrip().endswith('}'):
+                value = value.rstrip() + '}'
             try:
                 return json.loads(value)
             except:
@@ -296,8 +328,20 @@ def extract_json_object(text):
     return None
 
 
-def find_json_bracket_end(text, start_pos, open_bracket, close_bracket):
-    """使用括号计数找到匹配的闭合括号位置"""
+def find_json_bracket_end(text, start_pos, open_bracket, close_bracket, allow_partial=False):
+    """
+    使用括号计数找到匹配的闭合括号位置
+    
+    Args:
+        text: 文本
+        start_pos: 开始位置
+        open_bracket: 开括号字符
+        close_bracket: 闭括号字符
+        allow_partial: 如果为 True，当括号不匹配时返回文本末尾（用于处理截断的 JSON）
+    
+    Returns:
+        匹配的闭合括号位置，如果 allow_partial=True 且括号不匹配则返回 len(text)
+    """
     count = 0
     in_string = False
     escape_next = False
@@ -324,6 +368,10 @@ def find_json_bracket_end(text, start_pos, open_bracket, close_bracket):
                 count -= 1
                 if count == 0:
                     return i + 1
+    
+    # 如果允许部分提取且还有未闭合的括号，返回文本末尾
+    if allow_partial and count > 0:
+        return len(text)
     
     return None
 
@@ -671,20 +719,29 @@ JSON 必须包含以下字段：
             ai_response = extract_json_object(ai_content)
             
             if not ai_response:
-                # 回退到字段提取
+                print(f"[DEBUG] extract_json_object 失败，回退到 extract_json_field")
+                # 回退到字段提取（allow_partial=True 处理截断的 JSON）
                 ai_response = {
-                    "name": extract_json_field(ai_content, "name"),
-                    "description": extract_json_field(ai_content, "description"),
-                    "category": extract_json_field(ai_content, "category"),
-                    "segments": extract_json_field(ai_content, "segments"),
-                    "style": extract_json_field(ai_content, "style"),
+                    "name": extract_json_field(ai_content, "name", allow_partial=True),
+                    "description": extract_json_field(ai_content, "description", allow_partial=True),
+                    "category": extract_json_field(ai_content, "category", allow_partial=True),
+                    "segments": extract_json_field(ai_content, "segments", allow_partial=True),
+                    "style": extract_json_field(ai_content, "style", allow_partial=True),
                 }
             
             print(f"[DEBUG] 提取的 AI 响应：{ai_response}")
             
             # 验证必要字段
             if not ai_response or not ai_response.get("segments"):
-                raise ValueError("无法提取 segments 字段")
+                print(f"[DEBUG] segments 字段仍为空，尝试直接提取数组...")
+                # 最后一次尝试：直接提取 segments 数组
+                segments = extract_json_field(ai_content, "segments", allow_partial=True)
+                if segments:
+                    ai_response["segments"] = segments
+                    print(f"[DEBUG] 成功提取 segments: {len(segments)} 个元素")
+                
+                if not ai_response.get("segments"):
+                    raise ValueError("无法提取 segments 字段")
 
             # 添加唯一 ID
             template = {

@@ -285,39 +285,56 @@ export async function aiGenerateTemplate({
   style = 'direct_sale',
   transitionCount = 4,
 }) {
-  // 调用后端 AI 接口（通过 apiClient 统一处理）
+  // 调用后端 AI 接口
   const baseUrl = typeof localStorage !== 'undefined' 
     ? localStorage.getItem('rjcut_api_base_url') || 'http://192.168.166.151:8000'
     : 'http://192.168.166.151:8000'
   
+  // 验证必填参数
+  if (!productName || !productName.trim()) {
+    throw new Error('产品名称不能为空')
+  }
+  
   try {
+    const requestBody = {
+      product_name: productName,
+      product_type: productType,
+      selling_points: sellingPoints || '',
+      target_audience: targetAudience || '',
+      style: style,
+      transition_count: transitionCount,
+    }
+    
+    console.log('[AI 生成模板] 请求 URL:', `${baseUrl}/v1/ai/generate-template`)
+    console.log('[AI 生成模板] 请求体:', requestBody)
+    
     const response = await fetch(`${baseUrl}/v1/ai/generate-template`, {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
         'Authorization': 'Bearer rjk_oG3u1bRu10myprstb5o2AYVW6v9HipNT33ALuJTmFxaqemUC',
       },
-      body: JSON.stringify({
-        product_name: productName,
-        product_type: productType,
-        selling_points: sellingPoints,
-        target_audience: targetAudience,
-        style: style,
-        transition_count: transitionCount,
-      }),
+      body: JSON.stringify(requestBody),
     })
 
+    console.log('[AI 生成模板] 响应状态:', response.status)
+    
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}))
+      console.error('[AI 生成模板] 错误响应:', errorData)
       throw new Error(errorData.message || `HTTP ${response.status}`)
     }
 
     const result = await response.json()
+    console.log('[AI 生成模板] 成功响应:', result)
     
-    if (result.code === 200 && result.data.template) {
+    // 后端返回格式：{ code: 0, message: "ok", data: { template: {...} } }
+    if (result.code === 0 && result.data?.template) {
+      return result.data.template
+    } else if (result.code === 200 && result.data?.template) {
       return result.data.template
     } else {
-      throw new Error(result.message || 'AI 生成模板失败')
+      throw new Error(result.message || result.msg || 'AI 生成模板失败')
     }
   } catch (error) {
     console.error('AI 生成模板错误:', error)
