@@ -143,6 +143,19 @@ export const cancelTask = (task_id, reason = '用户取消') =>
 export const getTaskList = (limit = 50) => apiClient.get(`/v1/tasks?limit=${limit}`);
 
 // =====================================================
+// AI 辅助功能
+// =====================================================
+
+// AI 生成模板
+export const aiGenerateTemplate = (data) => apiClient.post('/v1/ai/generate-template', data);
+
+// AI 推荐模板
+export const aiRecommendTemplates = (data) => apiClient.post('/v1/ai/recommend-templates', data);
+
+// AI 生成文案
+export const aiGenerateScript = (data) => apiClient.post('/v1/ai/generate-script', data);
+
+// =====================================================
 // 数字人 API
 // =====================================================
 

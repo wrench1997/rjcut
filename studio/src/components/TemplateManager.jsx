@@ -523,14 +523,24 @@ function TemplateEditor({ template, onSave, onCancel }) {
  * AI 生成模板表单组件
  */
 function AIGenerateTemplateForm({ onGenerate, onCancel, isGenerating }) {
+  const [productName, setProductName] = useState('')
   const [productType, setProductType] = useState('通用产品')
+  const [sellingPoints, setSellingPoints] = useState('')
+  const [targetAudience, setTargetAudience] = useState('')
   const [style, setStyle] = useState('direct_sale')
   const [transitionCount, setTransitionCount] = useState(4)
 
   const handleSubmit = (e) => {
     e.preventDefault()
+    if (!productName.trim()) {
+      alert('请输入产品名称')
+      return
+    }
     onGenerate({
+      productName,
       productType,
+      sellingPoints,
+      targetAudience,
       style,
       transitionCount,
     })
@@ -538,38 +548,81 @@ function AIGenerateTemplateForm({ onGenerate, onCancel, isGenerating }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col">
         {/* 头部 */}
-        <div className="p-4 border-b border-slate-200 bg-gradient-to-r from-purple-50 to-pink-50">
+        <div className="p-4 border-b border-slate-200 bg-gradient-to-r from-purple-50 to-pink-50 flex justify-between items-center">
           <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
             <Sparkles size={18} className="text-purple-600" />
             AI 自动生成模板
           </h3>
+          <button type="button" onClick={onCancel} className="text-slate-400 hover:text-slate-600">
+            <X size={20} />
+          </button>
         </div>
 
         {/* 表单内容 */}
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
-          {/* 产品类型 */}
-          <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">
-              产品类型
-            </label>
-            <select
-              value={productType}
-              onChange={(e) => setProductType(e.target.value)}
-              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-purple-400 bg-white"
-            >
-              <option value="通用产品">通用产品</option>
-              <option value="滋补品">滋补品</option>
-              <option value="保健品">保健品</option>
-              <option value="电子产品">电子产品</option>
-              <option value="服装">服装</option>
-              <option value="食品">食品</option>
-              <option value="化妆品">化妆品</option>
-            </select>
-            <p className="text-[10px] text-slate-400 mt-1">
-              💡 AI 将根据产品类型生成合适的模板结构
-            </p>
+        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-5 custom-scrollbar">
+          {/* 第一行：产品名称 + 产品类型 */}
+          <div className="grid grid-cols-2 gap-4 mb-4">
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">
+                产品名称 *
+              </label>
+              <input
+                type="text"
+                value={productName}
+                onChange={(e) => setProductName(e.target.value)}
+                placeholder="例如：XX 牌鹿茸血"
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-purple-400"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">
+                产品类型
+              </label>
+              <select
+                value={productType}
+                onChange={(e) => setProductType(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-purple-400 bg-white"
+              >
+                <option value="通用产品">通用产品</option>
+                <option value="滋补品">滋补品</option>
+                <option value="保健品">保健品</option>
+                <option value="电子产品">电子产品</option>
+                <option value="服装">服装</option>
+                <option value="食品">食品</option>
+                <option value="化妆品">化妆品</option>
+              </select>
+            </div>
+          </div>
+
+          {/* 第二行：卖点 + 目标人群 */}
+          <div className="grid grid-cols-2 gap-4 mb-4">
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">
+                核心卖点
+              </label>
+              <textarea
+                value={sellingPoints}
+                onChange={(e) => setSellingPoints(e.target.value)}
+                placeholder="例如：纯天然、增强免疫力"
+                rows={2}
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-purple-400 resize-none"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">
+                目标人群
+              </label>
+              <input
+                type="text"
+                value={targetAudience}
+                onChange={(e) => setTargetAudience(e.target.value)}
+                placeholder="例如：30-50 岁中年人"
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-purple-400"
+              />
+            </div>
           </div>
 
           {/* 风格选择 */}

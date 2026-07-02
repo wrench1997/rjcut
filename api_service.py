@@ -1189,7 +1189,10 @@ async def generate_template(
 
     请求体：
     {
+        "product_name": "产品名称",
         "product_type": "产品类型（如：滋补品、电子产品、服装等）",
+        "selling_points": "核心卖点（可选）",
+        "target_audience": "目标人群（可选）",
         "style": "文案风格（direct_sale/premium/social_review/explainer）",
         "transition_count": 转场数量（数字，默认 4）
     }
@@ -1199,12 +1202,21 @@ async def generate_template(
     except Exception:
         return fail(40001, "无效的 JSON 请求体")
 
+    product_name = body.get("product_name", "")
     product_type = body.get("product_type", "通用产品")
+    selling_points = body.get("selling_points", "")
+    target_audience = body.get("target_audience", "")
     style = body.get("style", "direct_sale")
     transition_count = body.get("transition_count", 4)
 
+    if not product_name:
+        return fail(40002, "产品名称不能为空")
+
     result = await ai_generate_template_via_gateway(
+        product_name=product_name,
         product_type=product_type,
+        selling_points=selling_points,
+        target_audience=target_audience,
         style=style,
         transition_count=transition_count,
     )

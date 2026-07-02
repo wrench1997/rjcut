@@ -267,33 +267,49 @@ export async function aiGenerateScript({
 }
 
 /**
- * AI 自动生成模板 - 根据产品类型和风格生成模板结构
+ * AI 自动生成模板 - 根据产品信息和风格生成模板结构
  * @param {Object} params - 参数
+ * @param {string} params.productName - 产品名称
  * @param {string} params.productType - 产品类型（如：滋补品、电子产品、服装等）
+ * @param {string} params.sellingPoints - 核心卖点
+ * @param {string} params.targetAudience - 目标人群
  * @param {string} params.style - 风格（如：direct_sale、premium、social_review）
  * @param {number} params.transitionCount - 转场数量（默认 3-5 个）
  * @returns {Promise<{ id: string, name: string, description: string, category: string, segments: Array, style: Object }>}
  */
 export async function aiGenerateTemplate({
+  productName,
   productType = '通用产品',
+  sellingPoints = '',
+  targetAudience = '',
   style = 'direct_sale',
   transitionCount = 4,
 }) {
-  // 调用后端 AI 接口
+  // 调用后端 AI 接口（通过 apiClient 统一处理）
+  const baseUrl = typeof localStorage !== 'undefined' 
+    ? localStorage.getItem('rjcut_api_base_url') || 'http://localhost:8001'
+    : 'http://localhost:8001'
+  
   try {
-    const response = await fetch('/v1/ai/generate-template', {
+    const response = await fetch(`${baseUrl}/v1/ai/generate-template`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer rjk_oG3u1bRu10myprstb5o2AYVW6v9HipNT33ALuJTmFxaqemUC',
+      },
       body: JSON.stringify({
+        product_name: productName,
         product_type: productType,
+        selling_points: sellingPoints,
+        target_audience: targetAudience,
         style: style,
         transition_count: transitionCount,
       }),
     })
 
     if (!response.ok) {
-      const errorData = await response.json()
-      throw new Error(errorData.message || 'AI 生成模板失败')
+      const errorData = await response.json().catch(() => ({}))
+      throw new Error(errorData.message || `HTTP ${response.status}`)
     }
 
     const result = await response.json()

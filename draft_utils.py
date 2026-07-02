@@ -413,18 +413,24 @@ async def ai_analyze_videos_via_gateway(
 
 
 async def ai_generate_template_via_gateway(
+    product_name: str,
     product_type: str,
     style: str,
     transition_count: int,
+    selling_points: str = "",
+    target_audience: str = "",
     model_name: str = None,
 ) -> Dict[str, Any]:
     """
     通过 Gateway 调用 vLLM AI 生成模板
 
     Args:
+        product_name: 产品名称
         product_type: 产品类型（如：滋补品、电子产品、服装等）
         style: 风格（direct_sale/premium/social_review/explainer）
         transition_count: 转场数量
+        selling_points: 核心卖点（可选）
+        target_audience: 目标人群（可选）
         model_name: 模型名称（可选）
 
     Returns:
@@ -465,11 +471,16 @@ async def ai_generate_template_via_gateway(
 
     user_prompt = f"""请生成一个短视频模板：
 
-【产品类型】{product_type}
+【产品信息】
+- 产品名称：{product_name}
+- 产品类型：{product_type}
+- 核心卖点：{selling_points or "未提供"}
+- 目标人群：{target_audience or "未提供"}
+
 【文案风格】{style_descriptions.get(style, style)}
 【转场数量】{transition_count} 个
 
-请生成包含开场、{transition_count}个转场、结尾的完整模板结构。"""
+请根据以上产品信息，生成包含开场、{transition_count}个转场、结尾的完整模板结构。开场和结尾文案要体现产品卖点和目标人群特点。"""
 
     payload = {
         "model": model_name or os.getenv("MODEL_NAME", "Qwen/Qwen3.5-397B-A17B-FP8"),
