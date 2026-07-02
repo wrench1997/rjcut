@@ -26,7 +26,6 @@ import {
 
 import CampaignBasicsStep from './steps/CampaignBasicsStep'
 import CampaignAssetsStep from './steps/CampaignAssetsStep'
-import CampaignScriptStep from './steps/CampaignScriptStep'
 import CampaignPlanStep from './steps/CampaignPlanStep'
 import CampaignReviewStep from './steps/CampaignReviewStep'
 
@@ -44,7 +43,6 @@ export default function CampaignWizard({
   const [activeStepIndex, setActiveStepIndex] = useState(0)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const [isGenerating, setIsGenerating] = useState(false)
 
   const saveTimerRef = useRef(null)
   const activeStep = CAMPAIGN_STEPS[activeStepIndex]
@@ -114,15 +112,6 @@ export default function CampaignWizard({
 
       case 'assets':
         return <CampaignAssetsStep {...commonProps} />
-
-      case 'script':
-        return (
-          <CampaignScriptStep
-            {...commonProps}
-            isGenerating={isGenerating}
-            setIsGenerating={setIsGenerating}
-          />
-        )
 
       case 'plan':
         return <CampaignPlanStep {...commonProps} />

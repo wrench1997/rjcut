@@ -4,7 +4,7 @@
  */
 
 import { useState } from 'react'
-import { CheckCircle, Film, FileText, User, Settings, Sparkles } from 'lucide-react'
+import { Film, FileText, User, Settings, Sparkles } from 'lucide-react'
 import { buildCampaignExecutionPlan, convertToBatchProcessorTasks } from '../campaignTaskAdapter'
 import useBatchStore from '../../../api/useBatchProcessStore'
 
@@ -20,8 +20,6 @@ export default function CampaignReviewStep({
   const { startBatch } = useBatchStore()
 
   // 计算摘要
-  const enabledScenes = draft.script.scenes.filter((s) => s.enabled)
-  const totalWords = enabledScenes.reduce((sum, s) => sum + s.narration.trim().length, 0)
   const assetCount = draft.assets.length
 
   const handleCreateTasks = async () => {
@@ -171,25 +169,7 @@ export default function CampaignReviewStep({
         </div>
       </div>
 
-      {/* 脚本预览 */}
-      <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
-        <h3 className="text-sm font-bold text-slate-800 mb-3">脚本预览</h3>
-        <div className="space-y-3">
-          {enabledScenes.map((scene, index) => (
-            <div key={scene.id} className="p-3 bg-white rounded-lg border border-slate-200">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold text-slate-600">
-                  {index + 1}. {scene.title}
-                </span>
-                <span className="text-xs text-slate-400">
-                  {scene.durationSeconds}秒 · {scene.narration.length}字
-                </span>
-              </div>
-              <p className="text-sm text-slate-700">{scene.narration || '(暂无文案)'}</p>
-            </div>
-          ))}
-        </div>
-      </div>
+      
 
       {/* 高级设置 */}
       <div className="border border-slate-200 rounded-xl overflow-hidden">

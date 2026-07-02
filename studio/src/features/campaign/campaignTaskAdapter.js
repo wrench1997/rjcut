@@ -22,7 +22,7 @@ export function groupAssetsByRole(assets) {
 /**
  * 根据策略选择素材组合
  */
-export function selectAssetsForPlan({ assetsByRole, enabledScenes, strategy, copyVariants }) {
+export function selectAssetsForPlan({ assetsByRole, strategy, copyVariants }) {
   const selectedBackgroundAssets = []
   
   // 获取所有可用素材
@@ -53,20 +53,14 @@ export function selectAssetsForPlan({ assetsByRole, enabledScenes, strategy, cop
     }
   } else {
     // rotate（默认）：依次轮换
-    enabledScenes.forEach((scene, sceneIndex) => {
-      const roleAssets = assetsByRole[scene.assetRole] || allAssets
-      if (roleAssets.length === 0) return
-
-      for (let i = 0; i < copyVariants; i += 1) {
-        const assetIndex = (sceneIndex + i) % roleAssets.length
-        selectedBackgroundAssets.push({
-          ...roleAssets[assetIndex],
-          variantIndex: i,
-          taskIndex: selectedBackgroundAssets.length,
-          sceneRole: scene.assetRole,
-        })
-      }
-    })
+    for (let i = 0; i < copyVariants; i += 1) {
+      const assetIndex = i % allAssets.length
+      selectedBackgroundAssets.push({
+        ...allAssets[assetIndex],
+        variantIndex: i,
+        taskIndex: selectedBackgroundAssets.length,
+      })
+    }
   }
 
   return selectedBackgroundAssets
@@ -77,24 +71,14 @@ export function selectAssetsForPlan({ assetsByRole, enabledScenes, strategy, cop
  * 将 campaignDraft 转换为可执行的任务列表
  */
 export function buildCampaignExecutionPlan({ draft, existingGlobalParams, availableAssets }) {
-  const enabledScenes = draft.script.scenes.filter((scene) => scene.enabled)
-
-  if (!enabledScenes.length) {
-    throw new Error('至少需要一个启用的脚本段落。')
-  }
-
   const assetsByRole = groupAssetsByRole(draft.assets)
 
-  // 合并所有段落的文案
-  const scriptText = enabledScenes
-    .map((scene) => scene.narration.trim())
-    .filter(Boolean)
-    .join('\n')
+  // 文案由数字人创作平台提供，这里从 productBrief 获取基本信息
+  const scriptText = draft.productBrief.sellingPoints || ''
 
   // 选择素材
   const selectedBackgroundAssets = selectAssetsForPlan({
     assetsByRole,
-    enabledScenes,
     strategy: draft.batchPlan.assetStrategy,
     copyVariants: draft.batchPlan.copyVariants,
   })
@@ -125,7 +109,6 @@ export function buildCampaignExecutionPlan({ draft, existingGlobalParams, availa
       userFacingMeta: {
         platform: draft.platform,
         aspectRatio: draft.aspectRatio,
-        sceneCount: enabledScenes.length,
         assetName: asset.name,
         variantIndex: asset.variantIndex,
       },

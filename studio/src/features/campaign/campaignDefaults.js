@@ -6,7 +6,6 @@
 export const CAMPAIGN_STEPS = [
   { id: 'basics', label: '创建栏目', shortLabel: '栏目' },
   { id: 'assets', label: '添加环境视频', shortLabel: '素材' },
-  { id: 'script', label: '生成脚本', shortLabel: '文案' },
   { id: 'plan', label: '批量方案', shortLabel: '方案' },
   { id: 'review', label: '确认生成', shortLabel: '确认' },
 ]
@@ -75,48 +74,6 @@ export function createCampaignDraft() {
       voiceName: '',
     },
     assets: [],
-    script: {
-      source: 'manual',
-      title: '',
-      scenes: [
-        {
-          id: 'scene_hook',
-          role: 'hook',
-          title: '开场吸引',
-          narration: '',
-          assetRole: 'hook',
-          durationSeconds: 4,
-          enabled: true,
-        },
-        {
-          id: 'scene_product',
-          role: 'product',
-          title: '核心卖点',
-          narration: '',
-          assetRole: 'product',
-          durationSeconds: 8,
-          enabled: true,
-        },
-        {
-          id: 'scene_usage',
-          role: 'usage',
-          title: '使用场景',
-          narration: '',
-          assetRole: 'usage',
-          durationSeconds: 7,
-          enabled: true,
-        },
-        {
-          id: 'scene_ending',
-          role: 'ending',
-          title: '结尾引导',
-          narration: '',
-          assetRole: 'ending',
-          durationSeconds: 4,
-          enabled: true,
-        },
-      ],
-    },
     batchPlan: {
       generationMode: 'sample_first',
       copyVariants: 1,
@@ -154,16 +111,7 @@ export function validateCampaignDraft(draft, stepId) {
     if (!draft.assets.length) errors.push('请至少添加一个环境视频。')
   }
 
-  if (stepId === 'script') {
-    const enabledScenes = draft.script.scenes.filter((scene) => scene.enabled)
-    if (!enabledScenes.length) errors.push('请至少保留一个脚本段落。')
-
-    enabledScenes.forEach((scene, index) => {
-      if (!scene.narration.trim()) {
-        errors.push(`第 ${index + 1} 段"${scene.title}"还没有文案。`)
-      }
-    })
-  }
+  
 
   return errors
 }
