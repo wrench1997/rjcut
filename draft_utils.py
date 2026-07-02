@@ -468,7 +468,9 @@ def parse_ai_script_to_segments(ai_text: str, template_structure: List[Dict]) ->
             if not any(keyword in lower_line for keyword in ['thinking', 'analyze', 'step', 'requirement', 'hook', 'human', 'ending']):
                 if not line_stripped.startswith('*') and not line_stripped.startswith('-'):
                     if not re.match(r'^\d+\.', line_stripped):
-                        cleaned_lines.append(line_stripped)
+                        # 【移除 "Line X: " 前缀】AI 可能输出 "Line 1: xxx" 格式
+                        cleaned_line = re.sub(r'^Line\s*\d+\s*:\s*', '', line_stripped, flags=re.IGNORECASE)
+                        cleaned_lines.append(cleaned_line)
     
     ai_index = 0
 
@@ -487,14 +489,14 @@ def parse_ai_script_to_segments(ai_text: str, template_structure: List[Dict]) ->
             generated_segments.append({
                 **segment,
                 "text": text,
-                "note": (segment.get("note") or "") + "（AI 生成）",
+                "note": segment.get("note") or "",  # 直接使用原有 note，不添加后缀
             })
         else:
             # transition、scene 等段落保持原样（作为转场提示）
             generated_segments.append({
                 **segment,
                 "text": "",  # 转场段落不需要文案
-                "note": (segment.get("note") or "") + "（AI 生成 - 转场提示）",
+                "note": segment.get("note") or "",  # 直接使用原有 note，不添加后缀
             })
 
     return generated_segments
