@@ -406,7 +406,48 @@ def parse_ai_script_to_segments(ai_text: str, template_structure: List[Dict]) ->
     import re
 
     generated_segments = []
-    ai_lines = [line.strip() for line in ai_text.split('\n') if line.strip()]
+    
+    # 清理 AI 返回内容：跳过思考过程、推理内容
+    lines = ai_text.split('\n')
+    cleaned_lines = []
+    skip_mode = True  # 初始跳过模式，直到找到第一个有效文案
+    
+    for line in lines:
+        line_stripped = line.strip()
+        if not line_stripped:
+            continue
+        
+        # 检测是否进入正式文案（遇到非思考类的内容）
+        lower_line = line_stripped.lower()
+        if skip_mode:
+            # 跳过思考过程标记
+            if any(keyword in lower_line for keyword in [
+                'thinking', 'analyze', 'step', '首先', '让我', '我们来',
+                '根据', '分析', '理解', '需求', 'requirement', 'task',
+                'process', '理解', '我将', '我会', 'let', 'break'
+            ]):
+                continue
+            # 跳过编号列表（如 1. 2. 3.）
+            if re.match(r'^\d+\.\s*\*', line_stripped) or re.match(r'^\d+\.\s*\[', line_stripped):
+                continue
+            # 跳过 markdown 标题
+            if line_stripped.startswith('#') or line_stripped.startswith('**'):
+                continue
+            # 跳过空括号、纯符号
+            if re.match(r'^[\*\-\#\d\.\s]+$', line_stripped):
+                continue
+            # 找到第一个有效文案行（至少包含 2 个中文字符或 5 个英文字符）
+            has_chinese = len(re.findall(r'[\u4e00-\u9fff]', line_stripped)) >= 2
+            has_english = len(re.findall(r'[a-zA-Z]', line_stripped)) >= 5
+            if has_chinese or has_english:
+                skip_mode = False
+        
+        # 添加到有效文案列表
+        if not skip_mode and line_stripped:
+            # 再次检查是否是有效文案（不是思考内容）
+            if not any(keyword in lower_line for keyword in ['thinking', 'analyze', 'step', 'requirement']):
+                cleaned_lines.append(line_stripped)
+    
     ai_index = 0
 
     for segment in template_structure:
@@ -415,8 +456,8 @@ def parse_ai_script_to_segments(ai_text: str, template_structure: List[Dict]) ->
         # 需要填充文案的段落类型：hook、human、ending
         if flag in ("hook", "human", "ending"):
             # 从 AI 文案中取一行作为该段落的文案
-            if ai_index < len(ai_lines):
-                text = ai_lines[ai_index]
+            if ai_index < len(cleaned_lines):
+                text = cleaned_lines[ai_index]
                 ai_index += 1
             else:
                 text = segment.get("text", "")

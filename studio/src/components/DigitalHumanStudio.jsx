@@ -1094,8 +1094,8 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
         segments,
       })
 
-      // 将生成的文案转换为脚本格式
-      // 包含所有段落（hook、human、ending 有文案，transition 作为转场提示）
+      // 将生成的文案合并成一条完整的视频脚本
+      // hook、human、ending 段落有文案，transition 段落作为转场提示
       const validSegments = generatedSegments.filter(s => 
         s.flag === 'hook' || 
         s.flag === 'ending' || 
@@ -1104,24 +1104,35 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
       )
 
       if (validSegments.length > 0) {
-        // 更新脚本列表，包含文案和转场提示
-        const newScripts = validSegments.map((segment, idx) => ({
-          id: Date.now() + idx,
-          text: segment.text || '',  // transition 段落 text 为空
-          flag: segment.flag,  // 保留段落类型标识
-          note: segment.note,  // 保留转场提示说明
-        }))
+        // 合并所有段落为一条完整文案，用【转场】标识分隔
+        let fullScript = ''
+        validSegments.forEach((segment, idx) => {
+          if (segment.flag === 'transition') {
+            // 转场段落：添加转场提示
+            fullScript += `\n【转场：${segment.note || '场景切换'}】\n`
+          } else {
+            // 文案段落：添加实际文案
+            fullScript += segment.text || ''
+          }
+        })
+
+        // 创建一条完整的脚本
+        const newScript = {
+          id: Date.now(),
+          text: fullScript.trim(),
+          note: `AI 生成（${validSegments.length}段，含${generatedSegments.filter(s => s.flag === 'transition').length}个转场）`,
+        }
 
         // 如果当前只有一个空脚本，替换它；否则追加
         if (scripts.length === 1 && !scripts[0].text) {
-          setScripts(newScripts)
+          setScripts([newScript])
         } else {
-          setScripts([...scripts, ...newScripts])
+          setScripts([...scripts, newScript])
         }
 
         const transitionCount = generatedSegments.filter(s => s.flag === 'transition').length
         const textCount = generatedSegments.filter(s => s.text).length
-        alert(`✅ AI 文案生成成功！生成了 ${textCount} 条文案 + ${transitionCount}个转场提示，共 ${validSegments.length} 段`)
+        alert(`✅ AI 文案生成成功！已合并为 1 条完整脚本（${textCount}段文案 + ${transitionCount}个转场）`)
       } else {
         alert('⚠️ 模板中没有可生成文案的段落')
       }
