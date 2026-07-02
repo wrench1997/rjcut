@@ -14,6 +14,7 @@ import HelpGuide from '../src/components/HelpGuide'
 import AdvancedVideoEditor from '../src/components/AdvancedVideoEditor'
 import TemplateBatchPage from '../src/features/template-batch/TemplateBatchPage'
 import TemplateManager from '../src/components/TemplateManager'
+import CampaignWizard from '../src/features/campaign/CampaignWizard'
 
 
 const DEFAULT_API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8001'
@@ -37,7 +38,7 @@ const apiRequest = async (endpoint, options = {}, apiKey = DEFAULT_API_KEY, base
 
 // 导航菜单配置
 const NAV_ITEMS = [
-  // { id: 'campaign', label: '模板混剪', icon: WandSparkles, tip: '选择已生成的数字人视频，按模板补充素材自动混剪' }, // 老模板，已屏蔽
+  { id: 'campaign', label: '模板混剪', icon: WandSparkles, tip: '选择已生成的数字人视频，按模板补充素材自动混剪' },
   // { id: 'batch', label: '任务执行中心', icon: Layers, tip: '批量上传视频或指定参数，并行处理多个生成任务' }, // 老模板，已屏蔽
   { id: 'projects', label: '项目管理', icon: FolderOpen, tip: '管理您的视频项目，创建、编辑和删除项目' },
   { id: 'files', label: '文件浏览', icon: Folder, tip: '浏览和管理虚拟文件系统中的所有文件' },
@@ -45,7 +46,7 @@ const NAV_ITEMS = [
   { id: 'digital-human-studio', label: '数字人创作平台', icon: Sparkles, tip: '选择数字人和场景，创作专属数字人视频' },
   { id: 'digital-human', label: '数字人管理', icon: Users, tip: '管理数字人形象，查看已创建的 digital human' },
   { id: 'template-manager', label: '模板管理', icon: Book, tip: '管理文案模板，支持 AI 自动生成模板和文案' },
-  // { id: 'advanced-editor', label: '高级剪辑', icon: Scissors, tip: '专业视频剪辑功能：多轨道编辑、分割、修剪、淡入淡出' }, // 未完成，已屏蔽
+  { id: 'advanced-editor', label: '高级剪辑', icon: Scissors, tip: '专业视频剪辑功能：多轨道编辑、分割、修剪、淡入淡出' },
   { id: 'settings', label: '系统设置', icon: Settings, tip: '配置 API 连接参数和系统偏好设置' },
 ]
 
