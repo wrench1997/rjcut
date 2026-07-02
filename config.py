@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     FILE_MAX_SIZE_MB: int = 500  # 单文件最大大小 (MB)
     FILE_ENABLE_DEDUPLICATION: bool = True  # 是否启用 hash 去重
     
+    # AI Gateway 配置
+    GATEWAY_BASE_URL: str = "http://gateway:8888"  # Docker 容器内默认地址
 
     BASE_TASK_DIR: str = os.path.abspath("./service_data")
 
