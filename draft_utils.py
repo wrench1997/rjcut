@@ -276,6 +276,26 @@ def extract_json_field(text, field_name):
     return None
 
 
+def extract_json_object(text):
+    """从文本中提取第一个完整的 JSON 对象（使用括号计数）"""
+    import json
+    
+    # 找到第一个 { 的位置
+    start_pos = text.find('{')
+    if start_pos == -1:
+        return None
+    
+    # 使用括号计数找到匹配的 }
+    end_pos = find_json_bracket_end(text, start_pos, '{', '}')
+    if end_pos:
+        value = text[start_pos:end_pos]
+        try:
+            return json.loads(value)
+        except:
+            return None
+    return None
+
+
 def find_json_bracket_end(text, start_pos, open_bracket, close_bracket):
     """使用括号计数找到匹配的闭合括号位置"""
     count = 0
@@ -616,7 +636,7 @@ JSON 必须包含以下字段：
             {"role": "user", "content": user_prompt}
         ],
         "temperature": 0.7,
-        "max_tokens": 4000,  # 增加 token 限制，确保 JSON 完整输出
+        "max_tokens": 8000,  # 增加 token 限制，确保 JSON 完整输出
         "stream": False,
         "response_format": {"type": "json_object"},
         # 关闭思考模式，因为我们需要 JSON 输出而不是思考过程
@@ -638,58 +658,32 @@ JSON 必须包含以下字段：
             result = response.json()
             print(f"[DEBUG] Gateway 返回 JSON: {result}")
 
-            # 解析 AI 返回的 JSON
-            import json
-            import re
+            # 解析 AI 返回的 JSON（使用 extract_json_object 提取完整 JSON 对象）
             message = result["choices"][0]["message"]
-            ai_content = message.get("content")
-            
-            # 如果 content 为空，尝试从 reasoning 字段获取（兼容模式）
-            if not ai_content:
-                ai_content = message.get("reasoning", "")
-                print(f"[DEBUG] content 为空，使用 reasoning 字段")
-            
-            print(f"[DEBUG] AI 返回内容：{ai_content[:500] if ai_content else 'None'}")
+            ai_content = message.get("content") or message.get("reasoning", "")
             
             if not ai_content:
                 raise ValueError("AI 返回内容为空")
             
-            # 使用正则直接从文本中提取 JSON 字段（更可靠，避免思考过程干扰）
-            def extract_json_field(text, field_name):
-                """从文本中提取指定 JSON 字段的值"""
-                # 匹配 "field_name": value 或 "field_name": "value"
-                pattern = rf'"{field_name}"\s*:\s*("[^"]*"|\d+|\[.*?\]|\{{.*?\}})'
-                match = re.search(pattern, text, re.DOTALL)
-                if match:
-                    value = match.group(1)
-                    # 如果是字符串（带引号），去掉引号
-                    if value.startswith('"') and value.endswith('"'):
-                        return value[1:-1]
-                    # 如果是数字，转换为 int
-                    if value.isdigit():
-                        return int(value)
-                    # 如果是数组或对象，尝试解析
-                    if value.startswith('[') or value.startswith('{'):
-                        try:
-                            return json.loads(value)
-                        except:
-                            return value
-                    return value
-                return None
+            print(f"[DEBUG] AI 返回内容：{ai_content[:500]}...")
             
-            # 提取各个字段
-            ai_response = {
-                "name": extract_json_field(ai_content, "name"),
-                "description": extract_json_field(ai_content, "description"),
-                "category": extract_json_field(ai_content, "category"),
-                "segments": extract_json_field(ai_content, "segments"),
-                "style": extract_json_field(ai_content, "style"),
-            }
+            # 使用 extract_json_object 提取完整的 JSON 对象（更可靠）
+            ai_response = extract_json_object(ai_content)
+            
+            if not ai_response:
+                # 回退到字段提取
+                ai_response = {
+                    "name": extract_json_field(ai_content, "name"),
+                    "description": extract_json_field(ai_content, "description"),
+                    "category": extract_json_field(ai_content, "category"),
+                    "segments": extract_json_field(ai_content, "segments"),
+                    "style": extract_json_field(ai_content, "style"),
+                }
             
             print(f"[DEBUG] 提取的 AI 响应：{ai_response}")
             
             # 验证必要字段
-            if not ai_response.get("segments"):
+            if not ai_response or not ai_response.get("segments"):
                 raise ValueError("无法提取 segments 字段")
 
             # 添加唯一 ID
