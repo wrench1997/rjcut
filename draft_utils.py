@@ -581,8 +581,8 @@ async def ai_generate_template_via_gateway(
 
 【输出格式要求】
 - 必须返回纯 JSON 格式，不要包含任何 Markdown 代码块（如 ```json ... ```）
-- 不要输出任何思考过程、解释说明或其他文本
-- 只返回 JSON 对象本身
+- 如果有思考过程，请放在 JSON **之后**
+- **必须先输出完整的 JSON 对象，再输出其他内容**
 
 JSON 必须包含以下字段：
 - name: 模板名称（格式：{产品类型}·{风格简称}）
@@ -616,7 +616,7 @@ JSON 必须包含以下字段：
             {"role": "user", "content": user_prompt}
         ],
         "temperature": 0.7,
-        "max_tokens": 2000,
+        "max_tokens": 4000,  # 增加 token 限制，确保 JSON 完整输出
         "stream": False,
         "response_format": {"type": "json_object"},
         # 关闭思考模式，因为我们需要 JSON 输出而不是思考过程
