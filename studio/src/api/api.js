@@ -43,6 +43,8 @@ apiClient.interceptors.response.use(
         const error = new Error(data.message || '请求失败');
         error.code = data.code;
         error.data = data.data;
+        // 标记 token 过期错误，便于前端特殊处理
+        error.isTokenExpired = data.message?.includes('Token') || data.message?.includes('token') || data.code === 401;
         throw error;
       }
     }

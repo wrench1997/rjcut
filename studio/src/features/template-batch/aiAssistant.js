@@ -4,6 +4,96 @@
  */
 
 /**
+ * 默认模板定义
+ */
+export const DEFAULT_TEMPLATES = [
+  {
+    id: 'deer_antler_blood_v1',
+    name: '鹿茸血·口播带货',
+    description: '适合鹿茸血、营养液、滋补饮品等口播带货视频',
+    category: '滋补保健',
+    segments: [
+      { flag: 'hook', note: '开场吸引 - 数字人出镜' },
+      { flag: 'transition', note: '转场 1 - 产品瓶身展示' },
+      { flag: 'transition', note: '转场 2 - 倒出液体特写' },
+      { flag: 'transition', note: '转场 3 - 饮用或冲泡场景' },
+      { flag: 'transition', note: '转场 4 - 礼盒与包装细节' },
+      { flag: 'transition', note: '转场 5 - 结尾产品定帧' },
+      { flag: 'ending', note: '结尾引导 - 数字人出镜收尾' },
+    ],
+    style: {
+      hook: '想买鹿茸血的家人们，这条鹿茸血和鹿血区别的视频你必须看完！',
+      ending: '老妹家自家鹿场养了 1000 头梅花鹿，全部是地板价哦！',
+    },
+  },
+  {
+    id: 'health_product_v1',
+    name: '保健品·口播种草',
+    description: '适合保健品、营养补充剂、健康食品的口播种草视频',
+    category: '滋补保健',
+    segments: [
+      { flag: 'hook', note: '开场吸引 - 数字人出镜' },
+      { flag: 'transition', note: '转场 1 - 产品介绍' },
+      { flag: 'transition', note: '转场 2 - 成分展示' },
+      { flag: 'transition', note: '转场 3 - 使用演示' },
+      { flag: 'transition', note: '转场 4 - 效果反馈' },
+      { flag: 'ending', note: '结尾引导 - 数字人出镜收尾' },
+    ],
+    style: {
+      hook: '家人们，今天给大家揭秘这款保健品的真相！',
+      ending: '想要了解更多，点击评论区链接！',
+    },
+  },
+  {
+    id: 'direct_sale_v1',
+    name: '直接促销型',
+    description: '适合快速促销、限时优惠类产品',
+    category: '促销',
+    segments: [
+      { flag: 'hook', note: '开场吸引 - 数字人出镜' },
+      { flag: 'transition', note: '转场 1 - 产品展示' },
+      { flag: 'transition', note: '转场 2 - 优惠信息' },
+      { flag: 'ending', note: '结尾引导 - 数字人出镜收尾' },
+    ],
+    style: {
+      hook: '家人们！今天必须给你们安利这个{product}！',
+      ending: '点击评论区链接，现在下单还有优惠！',
+    },
+  },
+  {
+    id: 'premium_v1',
+    name: '高端品质型',
+    description: '适合高端产品、品质生活类产品',
+    category: '品牌',
+    segments: [
+      { flag: 'hook', note: '开场吸引 - 数字人出镜' },
+      { flag: 'transition', note: '转场 1 - 品质展示' },
+      { flag: 'transition', note: '转场 2 - 使用场景' },
+      { flag: 'ending', note: '结尾引导 - 数字人出镜收尾' },
+    ],
+    style: {
+      hook: '在快节奏的生活中，你是否也在寻找一份品质？',
+      ending: '{product}，为懂生活的你而来。',
+    },
+  },
+]
+
+/**
+ * 获取模板分类列表
+ */
+export function getTemplateCategories() {
+  const categories = new Set(DEFAULT_TEMPLATES.map((t) => t.category))
+  return Array.from(categories)
+}
+
+/**
+ * 获取模板配置
+ */
+export function getTemplateConfig(templateId) {
+  return DEFAULT_TEMPLATES.find((t) => t.id === templateId) || null
+}
+
+/**
  * AI 推荐模板 - 根据产品关键词匹配模板
  * @param {string} productKeyword - 产品关键词
  * @param {string} category - 类目（可选）
@@ -109,15 +199,12 @@ export async function aiGenerateScript({
 
   const style = toneStyles[tone] || toneStyles.direct_sale
   const product = productName || '这款产品'
+  const points = sellingPoints ? sellingPoints.split(/[,,]/).filter(Boolean) : []
 
-  // 生成 human 段落的文案
-  const generatedSegments = segments.map((segment) => {
-    if (segment.flag !== 'human') {
-      return segment
-    }
-
-    // 根据段落位置生成文案
-    if (segment.note?.includes('开场') || segment.note?.includes('介绍')) {
+  // 根据模板段落结构生成文案，包含转场提示
+  const generatedSegments = segments.map((segment, index) => {
+    // hook 段落：开场吸引
+    if (segment.flag === 'hook') {
       return {
         ...segment,
         text: style.hook.replace('{product}', product),
@@ -125,7 +212,8 @@ export async function aiGenerateScript({
       }
     }
 
-    if (segment.note?.includes('收尾') || segment.note?.includes('结尾')) {
+    // ending 段落：结尾引导
+    if (segment.flag === 'ending') {
       return {
         ...segment,
         text: style.ending.replace('{product}', product),
@@ -133,22 +221,92 @@ export async function aiGenerateScript({
       }
     }
 
-    // 中间的 human 段落，根据卖点生成
-    const points = sellingPoints ? sellingPoints.split(/[,,]/).filter(Boolean) : []
-    const pointText = points.length > 0
-      ? `它{points}，非常适合{audience}。`
-      : '这款产品真的很不错。'
+    // transition 段落：转场提示（用于后期合成时切换场景）
+    if (segment.flag === 'transition') {
+      return {
+        ...segment,
+        text: '',  // 转场段落不需要文案，只是提示后期切换场景
+        note: segment.note + '（AI 生成 - 转场提示）',
+      }
+    }
 
+    // human 段落：中间的人声讲解部分
+    if (segment.flag === 'human') {
+      // 根据卖点生成文案
+      const pointText = points.length > 0
+        ? `它{points}，非常适合{audience}。`
+        : '这款产品真的很不错，值得拥有！'
+
+      return {
+        ...segment,
+        text: pointText
+          .replace('{points}', points.join('、'))
+          .replace('{audience}', targetAudience || '大家'),
+        note: segment.note + '（AI 生成）',
+      }
+    }
+
+    // scene 段落：场景展示（类似 transition）
+    if (segment.flag === 'scene') {
+      return {
+        ...segment,
+        text: '',
+        note: segment.note + '（AI 生成 - 场景展示）',
+      }
+    }
+
+    // 其他未知类型，保持原样
     return {
       ...segment,
-      text: pointText
-        .replace('{points}', points.join('、'))
-        .replace('{audience}', targetAudience || '大家'),
+      text: segment.text || '',
       note: segment.note + '（AI 生成）',
     }
   })
 
   return generatedSegments
+}
+
+/**
+ * AI 自动生成模板 - 根据产品类型和风格生成模板结构
+ * @param {Object} params - 参数
+ * @param {string} params.productType - 产品类型（如：滋补品、电子产品、服装等）
+ * @param {string} params.style - 风格（如：direct_sale、premium、social_review）
+ * @param {number} params.transitionCount - 转场数量（默认 3-5 个）
+ * @returns {Promise<{ id: string, name: string, description: string, category: string, segments: Array, style: Object }>}
+ */
+export async function aiGenerateTemplate({
+  productType = '通用产品',
+  style = 'direct_sale',
+  transitionCount = 4,
+}) {
+  // 调用后端 AI 接口
+  try {
+    const response = await fetch('/v1/ai/generate-template', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        product_type: productType,
+        style: style,
+        transition_count: transitionCount,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.message || 'AI 生成模板失败')
+    }
+
+    const result = await response.json()
+    
+    if (result.code === 200 && result.data.template) {
+      return result.data.template
+    } else {
+      throw new Error(result.message || 'AI 生成模板失败')
+    }
+  } catch (error) {
+    console.error('AI 生成模板错误:', error)
+    throw error
+  }
 }
 
 /**

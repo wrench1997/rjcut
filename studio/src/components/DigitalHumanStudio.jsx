@@ -2,8 +2,10 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { getCommonPersons, getCustomPersons, getCommonPersonDetail, getCustomPersonDetail, getVoices, createDhGenerateTask, getDhTaskDetail, getDhVideoUrl } from '../api/api'
 import { getVFS } from '../utils/vfsClient'
 import { PROJECT_FOLDERS, buildVFSPath } from '../utils/project-structure'
-import { User, Mic, Check, X, Film, Download, AlertCircle, Loader2, Book, Inbox, Folder, AlertTriangle, Rocket, Settings, Sliders, Volume2, Type, Image, ChevronDown, ChevronUp, Palette, Maximize } from 'lucide-react'
+import { User, Mic, Check, X, Film, Download, AlertCircle, Loader2, Book, Inbox, Folder, AlertTriangle, Rocket, Settings, Sliders, Volume2, Type, Image, ChevronDown, ChevronUp, Palette, Maximize, Sparkles, Wand2 } from 'lucide-react'
 import Tooltip from './Tooltip'
+import TemplateManager from './TemplateManager'
+import { aiGenerateScript, DEFAULT_TEMPLATES } from '../features/template-batch/aiAssistant.js'
 
 // =====================================================
 // 左侧：资产选择 (数字人与声音) - 9 宫格布局
@@ -404,7 +406,7 @@ function AdvancedSettings({ settings, setSettings, isOpen, onToggle, personDetai
 // =====================================================
 // 中间：批量文案输入
 // =====================================================
-function BatchScriptInput({ scripts, setScripts }) {
+function BatchScriptInput({ scripts, setScripts, onAIGenerate }) {
   const handleAdd = () => setScripts([...scripts, { id: Date.now(), text: '' }])
   const handleRemove = (id) => setScripts(scripts.filter(s => s.id !== id))
   const handleChange = (id, text) => setScripts(scripts.map(s => s.id === id ? { ...s, text } : s))
@@ -416,11 +418,19 @@ function BatchScriptInput({ scripts, setScripts }) {
           <h2 className="text-sm font-bold text-slate-800">2. 输入批量文案 ({scripts.length} 条)</h2>
         </Tooltip>
         <p className="text-xs text-slate-500 mt-1">每条文案将生成一个独立的数字人视频</p>
-        <Tooltip tip="添加新的文案条目" delay={1000}>
-          <button onClick={handleAdd} className="text-xs bg-blue-100 text-blue-700 px-3 py-1.5 rounded-md hover:bg-blue-200">
-            + 新增文案
-          </button>
-        </Tooltip>
+        <div className="flex items-center gap-2">
+          <Tooltip tip="使用 AI 根据模板自动生成文案" delay={1000}>
+            <button onClick={onAIGenerate} className="text-xs bg-purple-100 text-purple-700 px-3 py-1.5 rounded-md hover:bg-purple-200 flex items-center gap-1">
+              <Sparkles size={12} />
+              AI 生成文案
+            </button>
+          </Tooltip>
+          <Tooltip tip="添加新的文案条目" delay={1000}>
+            <button onClick={handleAdd} className="text-xs bg-blue-100 text-blue-700 px-3 py-1.5 rounded-md hover:bg-blue-200">
+              + 新增文案
+            </button>
+          </Tooltip>
+        </div>
       </div>
       <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
         {scripts.map((script, idx) => (
@@ -791,6 +801,169 @@ function MinimizedProgress({ tasks, onExpand, onClose }) {
     </div>
   )
 }
+// =====================================================
+// AI 文案生成表单弹窗
+// =====================================================
+function AIScriptForm({ template, productInfo, setProductInfo, onSubmit, onCancel, isGenerating }) {
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col">
+        {/* 头部 */}
+        <div className="p-4 border-b border-slate-200 bg-gradient-to-r from-purple-50 to-pink-50">
+          <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+            <Sparkles size={18} className="text-purple-600" />
+            AI 文案生成
+          </h3>
+          <p className="text-xs text-slate-500 mt-1">
+            已选择模板：<span className="font-medium text-purple-600">{template?.name}</span>
+            （{template?.segments?.length || 0} 段落，含{template?.segments?.filter(s => s.flag === 'transition').length || 0}个转场）
+          </p>
+        </div>
+
+        {/* 表单内容 */}
+        <div className="p-4 space-y-4 max-h-[70vh] overflow-y-auto custom-scrollbar">
+          {/* 产品名称 */}
+          <div>
+            <label className="block text-xs font-medium text-slate-700 mb-1">
+              产品名称 *
+            </label>
+            <input
+              type="text"
+              value={productInfo.productName}
+              onChange={(e) => setProductInfo({ ...productInfo, productName: e.target.value })}
+              placeholder="例如：鹿茸血口服液"
+              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-purple-400"
+              required
+            />
+          </div>
+
+          {/* 产品卖点 */}
+          <div>
+            <label className="block text-xs font-medium text-slate-700 mb-1">
+              产品卖点
+            </label>
+            <textarea
+              value={productInfo.sellingPoints}
+              onChange={(e) => setProductInfo({ ...productInfo, sellingPoints: e.target.value })}
+              placeholder="例如：补血养颜、增强免疫力、改善睡眠（用逗号分隔）"
+              rows={3}
+              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-purple-400 resize-none"
+            />
+          </div>
+
+          {/* 目标人群 */}
+          <div>
+            <label className="block text-xs font-medium text-slate-700 mb-1">
+              目标人群
+            </label>
+            <input
+              type="text"
+              value={productInfo.targetAudience}
+              onChange={(e) => setProductInfo({ ...productInfo, targetAudience: e.target.value })}
+              placeholder="例如：气血不足的女性、经常熬夜的上班族"
+              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-purple-400"
+            />
+          </div>
+
+          {/* 文案风格 */}
+          <div>
+            <label className="block text-xs font-medium text-slate-700 mb-1">
+              文案风格
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setProductInfo({ ...productInfo, tone: 'direct_sale' })}
+                className={`px-3 py-2 text-xs rounded-lg border transition-all ${
+                  productInfo.tone === 'direct_sale'
+                    ? 'bg-purple-600 text-white border-purple-600'
+                    : 'bg-white text-slate-600 border-slate-200 hover:border-purple-300'
+                }`}
+              >
+                🔥 直接促销型
+              </button>
+              <button
+                type="button"
+                onClick={() => setProductInfo({ ...productInfo, tone: 'premium' })}
+                className={`px-3 py-2 text-xs rounded-lg border transition-all ${
+                  productInfo.tone === 'premium'
+                    ? 'bg-purple-600 text-white border-purple-600'
+                    : 'bg-white text-slate-600 border-slate-200 hover:border-purple-300'
+                }`}
+              >
+                💎 高端品质型
+              </button>
+              <button
+                type="button"
+                onClick={() => setProductInfo({ ...productInfo, tone: 'social_review' })}
+                className={`px-3 py-2 text-xs rounded-lg border transition-all ${
+                  productInfo.tone === 'social_review'
+                    ? 'bg-purple-600 text-white border-purple-600'
+                    : 'bg-white text-slate-600 border-slate-200 hover:border-purple-300'
+                }`}
+              >
+                📝 种草推荐型
+              </button>
+              <button
+                type="button"
+                onClick={() => setProductInfo({ ...productInfo, tone: 'explainer' })}
+                className={`px-3 py-2 text-xs rounded-lg border transition-all ${
+                  productInfo.tone === 'explainer'
+                    ? 'bg-purple-600 text-white border-purple-600'
+                    : 'bg-white text-slate-600 border-slate-200 hover:border-purple-300'
+                }`}
+              >
+                📖 讲解说明型
+              </button>
+            </div>
+          </div>
+
+          {/* 生成预览 */}
+          <div className="bg-purple-50 p-3 rounded-lg border border-purple-100">
+            <p className="text-xs text-purple-700">
+              <strong>生成预览：</strong>
+            </p>
+            <ul className="text-[10px] text-purple-600 space-y-1 mt-2">
+              <li>• 模板：{template?.name}</li>
+              <li>• 段落结构：
+                {template?.segments?.map((s, i) => (
+                  <span key={i}>
+                    {i > 0 ? ' → ' : ''}
+                    <span className={s.flag === 'transition' ? 'text-amber-600' : ''}>
+                      {s.flag === 'transition' ? '🔄' : s.flag === 'hook' ? '🎬' : '🏁'}{s.note.split(' - ')[0]}
+                    </span>
+                  </span>
+                ))}
+              </li>
+              <li>• AI 将根据模板段落数量生成对应文案和转场提示</li>
+            </ul>
+          </div>
+        </div>
+
+        {/* 底部按钮 */}
+        <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={isGenerating}
+            className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-200 rounded-lg disabled:opacity-50"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            onClick={onSubmit}
+            disabled={isGenerating || !productInfo.productName}
+            className="px-4 py-2 text-sm bg-purple-600 text-white hover:bg-purple-700 rounded-lg disabled:opacity-50 flex items-center gap-2"
+          >
+            {isGenerating ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+            {isGenerating ? '生成中...' : '立即生成'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 // =====================================================
 // 主组件
@@ -803,6 +976,23 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
   const [selectedVoice, setSelectedVoice] = useState('')
   const [scripts, setScripts] = useState([{ id: Date.now(), text: '' }])
   
+  // AI 文案生成相关状态
+  const [showTemplateManager, setShowTemplateManager] = useState(false)
+  const [selectedTemplate, setSelectedTemplate] = useState(null)
+  const [isGeneratingScript, setIsGeneratingScript] = useState(false)
+
+  // AI 生成文案的产品信息
+  const [productInfo, setProductInfo] = useState({
+    productName: '',
+    sellingPoints: '',
+    targetAudience: '',
+    tone: 'direct_sale',
+  })
+  
+  // AI 文案生成表单弹窗状态
+  const [showScriptForm, setShowScriptForm] = useState(false)
+  const [tempSelectedTemplate, setTempSelectedTemplate] = useState(null)
+
   // 高级设置
   const [advancedSettings, setAdvancedSettings] = useState({
     speed: 1.0,        // 语速
@@ -845,6 +1035,82 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
   const [generatedVideos, setGeneratedVideos] = useState([]) // 存储已生成的视频路径
   const [previewVideo, setPreviewVideo] = useState(null) // 当前预览的视频
   
+  // AI 生成文案处理函数
+  const handleAIGenerateScript = async () => {
+    // 打开模板选择器
+    setShowTemplateManager(true)
+  }
+
+  const handleSelectTemplate = (template) => {
+    setTempSelectedTemplate(template)
+    setShowTemplateManager(false)
+    // 打开表单弹窗，让用户填写产品信息
+    setShowScriptForm(true)
+  }
+
+  const handleSubmitScriptForm = () => {
+    if (!productInfo.productName) {
+      alert('请输入产品名称')
+      return
+    }
+    
+    // 调用 AI 生成文案
+    generateScriptFromTemplate(
+      tempSelectedTemplate,
+      productInfo.productName,
+      productInfo.sellingPoints,
+      productInfo.targetAudience || '大家',
+      productInfo.tone || 'direct_sale'
+    )
+    
+    setShowScriptForm(false)
+    setTempSelectedTemplate(null)
+  }
+
+  const generateScriptFromTemplate = async (template, productName, sellingPoints, targetAudience, tone) => {
+    setIsGeneratingScript(true)
+    try {
+      const segments = template.segments || []
+      const generatedSegments = await aiGenerateScript({
+        productName,
+        sellingPoints,
+        targetAudience,
+        tone,
+        templateId: template.id,
+        segments,
+      })
+
+      // 将生成的文案转换为脚本格式
+      // 过滤掉 transition 和 scene 类型的段落（这些是转场提示，不需要生成文案条目）
+      const humanSegments = generatedSegments.filter(s => s.flag === 'hook' || s.flag === 'ending' || s.flag === 'human')
+
+      if (humanSegments.length > 0) {
+        // 更新脚本列表
+        const newScripts = humanSegments.map((segment, idx) => ({
+          id: Date.now() + idx,
+          text: segment.text || '',
+        }))
+
+        // 如果当前只有一个空脚本，替换它；否则追加
+        if (scripts.length === 1 && !scripts[0].text) {
+          setScripts(newScripts)
+        } else {
+          setScripts([...scripts, ...newScripts])
+        }
+
+        alert(`✅ AI 文案生成成功！生成了 ${newScripts.length} 条文案（包含${generatedSegments.filter(s => s.flag === 'transition').length}个转场提示）`)
+      } else {
+        alert('⚠️ 模板中没有可生成文案的段落')
+      }
+    } catch (err) {
+      console.error('[DigitalHumanStudio] AI 文案生成失败:', err)
+      alert('AI 文案生成失败：' + err.message)
+    } finally {
+      setIsGeneratingScript(false)
+      setSelectedTemplate(null)
+    }
+  }
+
   // 从 localStorage 恢复之前的任务状态
   useEffect(() => {
     try {
@@ -1075,11 +1341,31 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
       try {
         const vfs = getVFS()
         await vfs.init()
-        const [cRes, pRes, vRes] = await Promise.all([
-          getCommonPersons(),
-          getCustomPersons(),
-          getVoices(),
-        ])
+        
+        // 加载数字人、声音列表，添加 token 过期错误处理
+        let commonPersonsRes, customPersonsRes, voicesRes
+        
+        try {
+          ;[commonPersonsRes, customPersonsRes, voicesRes] = await Promise.all([
+            getCommonPersons(),
+            getCustomPersons(),
+            getVoices(),
+          ])
+        } catch (apiErr) {
+          // 如果是 token 过期错误，不阻塞界面，仅警告
+          if (apiErr.isTokenExpired) {
+            console.warn('[DigitalHumanStudio] Token 已过期，数字人列表可能无法加载:', apiErr.message)
+            setStatusMsg('⚠️ 登录已过期，请重新登录或刷新页面')
+            // 返回空数组，避免崩溃
+            commonPersonsRes = { data: { code: 0, data: [] } }
+            customPersonsRes = { data: { code: 0, data: [] } }
+            voicesRes = { data: { code: 0, data: [] } }
+          } else {
+            throw apiErr
+          }
+        }
+        
+        const [cRes, pRes, vRes] = [commonPersonsRes, customPersonsRes, voicesRes]
         
         let all = []
         if (cRes?.data?.code === 0) {
@@ -1475,6 +1761,7 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
         <BatchScriptInput 
           scripts={scripts} 
           setScripts={setScripts} 
+          onAIGenerate={handleAIGenerateScript}
         />
       </div>
       
@@ -1513,6 +1800,44 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
           onClose={() => setPreviewVideo(null)}
           vfs={vfs}
         />
+      )}
+
+      {/* 模板选择器弹窗（用于 AI 文案生成） */}
+      {showTemplateManager && (
+        <TemplateManager
+          onSelectTemplate={handleSelectTemplate}
+          selectedTemplateId={tempSelectedTemplate?.id}
+          onClose={() => {
+            setShowTemplateManager(false)
+            setTempSelectedTemplate(null)
+          }}
+        />
+      )}
+
+      {/* AI 文案生成表单弹窗 */}
+      {showScriptForm && (
+        <AIScriptForm
+          template={tempSelectedTemplate}
+          productInfo={productInfo}
+          setProductInfo={setProductInfo}
+          onSubmit={handleSubmitScriptForm}
+          onCancel={() => {
+            setShowScriptForm(false)
+            setTempSelectedTemplate(null)
+          }}
+          isGenerating={isGeneratingScript}
+        />
+      )}
+
+      {/* AI 文案生成中提示 */}
+      {isGeneratingScript && (
+        <div className="absolute inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-center justify-center">
+          <div className="bg-white rounded-xl shadow-2xl p-6 flex flex-col items-center gap-3">
+            <Loader2 size={32} className="animate-spin text-purple-600" />
+            <p className="text-sm font-medium text-slate-700">AI 正在生成文案...</p>
+            <p className="text-xs text-slate-400">根据模板结构智能生成带转场提示的文案</p>
+          </div>
+        </div>
       )}
 
       {/* 最小化进度悬浮窗 */}

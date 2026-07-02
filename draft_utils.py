@@ -1,4 +1,5 @@
 from typing import Dict, List, Any
+from datetime import datetime
 import os
 import httpx
 
@@ -408,4 +409,118 @@ async def ai_analyze_videos_via_gateway(
             "success": False,
             "suggestions": [],
             "error": f"AI 分析失败：{str(e)}",
+        }
+
+
+async def ai_generate_template_via_gateway(
+    product_type: str,
+    style: str,
+    transition_count: int,
+    model_name: str = None,
+) -> Dict[str, Any]:
+    """
+    通过 Gateway 调用 vLLM AI 生成模板
+
+    Args:
+        product_type: 产品类型（如：滋补品、电子产品、服装等）
+        style: 风格（direct_sale/premium/social_review/explainer）
+        transition_count: 转场数量
+        model_name: 模型名称（可选）
+
+    Returns:
+        {
+            "success": bool,
+            "template": {  # AI 生成的模板
+                "name": str,
+                "description": str,
+                "category": str,
+                "segments": [...],
+                "style": {...}
+            },
+            "usage": {...},
+            "error": str
+        }
+    """
+    style_descriptions = {
+        "direct_sale": "直接促销型，热情洋溢，强调优惠和购买冲动，适合快速带货",
+        "premium": "高端品质型，优雅有格调，强调生活品味，适合高端产品",
+        "social_review": "种草推荐型，真实分享感受，像朋友推荐，适合口碑传播",
+        "explainer": "讲解说明型，专业详细，解答用户疑问，适合复杂产品",
+    }
+
+    system_prompt = """你是一位专业的短视频模板设计专家。
+请根据用户输入的产品类型和风格，生成一个完整的视频模板结构。
+
+请以 JSON 格式返回，包含以下字段：
+- name: 模板名称（格式：{产品类型}·{风格简称}）
+- description: 模板描述（一句话说明适用场景）
+- category: 分类（根据产品类型选择：滋补保健/数码科技/时尚穿搭/美食推荐/美妆护肤/通用）
+- segments: 段落结构数组，每个段落包含 flag（hook/transition/ending）和 note（说明）
+- style: 文案风格配置，包含 hook（开场文案模板）和 ending（结尾文案模板），支持{product}变量
+
+要求：
+1. 必须包含 1 个 hook 开场段落和 1 个 ending 结尾段落
+2. 中间包含指定数量的 transition 转场段落
+3. 开场和结尾文案要符合指定风格，口语化，适合短视频节奏"""
+
+    user_prompt = f"""请生成一个短视频模板：
+
+【产品类型】{product_type}
+【文案风格】{style_descriptions.get(style, style)}
+【转场数量】{transition_count} 个
+
+请生成包含开场、{transition_count}个转场、结尾的完整模板结构。"""
+
+    payload = {
+        "model": model_name or os.getenv("MODEL_NAME", "Qwen/Qwen3.5-397B-A17B-FP8"),
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ],
+        "temperature": 0.7,
+        "max_tokens": 1500,
+        "stream": False,
+        "response_format": {"type": "json_object"},
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                f"{GATEWAY_BASE_URL}/v1/chat/completions",
+                json=payload
+            )
+            response.raise_for_status()
+            result = response.json()
+
+            # 解析 AI 返回的 JSON
+            import json
+            ai_content = result["choices"][0]["message"]["content"]
+            ai_response = json.loads(ai_content)
+
+            # 添加唯一 ID
+            template = {
+                "id": f"ai_generated_{int(datetime.now().timestamp())}",
+                "name": ai_response.get("name", f"{product_type}模板"),
+                "description": ai_response.get("description", "AI 生成的模板"),
+                "category": ai_response.get("category", "通用"),
+                "segments": ai_response.get("segments", []),
+                "style": ai_response.get("style", {"hook": "", "ending": ""}),
+            }
+
+            return {
+                "success": True,
+                "template": template,
+                "usage": result.get("usage", {}),
+            }
+    except httpx.HTTPError as e:
+        return {
+            "success": False,
+            "template": None,
+            "error": f"Gateway 调用失败：{str(e)}",
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "template": None,
+            "error": f"AI 生成失败：{str(e)}",
         }

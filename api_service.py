@@ -43,6 +43,7 @@ from draft_utils import (
     ai_generate_script_via_gateway,
     ai_recommend_templates_via_gateway,
     ai_analyze_videos_via_gateway,
+    ai_generate_template_via_gateway,
 )
 
 from batch_validator import BatchTaskValidator, validate_batch_config_file
@@ -1178,4 +1179,40 @@ async def analyze_videos(
             "usage": result.get("usage", {}),
         })
     else:
-        return fail(50001, result.get("error", "AI 分析失败"))
+        return fail(50001, result.get("error", "AI 分析失败"))@app.post("/v1/ai/generate-template")
+async def generate_template(
+    request: Request,
+    merchant: Merchant = Depends(verify_api_key),
+):
+    """
+    AI 生成模板
+
+    请求体：
+    {
+        "product_type": "产品类型（如：滋补品、电子产品、服装等）",
+        "style": "文案风格（direct_sale/premium/social_review/explainer）",
+        "transition_count": 转场数量（数字，默认 4）
+    }
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return fail(40001, "无效的 JSON 请求体")
+
+    product_type = body.get("product_type", "通用产品")
+    style = body.get("style", "direct_sale")
+    transition_count = body.get("transition_count", 4)
+
+    result = await ai_generate_template_via_gateway(
+        product_type=product_type,
+        style=style,
+        transition_count=transition_count,
+    )
+
+    if result["success"]:
+        return ok({
+            "template": result["template"],
+            "usage": result.get("usage", {}),
+        })
+    else:
+        return fail(50001, result.get("error", "AI 生成模板失败"))

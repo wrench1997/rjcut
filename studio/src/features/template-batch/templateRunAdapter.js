@@ -6,7 +6,6 @@
 import { getTemplateById } from './templateRegistry.js'
 import { getVFS } from '../../utils/vfsClient.js'
 import { buildVFSPath, PROJECT_FOLDERS } from '../../utils/project-structure.js'
-import { aiGenerateScript } from './aiAssistant.js'
 
 /**
  * 创建模板运行草稿的默认结构
@@ -155,9 +154,8 @@ export function validateTemplateRunDraft(draft, stepId) {
 /**
  * 为单个场景版本生成 script.json
  * 使用该场景的 bindings 直接生成
- * 支持 AI 生成的文案覆盖
  */
-export async function generateSceneScript(draft, scene, useAI = false) {
+export async function generateSceneScript(draft, scene) {
   const template = getTemplateById(draft.templateId)
   if (!template) {
     throw new Error(`模板未找到：${draft.templateId}`)
@@ -175,25 +173,7 @@ export async function generateSceneScript(draft, scene, useAI = false) {
   })
 
   // 调用模板的 scriptFactory
-  let script = template.scriptFactory(draft.avatarVideo.name, selectedBindings)
-
-  // 如果启用 AI 文案，生成并覆盖 human 段落
-  if (useAI && draft.aiScriptParams) {
-    try {
-      const aiSegments = await aiGenerateScript({
-        ...draft.aiScriptParams,
-        templateId: draft.templateId,
-        segments: script.segments,
-      })
-      script = {
-        ...script,
-        segments: aiSegments,
-      }
-    } catch (error) {
-      console.error('[templateRunAdapter] AI 文案生成失败，使用默认文案:', error)
-      // 失败时继续使用默认文案
-    }
-  }
+  const script = template.scriptFactory(draft.avatarVideo.name, selectedBindings)
 
   return script
 }
@@ -221,9 +201,8 @@ export async function convertToBatchTasks(draft, vfs) {
     const sceneId = scene.id || `scene_${String(sceneIndex + 1).padStart(3, '0')}`
     const sceneName = scene.name || `场景版本 ${sceneIndex + 1}`
     
-    // 生成该场景的 script.json（支持 AI 文案）
-    const useAI = draft.aiScriptEnabled === true
-    const script = await generateSceneScript(draft, scene, useAI)
+// 生成该场景的 script.json
+    const script = await generateSceneScript(draft, scene, false)
     
     // 创建项目目录结构
     const projectName = `template_${draft.templateId}_${draft.id.slice(-8)}`

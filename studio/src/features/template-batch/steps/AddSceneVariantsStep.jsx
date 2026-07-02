@@ -5,7 +5,7 @@
 import { useState } from 'react'
 import { Plus, Copy, Trash2, AlertCircle, CheckCircle2, Sparkles, Loader2, Wand2 } from 'lucide-react'
 import { getTemplateById } from '../templateRegistry.js'
-import { aiSuggestSlotFiles, aiAutoCreateScene, aiGenerateScript } from '../aiAssistant.js'
+import { aiSuggestSlotFiles, aiAutoCreateScene } from '../aiAssistant.js'
 
 export default function AddSceneVariantsStep({ draft, updateDraft, vfs, apiKey }) {
   const template = getTemplateById(draft.templateId)
