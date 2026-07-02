@@ -489,9 +489,14 @@ async def ai_generate_template_via_gateway(
             {"role": "user", "content": user_prompt}
         ],
         "temperature": 0.7,
-        "max_tokens": 1500,
+        "max_tokens": 2000,
         "stream": False,
         "response_format": {"type": "json_object"},
+        # 关闭思考模式，因为我们需要 JSON 输出而不是思考过程
+        "extra_body": {
+            "enable_thinking": False,
+            "thinking_enabled": False,
+        },
     }
 
     try:
@@ -508,8 +513,19 @@ async def ai_generate_template_via_gateway(
 
             # 解析 AI 返回的 JSON
             import json
-            ai_content = result["choices"][0]["message"]["content"]
-            print(f"[DEBUG] AI 返回内容：{ai_content[:500]}")
+            message = result["choices"][0]["message"]
+            ai_content = message.get("content")
+            
+            # 如果 content 为空，尝试从 reasoning 字段获取（兼容模式）
+            if not ai_content:
+                ai_content = message.get("reasoning", "")
+                print(f"[DEBUG] content 为空，使用 reasoning 字段")
+            
+            print(f"[DEBUG] AI 返回内容：{ai_content[:500] if ai_content else 'None'}")
+            
+            if not ai_content:
+                raise ValueError("AI 返回内容为空")
+            
             ai_response = json.loads(ai_content)
 
             # 添加唯一 ID
