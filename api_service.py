@@ -1179,7 +1179,10 @@ async def analyze_videos(
             "usage": result.get("usage", {}),
         })
     else:
-        return fail(50001, result.get("error", "AI 分析失败"))@app.post("/v1/ai/generate-template")
+        return fail(50001, result.get("error", "AI 分析失败"))
+
+
+@app.post("/v1/ai/generate-template")
 async def generate_template(
     request: Request,
     merchant: Merchant = Depends(verify_api_key),
