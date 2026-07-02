@@ -419,34 +419,56 @@ def parse_ai_script_to_segments(ai_text: str, template_structure: List[Dict]) ->
         
         # 检测是否进入正式文案（遇到非思考类的内容）
         lower_line = line_stripped.lower()
+        
+        # 【强化过滤】无论 skip_mode 状态，始终过滤明显的思考过程标记
+        # 1. 跳过 "Thinking Process:" 这类标题
+        if lower_line in ['thinking process:', 'thinking:', 'process:']:
+            continue
+        # 2. 跳过编号 + 粗体 markdown（如 "1.  **Analyze the Request:**"）
+        if re.match(r'^\d+\.\s+\*\*', line_stripped):
+            continue
+        # 3. 跳过包含思考关键词的行（即使有中文）
+        if any(keyword in lower_line for keyword in [
+            'thinking process', 'analyze the request', 'step', 'requirement',
+            'understand', 'clarification', 'interpretation', 'decision',
+            'refining', 're-evaluating', 'final polish', 'wait,', 'actually,'
+        ]):
+            continue
+        
         if skip_mode:
-            # 跳过思考过程标记
+            # 跳过思考过程标记（包含这些关键词的直接跳过）
             if any(keyword in lower_line for keyword in [
                 'thinking', 'analyze', 'step', '首先', '让我', '我们来',
                 '根据', '分析', '理解', '需求', 'requirement', 'task',
-                'process', '理解', '我将', '我会', 'let', 'break'
+                'process', '理解', '我将', '我会', 'let', 'break',
+                'draft', 'review', 'check', 'final', 'understand',
+                'product:', '目标人群', '风格', 'hook:', 'human:', 'ending:', 'transition:'
             ]):
                 continue
             # 跳过编号列表（如 1. 2. 3.）
-            if re.match(r'^\d+\.\s*\*', line_stripped) or re.match(r'^\d+\.\s*\[', line_stripped):
+            if re.match(r'^\d+\.\s*[\*\[\-]', line_stripped):
                 continue
-            # 跳过 markdown 标题
-            if line_stripped.startswith('#') or line_stripped.startswith('**'):
+            # 跳过 markdown 标题（** 或 # 开头）
+            if line_stripped.startswith('**') or line_stripped.startswith('#'):
                 continue
-            # 跳过空括号、纯符号
-            if re.match(r'^[\*\-\#\d\.\s]+$', line_stripped):
+            # 跳过纯符号行
+            if re.match(r'^[\*\-\#\d\.\s:]+$', line_stripped):
                 continue
-            # 找到第一个有效文案行（至少包含 2 个中文字符或 5 个英文字符）
-            has_chinese = len(re.findall(r'[\u4e00-\u9fff]', line_stripped)) >= 2
-            has_english = len(re.findall(r'[a-zA-Z]', line_stripped)) >= 5
-            if has_chinese or has_english:
+            # 跳过列表项（* 或 - 开头）
+            if line_stripped.startswith('*') or line_stripped.startswith('-'):
+                continue
+            # 找到第一个有效文案行（至少包含 5 个中文字符，确保是完整句子）
+            has_chinese = len(re.findall(r'[\u4e00-\u9fff]', line_stripped)) >= 5
+            if has_chinese:
                 skip_mode = False
         
         # 添加到有效文案列表
         if not skip_mode and line_stripped:
-            # 再次检查是否是有效文案（不是思考内容）
-            if not any(keyword in lower_line for keyword in ['thinking', 'analyze', 'step', 'requirement']):
-                cleaned_lines.append(line_stripped)
+            # 再次检查是否是有效文案（不是思考内容、不是列表项）
+            if not any(keyword in lower_line for keyword in ['thinking', 'analyze', 'step', 'requirement', 'hook', 'human', 'ending']):
+                if not line_stripped.startswith('*') and not line_stripped.startswith('-'):
+                    if not re.match(r'^\d+\.', line_stripped):
+                        cleaned_lines.append(line_stripped)
     
     ai_index = 0
 
