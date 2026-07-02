@@ -127,31 +127,25 @@ async def ai_generate_script_via_gateway(
         "explainer": "科普讲解风格，专业详细，解答用户疑问",
     }
 
-    system_prompt = """你是一位专业的短视频口播文案创作专家。
-请根据产品信息和模板结构，创作符合指定风格的口播文案。
+    system_prompt = """你是一位专业的短视频口播文案创作专家，擅长创作面向大众消费者的带货文案。
 
-要求：
-1. 文案要口语化、自然流畅
-2. 符合指定的风格调性
-3. 突出产品卖点和优势
-4. 控制每段文案长度，适合短视频节奏
-5. **必须为 hook、human、ending 段落生成具体的文案内容**
-6. transition 段落不需要文案，保持原样即可
+【文案风格要求】
+1. 口语化、接地气，像朋友聊天一样自然
+2. 面向普通大众消费者，不要用专业术语
+3. 突出产品功效和实际好处，让用户听得懂
+4. 有感染力和号召力，能激发购买欲望
+5. 符合短视频节奏，每句话简短有力
+6. hook 开场要抓人眼球，ending 结尾要促单
 
 【输出格式】
 请按行输出，每一行对应一个需要文案的段落（hook、human、ending），顺序与模板结构一致。
-例如：
-第一行：hook 段落的文案
-第二行：human 段落 1 的文案
-第三行：human 段落 2 的文案
-...
-最后一行：ending 段落的文案
+不要输出任何解释、段落标识，只输出纯文案内容。
 """
 
     # 统计需要生成文案的段落数量
     text_segment_count = sum(1 for s in template_structure if s.get("flag") in ("hook", "human", "ending"))
     
-    user_prompt = f"""请为以下产品创作口播文案：
+    user_prompt = f"""请为以下产品创作面向大众消费者的口播带货文案：
 
 【产品信息】
 - 产品名称：{product_name}
@@ -163,9 +157,14 @@ async def ai_generate_script_via_gateway(
 {template_structure}
 
 【任务】
-模板中共有 {text_segment_count} 个段落需要文案（包括 hook、human、ending）。
+模板中共有 {text_segment_count} 个段落需要文案。
 请按顺序输出 {text_segment_count} 行文案，每行对应一个段落的口播词。
-不要输出段落标识，只输出纯文案内容。
+
+【文案要求】
+- 用老百姓听得懂的大白话
+- 突出产品实际功效和好处
+- 有感染力，能打动普通人
+- 适合直播带货场景
 """
 
     payload = {
