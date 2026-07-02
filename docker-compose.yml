@@ -25,6 +25,8 @@ services:
       - /opt/rjcut/loki_data:/loki 
     restart: always
     command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - rjcut-network
 
   promtail:
     image: grafana/promtail:latest
@@ -66,12 +68,13 @@ services:
       interval: 5s
       timeout: 3s
       retries: 30
-      # 【新增】日志轮转最佳实践
     logging:
       driver: "json-file"
       options:
         max-size: "50m"
         max-file: "3"
+    networks:
+      - rjcut-network
 
   redis:
     image: redis:7-alpine
@@ -86,13 +89,13 @@ services:
       interval: 5s
       timeout: 3s
       retries: 30
-      
-        # 【新增】日志轮转最佳实践
     logging:
       driver: "json-file"
       options:
         max-size: "50m"
         max-file: "3"
+    networks:
+      - rjcut-network
 
   minio:
     image: minio/minio:latest
@@ -113,13 +116,13 @@ services:
       timeout: 3s
       retries: 30
       start_period: 10s
-      
-        # 【新增】日志轮转最佳实践
     logging:
       driver: "json-file"
       options:
         max-size: "50m"
         max-file: "3"
+    networks:
+      - rjcut-network
 
   # AI 网关服务
   gateway:
@@ -212,6 +215,8 @@ services:
       options:
         max-size: "50m"
         max-file: "3"
+    networks:
+      - rjcut-network
 
   task_watchdog:
     image: rjcut:latest
@@ -235,6 +240,8 @@ services:
       options:
         max-size: "50m"
         max-file: "3"
+    networks:
+      - rjcut-network
 
 # 定义网络 - 所有服务在同一网络内通信
 networks:
