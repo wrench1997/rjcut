@@ -40,6 +40,8 @@ services:
     command: -config.file=/etc/promtail/config.yml
     depends_on:
       - loki
+    networks:
+      - rjcut-network
 
   grafana:
     image: grafana/grafana:latest
@@ -51,6 +53,8 @@ services:
     restart: always
     depends_on:
       - loki
+    networks:
+      - rjcut-network
   postgres:
     image: postgres:17
     container_name: rjcut_postgres
