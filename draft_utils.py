@@ -500,12 +500,16 @@ async def ai_generate_template_via_gateway(
                 f"{GATEWAY_BASE_URL}/v1/chat/completions",
                 json=payload
             )
+            print(f"[DEBUG] Gateway 响应状态码：{response.status_code}")
+            print(f"[DEBUG] Gateway 响应内容：{response.text[:500]}")
             response.raise_for_status()
             result = response.json()
+            print(f"[DEBUG] Gateway 返回 JSON: {result}")
 
             # 解析 AI 返回的 JSON
             import json
             ai_content = result["choices"][0]["message"]["content"]
+            print(f"[DEBUG] AI 返回内容：{ai_content[:500]}")
             ai_response = json.loads(ai_content)
 
             # 添加唯一 ID
@@ -524,12 +528,16 @@ async def ai_generate_template_via_gateway(
                 "usage": result.get("usage", {}),
             }
     except httpx.HTTPError as e:
+        print(f"[ERROR] HTTP 错误：{e}")
         return {
             "success": False,
             "template": None,
             "error": f"Gateway 调用失败：{str(e)}",
         }
     except Exception as e:
+        print(f"[ERROR] 异常：{e}")
+        import traceback
+        traceback.print_exc()
         return {
             "success": False,
             "template": None,

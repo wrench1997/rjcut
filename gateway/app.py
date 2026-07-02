@@ -785,7 +785,88 @@ async def get_response(response_id: str):
 
 @app.post("/v1/chat/completions")
 async def chat_completions(req: Request):
-    return JSONResponse({"error": "Please use /v1/responses API for streaming Agent."})
+    """
+    支持标准的 OpenAI Chat Completions API 格式
+    用于非 Agent 场景的简单对话（如 AI 生成模板）
+    """
+    body = await req.json()
+    stream = body.get("stream", False)
+    model = body.get("model", MODEL_NAME)
+    messages = body.get("messages", [])
+    tools = body.get("tools")
+    
+    # 转换为 Responses API 格式
+    input_items = []
+    for msg in messages:
+        input_items.append({
+            "type": "message",
+            "role": msg.get("role", "user"),
+            "content": [{"type": "text", "text": msg.get("content", "")}]
+        })
+    
+    # Qwen3.5 思考模式配置
+    extra_body = {
+        "enable_thinking": False,  # 默认关闭思考模式
+        "thinking_enabled": False,
+    }
+    if body.get("enable_thinking") is not None:
+        extra_body["enable_thinking"] = body.get("enable_thinking")
+    if body.get("thinking_enabled") is not None:
+        extra_body["thinking_enabled"] = body.get("thinking_enabled")
+    
+    payload = {
+        "model": model,
+        "input": input_items,
+        "stream": stream,
+        "temperature": body.get("temperature", 0.7),
+        "max_tokens": body.get("max_tokens", 1500),
+        "extra_body": extra_body,
+    }
+    
+    # 如果有 response_format 参数（如 JSON 模式），传递给 vLLM
+    if body.get("response_format"):
+        payload["response_format"] = body["response_format"]
+    
+    # 非流式模式：调用 Responses API 并转换回 Chat Completions 格式
+    async with httpx.AsyncClient(timeout=1800) as client:
+        r = await client.post(f"{VLLM_BASE_URL}/v1/responses", json=payload)
+        r.raise_for_status()
+        response_data = r.json()
+    
+    # 从 Responses API 响应中提取内容
+    output_items = response_data.get("output", [])
+    text_content = ""
+    for item in output_items:
+        if item.get("type") == "message":
+            for content in item.get("content", []):
+                if content.get("type") == "output_text":
+                    text_content += content.get("text", "")
+        elif item.get("type") == "function_call":
+            # 如果有工具调用，也添加到内容中
+            text_content += build_xml_tool_call(item.get("name", ""), json.loads(item.get("arguments", "{}")))
+    
+    # 构建 Chat Completions 格式响应
+    return JSONResponse({
+        "id": response_data.get("id", f"chatcmpl_{uuid.uuid4().hex[:8]}"),
+        "object": "chat.completion",
+        "created": response_data.get("created_at", int(time.time())),
+        "model": model,
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": text_content,
+                },
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": response_data.get("usage", {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        }),
+    })
 
 
 # =========================================================
