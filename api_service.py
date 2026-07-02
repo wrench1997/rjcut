@@ -1185,7 +1185,7 @@ async def analyze_videos(
 @app.post("/v1/ai/generate-template")
 async def generate_template(
     request: Request,
-    # merchant: Merchant = Depends(verify_api_key),  # 测试阶段临时关闭验证
+    merchant: Merchant = Depends(verify_api_key),
 ):
     """
     AI 生成模板

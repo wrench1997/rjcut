@@ -287,8 +287,8 @@ export async function aiGenerateTemplate({
 }) {
   // 调用后端 AI 接口（通过 apiClient 统一处理）
   const baseUrl = typeof localStorage !== 'undefined' 
-    ? localStorage.getItem('rjcut_api_base_url') || 'http://localhost:8001'
-    : 'http://localhost:8001'
+    ? localStorage.getItem('rjcut_api_base_url') || 'http://192.168.166.151:8000'
+    : 'http://192.168.166.151:8000'
   
   try {
     const response = await fetch(`${baseUrl}/v1/ai/generate-template`, {
