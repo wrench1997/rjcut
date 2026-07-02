@@ -170,8 +170,12 @@ async def ai_generate_script_via_gateway(
             response.raise_for_status()
             result = response.json()
 
-            # 解析返回结果
-            ai_text = result["choices"][0]["message"]["content"]
+            # 解析返回结果（兼容 content 和 reasoning 字段）
+            message = result["choices"][0]["message"]
+            ai_text = message.get("content") or message.get("reasoning", "")
+            
+            if not ai_text:
+                raise ValueError("AI 返回内容为空")
 
             # 将 AI 生成的文案填充到模板结构中
             generated_segments = parse_ai_script_to_segments(ai_text, template_structure)
@@ -194,6 +198,114 @@ async def ai_generate_script_via_gateway(
             "segments": [],
             "error": f"AI 生成失败：{str(e)}",
         }
+
+
+def extract_json_field(text, field_name):
+    """从文本中提取指定 JSON 字段的值（通用辅助函数）"""
+    import re
+    import json
+    
+    # 首先尝试找到 "field_name": 的位置
+    pattern = rf'"{field_name}"\s*:\s*'
+    match = re.search(pattern, text, re.DOTALL)
+    if not match:
+        return None
+    
+    # 从冒号后面开始提取值
+    start_pos = match.end()
+    
+    # 跳过空白字符
+    while start_pos < len(text) and text[start_pos] in ' \t\n\r':
+        start_pos += 1
+    
+    if start_pos >= len(text):
+        return None
+    
+    # 根据起始字符确定值的类型
+    first_char = text[start_pos]
+    
+    if first_char == '"':
+        # 字符串：找到结束的引号（处理转义）
+        end_pos = start_pos + 1
+        while end_pos < len(text):
+            if text[end_pos] == '\\' and end_pos + 1 < len(text):
+                end_pos += 2  # 跳过转义字符
+                continue
+            if text[end_pos] == '"':
+                end_pos += 1
+                break
+            end_pos += 1
+        value = text[start_pos:end_pos]
+        return value[1:-1]  # 去掉引号
+    
+    elif first_char.isdigit() or (first_char == '-' and start_pos + 1 < len(text) and text[start_pos + 1].isdigit()):
+        # 数字
+        end_pos = start_pos
+        while end_pos < len(text) and (text[end_pos].isdigit() or text[end_pos] in '.-eE+'):
+            end_pos += 1
+        value = text[start_pos:end_pos]
+        try:
+            if '.' in value:
+                return float(value)
+            return int(value)
+        except:
+            return value
+    
+    elif first_char == '[':
+        # 数组：使用括号计数找到匹配的 ]
+        end_pos = find_json_bracket_end(text, start_pos, '[', ']')
+        if end_pos:
+            value = text[start_pos:end_pos]
+            try:
+                return json.loads(value)
+            except:
+                return value
+        return None
+    
+    elif first_char == '{':
+        # 对象：使用括号计数找到匹配的 }
+        end_pos = find_json_bracket_end(text, start_pos, '{', '}')
+        if end_pos:
+            value = text[start_pos:end_pos]
+            try:
+                return json.loads(value)
+            except:
+                return value
+        return None
+    
+    return None
+
+
+def find_json_bracket_end(text, start_pos, open_bracket, close_bracket):
+    """使用括号计数找到匹配的闭合括号位置"""
+    count = 0
+    in_string = False
+    escape_next = False
+    
+    for i in range(start_pos, len(text)):
+        char = text[i]
+        
+        if escape_next:
+            escape_next = False
+            continue
+        
+        if char == '\\':
+            escape_next = True
+            continue
+        
+        if char == '"' and not escape_next:
+            in_string = not in_string
+            continue
+        
+        if not in_string:
+            if char == open_bracket:
+                count += 1
+            elif char == close_bracket:
+                count -= 1
+                if count == 0:
+                    return i + 1
+    
+    return None
 
 
 def parse_ai_script_to_segments(ai_text: str, template_structure: List[Dict]) -> List[Dict]:
@@ -292,12 +404,17 @@ async def ai_recommend_templates_via_gateway(
             response.raise_for_status()
             result = response.json()
 
-            # 解析 AI 返回的 JSON
-            import json
-            ai_content = result["choices"][0]["message"]["content"]
-            ai_response = json.loads(ai_content)
-
-            recommendations = ai_response.get("recommendations", [])
+            # 解析 AI 返回的 JSON（使用正则提取，兼容思考过程）
+            message = result["choices"][0]["message"]
+            ai_content = message.get("content") or message.get("reasoning", "")
+            
+            if not ai_content:
+                raise ValueError("AI 返回内容为空")
+            
+            # 使用正则提取 recommendations 字段
+            recommendations = extract_json_field(ai_content, "recommendations")
+            if not recommendations:
+                raise ValueError("无法提取 recommendations 字段")
 
             return {
                 "success": True,
@@ -386,12 +503,17 @@ async def ai_analyze_videos_via_gateway(
             response.raise_for_status()
             result = response.json()
 
-            # 解析 AI 返回的 JSON
-            import json
-            ai_content = result["choices"][0]["message"]["content"]
-            ai_response = json.loads(ai_content)
-
-            suggestions = ai_response.get("suggestions", [])
+            # 解析 AI 返回的 JSON（使用正则提取，兼容思考过程）
+            message = result["choices"][0]["message"]
+            ai_content = message.get("content") or message.get("reasoning", "")
+            
+            if not ai_content:
+                raise ValueError("AI 返回内容为空")
+            
+            # 使用正则提取 suggestions 字段
+            suggestions = extract_json_field(ai_content, "suggestions")
+            if not suggestions:
+                raise ValueError("无法提取 suggestions 字段")
 
             return {
                 "success": True,
@@ -457,7 +579,12 @@ async def ai_generate_template_via_gateway(
     system_prompt = """你是一位专业的短视频模板设计专家。
 请根据用户输入的产品类型和风格，生成一个完整的视频模板结构。
 
-请以 JSON 格式返回，包含以下字段：
+【输出格式要求】
+- 必须返回纯 JSON 格式，不要包含任何 Markdown 代码块（如 ```json ... ```）
+- 不要输出任何思考过程、解释说明或其他文本
+- 只返回 JSON 对象本身
+
+JSON 必须包含以下字段：
 - name: 模板名称（格式：{产品类型}·{风格简称}）
 - description: 模板描述（一句话说明适用场景）
 - category: 分类（根据产品类型选择：滋补保健/数码科技/时尚穿搭/美食推荐/美妆护肤/通用）
@@ -513,6 +640,7 @@ async def ai_generate_template_via_gateway(
 
             # 解析 AI 返回的 JSON
             import json
+            import re
             message = result["choices"][0]["message"]
             ai_content = message.get("content")
             
@@ -526,7 +654,43 @@ async def ai_generate_template_via_gateway(
             if not ai_content:
                 raise ValueError("AI 返回内容为空")
             
-            ai_response = json.loads(ai_content)
+            # 使用正则直接从文本中提取 JSON 字段（更可靠，避免思考过程干扰）
+            def extract_json_field(text, field_name):
+                """从文本中提取指定 JSON 字段的值"""
+                # 匹配 "field_name": value 或 "field_name": "value"
+                pattern = rf'"{field_name}"\s*:\s*("[^"]*"|\d+|\[.*?\]|\{{.*?\}})'
+                match = re.search(pattern, text, re.DOTALL)
+                if match:
+                    value = match.group(1)
+                    # 如果是字符串（带引号），去掉引号
+                    if value.startswith('"') and value.endswith('"'):
+                        return value[1:-1]
+                    # 如果是数字，转换为 int
+                    if value.isdigit():
+                        return int(value)
+                    # 如果是数组或对象，尝试解析
+                    if value.startswith('[') or value.startswith('{'):
+                        try:
+                            return json.loads(value)
+                        except:
+                            return value
+                    return value
+                return None
+            
+            # 提取各个字段
+            ai_response = {
+                "name": extract_json_field(ai_content, "name"),
+                "description": extract_json_field(ai_content, "description"),
+                "category": extract_json_field(ai_content, "category"),
+                "segments": extract_json_field(ai_content, "segments"),
+                "style": extract_json_field(ai_content, "style"),
+            }
+            
+            print(f"[DEBUG] 提取的 AI 响应：{ai_response}")
+            
+            # 验证必要字段
+            if not ai_response.get("segments"):
+                raise ValueError("无法提取 segments 字段")
 
             # 添加唯一 ID
             template = {
