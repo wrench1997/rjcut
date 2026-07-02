@@ -121,6 +121,27 @@ services:
         max-size: "50m"
         max-file: "3"
 
+  # AI 网关服务
+  gateway:
+    build:
+      context: ./gateway
+      dockerfile: Dockerfile
+    container_name: rjcut-gateway
+    ports:
+      - "8888:8888"
+    environment:
+      - VLLM_BASE_URL=http://112.111.7.91:7980
+      - MODEL_NAME=Qwen/Qwen3.5-397B-A17B-FP8
+      - POLL_INTERVAL=5
+      - INPUT_PRICE_PER_1M=3.0
+      - OUTPUT_PRICE_PER_1M=6.0
+      - CACHED_INPUT_PRICE_PER_1M=0.025
+      - TTFT_CACHE_HIT_THRESHOLD=0.5
+      - GATEWAY_BASE_URL=http://gateway:8888
+    restart: unless-stopped
+    networks:
+      - rjcut-network
+
   api:
     image: rjcut:latest
     container_name: rjcut_api
@@ -129,6 +150,7 @@ services:
       - "8001:8000"
     environment:
       <<: *common-env
+      GATEWAY_BASE_URL: http://gateway:8888
     volumes:
       - ./:/app          # 开发时建议加 :ro（只读），避免意外修改；生产去掉 ro
       - /opt/rjcut/service_data:/app/service_data   # 这个持久化目录保持 rw
@@ -140,6 +162,8 @@ services:
       redis:
         condition: service_healthy
       minio:
+        condition: service_started
+      gateway:
         condition: service_started
     command: bash -c "python /app/scripts/init_db.py && uvicorn api_service:app --host 0.0.0.0 --port 8000"
     deploy:
@@ -154,6 +178,8 @@ services:
       options:
         max-size: "50m"
         max-file: "3"
+    networks:
+      - rjcut-network
 
   worker:
     image: rjcut:latest
@@ -209,3 +235,8 @@ services:
       options:
         max-size: "50m"
         max-file: "3"
+
+# 定义网络 - 所有服务在同一网络内通信
+networks:
+  rjcut-network:
+    driver: bridge
