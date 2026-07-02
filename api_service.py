@@ -40,6 +40,9 @@ from api_digital_human import router as dh_router
 from draft_utils import (
     apply_corrections_to_editable_script,
     simple_ai_correct_text,
+    ai_generate_script_via_gateway,
+    ai_recommend_templates_via_gateway,
+    ai_analyze_videos_via_gateway,
 )
 
 from batch_validator import BatchTaskValidator, validate_batch_config_file
@@ -1055,3 +1058,124 @@ def get_batch_config_template(
     }
     
     return ok(template)
+
+
+# ============================================================
+# AI 辅助接口（通过 Gateway 调用 vLLM）
+# ============================================================
+
+@app.post("/v1/ai/generate-script")
+async def generate_script(
+    request: Request,
+    merchant: Merchant = Depends(verify_api_key),
+):
+    """
+    AI 生成口播文案
+
+    请求体：
+    {
+        "product_name": "产品名称",
+        "selling_points": "核心卖点",
+        "target_audience": "目标人群",
+        "tone": "文案风格 (direct_sale/premium/social_review/explainer)",
+        "template_structure": [...]  # 模板的 segments 结构
+    }
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return fail(40001, "无效的 JSON 请求体")
+
+    product_name = body.get("product_name", "")
+    selling_points = body.get("selling_points", "")
+    target_audience = body.get("target_audience", "")
+    tone = body.get("tone", "direct_sale")
+    template_structure = body.get("template_structure", [])
+
+    result = await ai_generate_script_via_gateway(
+        product_name=product_name,
+        selling_points=selling_points,
+        target_audience=target_audience,
+        tone=tone,
+        template_structure=template_structure,
+    )
+
+    if result["success"]:
+        return ok({
+            "segments": result["segments"],
+            "usage": result.get("usage", {}),
+        })
+    else:
+        return fail(50001, result.get("error", "AI 生成失败"))
+
+
+@app.post("/v1/ai/recommend-templates")
+async def recommend_templates(
+    request: Request,
+    merchant: Merchant = Depends(verify_api_key),
+):
+    """
+    AI 推荐模板
+
+    请求体：
+    {
+        "product_keyword": "产品关键词",
+        "category": "产品类目（可选）"
+    }
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return fail(40001, "无效的 JSON 请求体")
+
+    product_keyword = body.get("product_keyword", "")
+    category = body.get("category", "")
+
+    result = await ai_recommend_templates_via_gateway(
+        product_keyword=product_keyword,
+        category=category,
+    )
+
+    if result["success"]:
+        return ok({
+            "recommendations": result["recommendations"],
+            "usage": result.get("usage", {}),
+        })
+    else:
+        return fail(50001, result.get("error", "AI 推荐失败"))
+
+
+@app.post("/v1/ai/analyze-videos")
+async def analyze_videos(
+    request: Request,
+    merchant: Merchant = Depends(verify_api_key),
+):
+    """
+    AI 分析视频素材，推荐到素材位
+
+    请求体：
+    {
+        "video_files": [{"name": "文件名", "path": "路径", "duration": 时长}],
+        "template_slots": [{"id": "素材位 ID", "title": "标题", "prompt": "描述"}]
+    }
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return fail(40001, "无效的 JSON 请求体")
+
+    video_files = body.get("video_files", [])
+    template_slots = body.get("template_slots", [])
+
+    result = await ai_analyze_videos_via_gateway(
+        video_files=video_files,
+        template_slots=template_slots,
+    )
+
+    if result["success"]:
+        return ok({
+            "suggestions": result["suggestions"],
+            "usage": result.get("usage", {}),
+        })
+    else:
+        return fail(50001, result.get("error", "AI 分析失败"))

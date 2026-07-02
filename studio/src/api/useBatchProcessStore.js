@@ -184,6 +184,7 @@ await vfs.init()
       const scriptOssKey = await uploadVfsFile(task.vfsScriptPath, 'script')
       const correctionsOssKey = await uploadVfsFile(task.vfsCorrectionsPath, 'corrections')
       const bgmOssKey = await uploadVfsFile(task.vfsBgmPath, 'bgm')
+      const fontOssKey = await uploadVfsFile(task.vfsFontPath, 'font')
 
       if (abortSignal.aborted) throw new Error('Aborted')
 
@@ -252,6 +253,9 @@ await vfs.init()
           position: globalParams?.subtitle?.position || "bottom",
           x_offset: globalParams?.subtitle?.x_offset || 0,
           y_offset: globalParams?.subtitle?.y_offset || -80,
+          position_x: globalParams?.subtitle?.position_x ?? null,
+          position_y: globalParams?.subtitle?.position_y ?? null,
+          use_relative_pos: globalParams?.subtitle?.use_relative_pos ?? false,
           color: globalParams?.subtitle?.color || "#FFFF00",
           stroke_color: globalParams?.subtitle?.stroke_color || "#000000",
           stroke_width: globalParams?.subtitle?.stroke_width || 3,
@@ -261,16 +265,17 @@ await vfs.init()
           line_spacing: globalParams?.subtitle?.line_spacing || 1.3,
           max_width: globalParams?.subtitle?.max_width || 95,
           max_chars_per_line: globalParams?.subtitle?.max_chars_per_line || 18,  // 🎨 每行最大字符数（自动换行）
-          word_by_word_highlight: globalParams?.subtitle?.word_by_word_highlight ?? true  // 🎨 逐字高亮显示开关
+          word_by_word_highlight: globalParams?.subtitle?.word_by_word_highlight ?? true,  // 🎨 逐字高亮显示开关
+          font_url: fontOssKey || globalParams?.subtitle?.font_url || null,  // 🎨 自定义字体文件上传
         },
-        audio: globalParams?.audio || {
-          bgm_url: bgmOssKey || null,
-          bgm_volume: 0.3,
-          original_volume: 1.0,
-          bgm_start_time: 0.0,
-          bgm_loop: true,
-          fade_in_duration: 0.5,
-          fade_out_duration: 0.5
+        audio: {
+          bgm_url: bgmOssKey || globalParams?.audio?.bgm_url || null,
+          bgm_volume: globalParams?.audio?.bgm_volume ?? 0.3,
+          original_volume: globalParams?.audio?.original_volume ?? 1.0,
+          bgm_start_time: globalParams?.audio?.bgm_start_time ?? 0.0,
+          bgm_loop: globalParams?.audio?.bgm_loop ?? true,
+          fade_in_duration: globalParams?.audio?.fade_in_duration ?? 0.5,
+          fade_out_duration: globalParams?.audio?.fade_out_duration ?? 0.5,
         },
         output: globalParams?.output || { need_ass: true },
         timeout_seconds: 1800

@@ -1,17 +1,25 @@
-output_file: selected_code.txt
+output_file: batch_processor_code.txt
 include:
 
-  - src/*.jsx
-  - src/*.js
-  - src/package.json
-  - electron/*.js
-  - electron/package.json
-  - pages/*.js
+  # ===== 批量处理核心逻辑 =====
+  - src/api/BatchTaskRunner.js
+  - src/api/useBatchProcessStore.js
+  - src/components/BatchProcessor.jsx
   
-  # ===== 前端组件 =====
-  - src/components/*.jsx
+  # ===== 全局参数配置器 =====
+  - src/components/GlobalParamsVisualEditor.jsx
+
+
+  - src/features/campaign/*.js
+  - src/features/campaign/steps/*.jsx
   
-  # ===== 前端 API 客户端 =====
-  - src/api/*.js
+  # ===== 相关 API 客户端 =====
+  - src/api/api.js
+  - src/api/index.js
   
+  # ===== VFS 相关工具 =====
+  - src/utils/vfsClient.js
+  - src/utils/virtualFileSystem.js
   
+  # ===== 项目结构工具 =====
+  - src/utils/project-structure.js

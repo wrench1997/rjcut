@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { getSharedFileSystem } from '../src/utils/virtualFileSystem'
 import { setApiKey } from '../src/api/api'
-import { FolderOpen, Folder, Layers, Sparkles, Settings, HelpCircle, Gem, Users, Scissors } from 'lucide-react'
+import { FolderOpen, Folder, Layers, Sparkles, Settings, HelpCircle, Gem, Users, Scissors, WandSparkles } from 'lucide-react'
 import Tooltip from '../src/components/Tooltip'
 
 // 导入你的各个组件
@@ -12,6 +12,7 @@ import DigitalHumanStudio from '../src/components/DigitalHumanStudio'
 import DigitalHumanManager from '../src/components/DigitalHumanManager'
 import HelpGuide from '../src/components/HelpGuide'
 import AdvancedVideoEditor from '../src/components/AdvancedVideoEditor'
+import TemplateBatchPage from '../src/features/template-batch/TemplateBatchPage'
 
 
 const DEFAULT_API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8001'
@@ -35,7 +36,8 @@ const apiRequest = async (endpoint, options = {}, apiKey = DEFAULT_API_KEY, base
 
 // 导航菜单配置
 const NAV_ITEMS = [
-  { id: 'batch', label: '批量处理', icon: Layers, tip: '批量上传视频或指定参数，并行处理多个生成任务' },
+  { id: 'campaign', label: '模板混剪', icon: WandSparkles, tip: '选择已生成的数字人视频，按模板补充素材自动混剪' },
+  { id: 'batch', label: '任务执行中心', icon: Layers, tip: '批量上传视频或指定参数，并行处理多个生成任务' },
   { id: 'projects', label: '项目管理', icon: FolderOpen, tip: '管理您的视频项目，创建、编辑和删除项目' },
   { id: 'files', label: '文件浏览', icon: Folder, tip: '浏览和管理虚拟文件系统中的所有文件' },
   
@@ -202,7 +204,19 @@ export default function Home() {
           </div>
         ) : (
           <>
-            {activeTab === 'batch' && <BatchProcessor vfs={vfs} apiKey={apiKey} />}
+            {activeTab === 'campaign' && (
+  <TemplateBatchPage
+    vfs={vfs}
+    apiKey={apiKey}
+    onOpenBatchCenter={() => setActiveTab('batch')}
+    onStartBatch={async (taskItems) => {
+      // 直接调用 BatchProcessor 的 startBatch 逻辑
+      // 这里通过事件或 ref 触发，简化起见先存到 localStorage
+      localStorage.setItem('rjcut_pending_batch_tasks', JSON.stringify(taskItems))
+    }}
+  />
+)}
+{activeTab === 'batch' && <BatchProcessor vfs={vfs} apiKey={apiKey} />}
             {activeTab === 'projects' && <VideoProjectManager vfs={vfs} onOpenProject={() => setActiveTab('files')} onNavigate={() => setActiveTab('files')} />}
             {activeTab === 'files' && (
   <FileBrowser 

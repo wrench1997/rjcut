@@ -1,6 +1,27 @@
 version: '3.8'
 
 services:
+  # AI 通讯网关 - Codex Gateway
+  gateway:
+    build:
+      context: ../gateway
+      dockerfile: Dockerfile
+    container_name: rjcut-gateway
+    ports:
+      - "8888:8888"
+    environment:
+      - VLLM_BASE_URL=http://112.111.7.91:7980
+      - MODEL_NAME=Qwen/Qwen3.5-397B-A17B-FP8
+      - POLL_INTERVAL=5
+      - INPUT_PRICE_PER_1M=3.0
+      - OUTPUT_PRICE_PER_1M=6.0
+      - CACHED_INPUT_PRICE_PER_1M=0.025
+      - TTFT_CACHE_HIT_THRESHOLD=0.5
+      - GATEWAY_BASE_URL=http://gateway:8888
+    restart: unless-stopped
+    networks:
+      - studio-network
+
   # FRP 客户端服务 - 用于内网穿透
   frp-client:
     build:
@@ -15,6 +36,7 @@ services:
     restart: unless-stopped
     depends_on:
       - studio-prod
+      - gateway
     networks:
       - studio-network
 

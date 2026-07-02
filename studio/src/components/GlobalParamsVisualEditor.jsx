@@ -279,23 +279,35 @@ function CustomTooltip({ children, tip }) {
  * @property {GlobalConfig} [value]
  * @property {(val: GlobalConfig) => void} [onChange]
  * @property {string} [className]
+ * @property {string | null} [storageKey] - localStorage key, null means no persistence
+ * @property {boolean} [persist] - whether to save to localStorage
+ * @property {GlobalConfig} [defaultConfig] - default config to use instead of DEFAULT_CONFIG
  */
 
 /**
  * @param {GlobalParamsVisualEditorProps} props
  */
-// LocalStorage key for persisting global params
-const STORAGE_KEY = 'rjcut_global_params_v1';
+// Default LocalStorage key for persisting global params (used by BatchProcessor)
+const DEFAULT_STORAGE_KEY = 'rjcut_global_params_v1';
 
 export default function GlobalParamsVisualEditor({ 
   value, 
   onChange, 
-  className 
+  className,
+  storageKey = null,
+  persist = false,
+  defaultConfig = null,
 }) {
-  // Load from localStorage on mount, fallback to DEFAULT_CONFIG
+  // Use provided defaultConfig or fall back to DEFAULT_CONFIG
+  const effectiveDefaultConfig = defaultConfig || DEFAULT_CONFIG;
+
+  // Load from localStorage on mount only if persist is enabled
   const loadFromStorage = () => {
+    if (!persist || !storageKey) {
+      return null;
+    }
     try {
-      const stored = localStorage.getItem(STORAGE_KEY);
+      const stored = localStorage.getItem(storageKey);
       if (stored) {
         const parsed = JSON.parse(stored);
         console.log('[GlobalParams] Loaded from localStorage:', parsed);
@@ -310,22 +322,27 @@ export default function GlobalParamsVisualEditor({
   const storedConfig = loadFromStorage();
   
   const [config, setConfig] = useState(() => {
+    // Priority: value > defaultConfig > localStorage > DEFAULT_CONFIG
+    if (value) {
+      // Merge with effective defaults to ensure all fields exist
+      return {
+        pipeline: { ...effectiveDefaultConfig.pipeline, ...value.pipeline },
+        subtitle: { ...effectiveDefaultConfig.subtitle, ...value.subtitle },
+        audio: { ...effectiveDefaultConfig.audio, ...value.audio },
+        output: { ...effectiveDefaultConfig.output, ...value.output }
+      };
+    }
     if (storedConfig) {
       // Merge stored config with defaults to ensure all fields exist
       return {
-        pipeline: { ...DEFAULT_CONFIG.pipeline, ...storedConfig.pipeline },
-        subtitle: { ...DEFAULT_CONFIG.subtitle, ...storedConfig.subtitle },
-        audio: { ...DEFAULT_CONFIG.audio, ...storedConfig.audio },
-        output: { ...DEFAULT_CONFIG.output, ...storedConfig.output }
+        pipeline: { ...effectiveDefaultConfig.pipeline, ...storedConfig.pipeline },
+        subtitle: { ...effectiveDefaultConfig.subtitle, ...storedConfig.subtitle },
+        audio: { ...effectiveDefaultConfig.audio, ...storedConfig.audio },
+        output: { ...effectiveDefaultConfig.output, ...storedConfig.output }
       };
     }
-    // Fallback to props value or defaults
-    return {
-      pipeline: { ...DEFAULT_CONFIG.pipeline, ...(value?.pipeline || {}) },
-      subtitle: { ...DEFAULT_CONFIG.subtitle, ...(value?.subtitle || {}) },
-      audio: { ...DEFAULT_CONFIG.audio, ...(value?.audio || {}) },
-      output: { ...DEFAULT_CONFIG.output, ...(value?.output || {}) }
-    };
+    // Fall back to effective default config
+    return { ...effectiveDefaultConfig };
   });
 
   const [activeTab, setActiveTab] = useState('subtitle');
@@ -421,15 +438,18 @@ export default function GlobalParamsVisualEditor({
     }
   }, [config.audio.bgm_loop]);
 
-  // Save to localStorage whenever config changes
+  // Save to localStorage whenever config changes (only if persist is enabled)
   useEffect(() => {
+    if (!persist || !storageKey) {
+      return;
+    }
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+      localStorage.setItem(storageKey, JSON.stringify(config));
       console.log('[GlobalParams] Saved to localStorage:', config);
     } catch (e) {
       console.warn('[GlobalParams] Failed to save to localStorage:', e);
     }
-  }, [config]);
+  }, [config, persist, storageKey]);
 
   // 组件卸载清理
   useEffect(() => {
@@ -513,18 +533,20 @@ export default function GlobalParamsVisualEditor({
         ...prev,
         [section]: updatedSection
       };
-      // 🎨 保存到 localStorage，供 BatchProcessor 使用
-      try {
-        localStorage.setItem('rjcut_global_params_v1', JSON.stringify(newConfig))
-      } catch (e) {
-        console.error('[GlobalParamsVisualEditor] 保存配置失败:', e)
+      // 🎨 保存到 localStorage (only if persist is enabled)
+      if (persist && storageKey) {
+        try {
+          localStorage.setItem(storageKey, JSON.stringify(newConfig))
+        } catch (e) {
+          console.error('[GlobalParamsVisualEditor] 保存配置失败:', e)
+        }
       }
       setTimeout(() => {
         onChange?.(newConfig);
       }, 0);
       return newConfig;
     });
-  }, [onChange]);
+  }, [onChange, persist, storageKey]);
 
   // Apply a styling design preset
   const applyPreset = (preset) => {
