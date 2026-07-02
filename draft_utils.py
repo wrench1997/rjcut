@@ -174,7 +174,7 @@ async def ai_generate_script_via_gateway(
             {"role": "user", "content": user_prompt}
         ],
         "temperature": 0.7,
-        "max_tokens": 2000,
+        "max_tokens": 10000,
         "stream": False,
     }
 
