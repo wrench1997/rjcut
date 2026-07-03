@@ -502,13 +502,42 @@ def parse_ai_script_to_segments(ai_text: str, template_structure: List[Dict]) ->
     return generated_segments
 
 
+# 预定义的模板库（与前端 DEFAULT_TEMPLATES 保持一致）
+TEMPLATE_LIBRARY = [
+    {
+        "id": "deer_antler_blood_v1",
+        "name": "鹿茸血·口播带货",
+        "description": "适合鹿茸血、营养液、滋补饮品等口播带货视频",
+        "category": "滋补保健",
+    },
+    {
+        "id": "health_product_v1",
+        "name": "保健品·口播种草",
+        "description": "适合保健品、营养补充剂、健康食品的口播种草视频",
+        "category": "滋补保健",
+    },
+    {
+        "id": "direct_sale_v1",
+        "name": "直接促销型",
+        "description": "适合快速促销、限时优惠类产品",
+        "category": "促销",
+    },
+    {
+        "id": "premium_v1",
+        "name": "高端品质型",
+        "description": "适合高端产品、品质生活类产品",
+        "category": "品牌",
+    },
+]
+
+
 async def ai_recommend_templates_via_gateway(
     product_keyword: str,
     category: str = "",
     model_name: str = None,
 ) -> Dict[str, Any]:
     """
-    通过 Gateway 调用 vLLM AI 推荐模板
+    通过 Gateway 调用 vLLM AI 推荐模板（纯 AI 推荐，不使用关键词匹配）
 
     Args:
         product_keyword: 产品关键词
@@ -529,11 +558,33 @@ async def ai_recommend_templates_via_gateway(
             "error": str
         }
     """
-    system_prompt = """你是一位专业的短视频模板推荐专家。
-请根据用户的产品信息，推荐最适合的模板，并说明推荐理由。
+    # 构建模板库描述（供 AI 参考）
+    template_descriptions = "\n".join([
+        f"{i+1}. {t['id']} - {t['name']}：{t['description']}"
+        for i, t in enumerate(TEMPLATE_LIBRARY)
+    ])
 
-请以 JSON 格式返回，包含以下字段：
-- recommendations: 数组，每个元素包含 template_id（模板 ID）、score（匹配度 0-1）、reason（推荐理由）"""
+    system_prompt = f"""你是一位专业的短视频模板推荐专家。
+请根据用户的产品信息，从以下模板库中选择最适合的模板：
+
+模板库：
+{template_descriptions}
+
+请严格按照以下 JSON 格式返回（不要包含任何其他内容）：
+{{
+    "recommendations": [
+        {{
+            "template_id": "模板 ID（必须是上述 4 个之一）",
+            "score": 0.85,
+            "reason": "推荐理由"
+        }}
+    ]
+}}
+
+注意：
+- score 范围 0-1，表示匹配度
+- 推荐 2-4 个模板即可
+- 根据产品特性智能匹配，不要仅依赖关键词"""
 
     user_prompt = f"""请为以下产品推荐合适的短视频模板：
 
@@ -541,7 +592,7 @@ async def ai_recommend_templates_via_gateway(
 - 产品关键词：{product_keyword}
 - 产品类目：{category or "未指定"}
 
-请推荐 3-5 个最匹配的模板，并说明每个模板为什么适合这个产品。"""
+请分析产品特性，从模板库中选择最匹配的 2-4 个模板，并给出推荐理由。"""
 
     payload = {
         "model": model_name or os.getenv("MODEL_NAME", "Qwen/Qwen3.5-397B-A17B-FP8"),
@@ -564,23 +615,53 @@ async def ai_recommend_templates_via_gateway(
             response.raise_for_status()
             result = response.json()
 
-            # 解析 AI 返回的 JSON（使用正则提取，兼容思考过程）
+            # 解析 AI 返回的 JSON
             message = result["choices"][0]["message"]
-            ai_content = message.get("content") or message.get("reasoning", "")
+            ai_content = message.get("content", "")
             
             if not ai_content:
                 raise ValueError("AI 返回内容为空")
             
-            # 使用正则提取 recommendations 字段
-            recommendations = extract_json_field(ai_content, "recommendations")
+            print(f"[AI 推荐] 原始返回内容：{ai_content[:500]}...")
+            
+            # 尝试直接解析 JSON
+            import json
+            try:
+                parsed = json.loads(ai_content)
+                recommendations = parsed.get("recommendations", [])
+            except json.JSONDecodeError:
+                # JSON 解析失败，尝试使用正则提取 recommendations 字段
+                print("[AI 推荐] JSON 解析失败，尝试正则提取")
+                recommendations = extract_json_field(ai_content, "recommendations")
+            
             if not recommendations:
                 raise ValueError("无法提取 recommendations 字段")
+            
+            # 验证推荐结果格式
+            valid_recommendations = []
+            valid_template_ids = {t["id"] for t in TEMPLATE_LIBRARY}
+            for rec in recommendations:
+                if isinstance(rec, dict):
+                    tid = rec.get("template_id")
+                    if tid in valid_template_ids:
+                        valid_recommendations.append({
+                            "template_id": tid,
+                            "score": float(rec.get("score", 0.5)),
+                            "reason": rec.get("reason", ""),
+                        })
+            
+            if not valid_recommendations:
+                raise ValueError("AI 返回的模板 ID 无效")
+            
+            # 按匹配度排序
+            valid_recommendations.sort(key=lambda x: x["score"], reverse=True)
 
             return {
                 "success": True,
-                "recommendations": recommendations,
+                "recommendations": valid_recommendations[:5],
                 "usage": result.get("usage", {}),
             }
+
     except httpx.HTTPError as e:
         return {
             "success": False,

@@ -100,44 +100,50 @@ export function getTemplateConfig(templateId) {
  * @returns {Promise<{ templateId: string, score: number, reason: string }[]>}
  */
 export async function aiRecommendTemplates(productKeyword, category = '') {
-  // TODO: 实际项目中调用后端 AI 接口
-  // const response = await fetch('/v1/ai/recommend-template', {
-  //   method: 'POST',
-  //   headers: { 'Content-Type': 'application/json' },
-  //   body: JSON.stringify({ productKeyword, category })
-  // })
-  // return response.json()
+  const baseUrl = typeof localStorage !== 'undefined' 
+    ? localStorage.getItem('rjcut_api_base_url') || 'http://192.168.166.151:8000'
+    : 'http://192.168.166.151:8000'
+  
+  const apiKey = typeof localStorage !== 'undefined'
+    ? localStorage.getItem('rjcut_api_key') || 'rjk_oG3u1bRu10myprstb5o2AYVW6v9HipNT33ALuJTmFxaqemUC'
+    : 'rjk_oG3u1bRu10myprstb5o2AYVW6v9HipNT33ALuJTmFxaqemUC'
+  
+  const requestBody = {
+    product_keyword: productKeyword,
+    category: category || '',
+  }
+  
+  console.log('[AI 推荐模板] 请求 URL:', `${baseUrl}/v1/ai/recommend-templates`)
+  console.log('[AI 推荐模板] 请求体:', requestBody)
+  
+  const response = await fetch(`${baseUrl}/v1/ai/recommend-templates`, {
+    method: 'POST',
+    headers: { 
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(requestBody),
+  })
 
-  // 模拟 AI 推荐逻辑（基于关键词匹配）
-  const keyword = productKeyword.toLowerCase().trim()
-  const recommendations = []
-
-  // 简单的关键词匹配规则
-  if (keyword.includes('鹿茸') || keyword.includes('鹿血') || keyword.includes('滋补')) {
-    recommendations.push({
-      templateId: 'deer_antler_blood_v1',
-      score: 0.95,
-      reason: '模板专为滋补保健产品设计，适合鹿茸血、营养液等产品',
-    })
+  console.log('[AI 推荐模板] 响应状态:', response.status)
+  
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    console.error('[AI 推荐模板] 错误响应:', errorData)
+    throw new Error(errorData.message || `HTTP ${response.status}`)
   }
 
-  if (keyword.includes('保健') || keyword.includes('营养') || keyword.includes('健康')) {
-    recommendations.push({
-      templateId: 'health_product_v1',
-      score: 0.9,
-      reason: '模板适合保健品、营养补充剂的口播种草',
-    })
+  const result = await response.json()
+  console.log('[AI 推荐模板] 成功响应:', result)
+  
+  // 后端返回格式：{ code: 0, message: "ok", data: { recommendations: [...], usage: {...} } }
+  if (result.code === 0 && result.data?.recommendations) {
+    return result.data.recommendations
+  } else if (result.code === 200 && result.data?.recommendations) {
+    return result.data.recommendations
+  } else {
+    throw new Error(result.message || result.msg || 'AI 推荐模板失败')
   }
-
-  // 如果没有匹配到，返回所有模板
-  if (recommendations.length === 0) {
-    return [
-      { templateId: 'deer_antler_blood_v1', score: 0.7, reason: '通用口播带货模板' },
-      { templateId: 'health_product_v1', score: 0.65, reason: '通用口播种草模板' },
-    ]
-  }
-
-  return recommendations
 }
 
 /**
