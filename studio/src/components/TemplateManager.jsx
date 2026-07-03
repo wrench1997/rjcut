@@ -1,7 +1,8 @@
-import { useState } from 'react'
-import { Book, Plus, Edit, Trash2, Copy, Check, X, Palette, ChevronRight, FileText, Sparkles, Loader2 } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Book, Plus, Edit, Trash2, Copy, Check, X, Palette, ChevronRight, FileText, Sparkles, Loader2, FolderOpen, ArrowUp, Film, Home, Tag, Users, TrendingUp, Sliders, Package, FileBadge } from 'lucide-react'
 import { DEFAULT_TEMPLATES, getTemplateConfig, getTemplateCategories, aiGenerateTemplate } from '../features/template-batch/aiAssistant.js'
 import Tooltip from './Tooltip'
+import { getVFS } from '../utils/vfsClient.js'
 
 /**
  * 模板管理组件
@@ -203,8 +204,9 @@ export default function TemplateManager({ onSelectTemplate, selectedTemplateId, 
                 新建模板
               </button>
             </div>
-            <p className="text-xs text-slate-500">
-              💡 管理文案模板，AI 根据模板结构自动生成带转场的文案
+            <p className="text-xs text-slate-500 flex items-center gap-1">
+              <FileText size={12} className="text-blue-500" />
+              管理文案模板，AI 根据模板结构自动生成带转场的文案
             </p>
           </div>
         )}
@@ -289,6 +291,12 @@ export default function TemplateManager({ onSelectTemplate, selectedTemplateId, 
  * 模板卡片组件
  */
 function TemplateCard({ template, isSelected, onSelect, onEdit, onDuplicate, onDelete }) {
+  const handleDoubleClick = (e) => {
+    e.stopPropagation()
+    console.log('[TemplateCard] 双击编辑:', template?.id, template?.name)
+    onEdit()
+  }
+
   return (
     <div
       className={`border rounded-lg p-4 transition-all cursor-pointer hover:shadow-md ${
@@ -301,6 +309,8 @@ function TemplateCard({ template, isSelected, onSelect, onEdit, onDuplicate, onD
         console.log('[TemplateCard] 点击选择:', template?.id, template?.name)
         onSelect(template)
       }}
+      onDoubleClick={handleDoubleClick}
+      title="双击编辑模板"
     >
       <div className="flex justify-between items-start mb-2">
         <div className="flex items-center gap-2">
@@ -590,7 +600,186 @@ function TemplateEditor({ template, onSave, onCancel }) {
       </div>
     </div>
   )
-}/**
+}
+
+/**
+ * VFS 文件选择器弹窗（用于选择单个文件）
+ */
+function VfsFilePicker({ vfs, onSelect, onCancel }) {
+  const [currentPath, setCurrentPath] = useState('/')
+  const [items, setItems] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [videoCount, setVideoCount] = useState(0)
+  const [selectedFiles, setSelectedFiles] = useState([]) // 多选文件路径数组
+
+  // 组件挂载时自动加载根目录
+  useEffect(() => {
+    if (vfs) {
+      loadDirectory('/')
+    }
+  }, [vfs])
+
+  const loadDirectory = async (path) => {
+    try {
+      setLoading(true)
+      const dirItems = await vfs.listDirectory(path)
+      // 显示所有项目（文件夹 + 视频文件）
+      const folders = (dirItems || []).filter(item => item.isDirectory)
+      const videoFiles = (dirItems || []).filter(item => 
+        !item.isDirectory && /\.(mp4|mov|webm|mkv|avi)$/i.test(item.name)
+      )
+      // 文件夹在前，视频文件在后
+      setItems([...folders, ...videoFiles])
+      setVideoCount(videoFiles.length)
+      setCurrentPath(path)
+    } catch (e) {
+      console.error('[VfsFilePicker] 加载目录失败:', e)
+      setItems([])
+      setVideoCount(0)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const navigateTo = async (path) => {
+    try {
+      // 直接更新路径，不依赖 vfs.pwd()
+      await loadDirectory(path)
+    } catch (e) {
+      console.error('[VfsFilePicker] 导航失败:', e)
+    }
+  }
+
+  const handleSelectFile = (item) => {
+    if (!item.isDirectory) {
+      // 切换文件的选中状态
+      setSelectedFiles(prev => {
+        if (prev.includes(item.path)) {
+          return prev.filter(p => p !== item.path)
+        } else {
+          return [...prev, item.path]
+        }
+      })
+    }
+  }
+
+  const handleConfirmSelect = () => {
+    if (selectedFiles.length === 0) {
+      alert('请至少选择一个文件')
+      return
+    }
+    // 返回所有选中的文件名（不含路径）
+    const fileNames = selectedFiles.map(path => path.split('/').pop())
+    onSelect(fileNames.join('\n'))
+  }
+
+  const goUp = () => {
+    if (currentPath !== '/') {
+      const parentPath = currentPath.substring(0, currentPath.lastIndexOf('/')) || '/'
+      navigateTo(parentPath)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onCancel}>
+      <div className="bg-white rounded-xl p-6 max-w-2xl w-full" onClick={(e) => e.stopPropagation()}>
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="font-bold text-lg text-slate-800">选择素材文件</h3>
+          <button className="p-2 hover:bg-slate-100 rounded-lg" onClick={onCancel}>
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* 路径导航栏 */}
+        <div className="mb-4">
+          <div className="flex items-center gap-2 mb-2">
+            <button
+              className="px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded transition-colors flex items-center gap-1"
+              onClick={() => navigateTo('/')}
+            >
+              <Home size={12} />
+              根目录
+            </button>
+          </div>
+          <div className="flex items-center gap-2 p-2 bg-slate-50 rounded-lg border border-slate-200">
+            <button
+              className="p-1 hover:bg-slate-200 rounded disabled:opacity-30"
+              onClick={goUp}
+              disabled={currentPath === '/'}
+            >
+              <ArrowUp size={16} />
+            </button>
+            <span className="flex-1 text-sm text-slate-600">{currentPath}</span>
+          </div>
+          {videoCount > 0 && (
+            <p className="text-xs text-green-600 mt-2">
+              ✓ 当前目录有 {videoCount} 个视频文件
+            </p>
+          )}
+        </div>
+
+        {/* 文件列表 */}
+        <div className="max-h-80 overflow-y-auto border border-slate-200 rounded-lg mb-4">
+          {loading ? (
+            <div className="p-8 text-center text-slate-400">加载中...</div>
+          ) : items.length === 0 ? (
+            <div className="p-8 text-center">
+              <p className="text-slate-400">当前目录为空</p>
+              {videoCount > 0 && (
+                <p className="text-xs text-green-600 mt-2">
+                  可以直接选择当前目录（有 {videoCount} 个视频文件）
+                </p>
+              )}
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-100">
+              {items.map((item) => (
+                <div
+                  key={item.path}
+                  className={`flex items-center gap-3 p-3 transition-colors ${
+                    item.isDirectory ? 'hover:bg-slate-50 cursor-pointer' : selectedFiles.includes(item.path) ? 'bg-green-100 hover:bg-green-200 cursor-pointer' : 'hover:bg-green-50 cursor-pointer'
+                  }`}
+                  onClick={() => item.isDirectory ? navigateTo(item.path) : handleSelectFile(item)}
+                >
+                  {item.isDirectory ? <FolderOpen size={20} className="text-blue-500" /> : selectedFiles.includes(item.path) ? <Check size={20} className="text-green-600" /> : <Film size={20} className="text-green-500" />}
+                  <span className="flex-1 text-sm text-slate-700">{item.name}</span>
+                  {item.isDirectory ? (
+                    <span className="text-xs text-slate-400">→</span>
+                  ) : (
+                    <span className="text-xs text-slate-400">{(item.size / 1024 / 1024).toFixed(1)} MB</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-between items-center">
+          <span className="text-sm text-slate-600">
+            已选择 <strong className="text-green-600">{selectedFiles.length}</strong> 个文件
+          </span>
+          <div className="flex gap-3">
+            <button
+              className="px-4 py-2 text-sm bg-slate-100 hover:bg-slate-200 rounded-lg"
+              onClick={onCancel}
+            >
+              取消
+            </button>
+            <button
+              className="px-4 py-2 text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-50"
+              onClick={handleConfirmSelect}
+              disabled={selectedFiles.length === 0}
+            >
+              确认选择 ({selectedFiles.length})
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/**
  * AI 生成模板表单组件
  */
 function AIGenerateTemplateForm({ onGenerate, onCancel, isGenerating }) {
@@ -600,6 +789,8 @@ function AIGenerateTemplateForm({ onGenerate, onCancel, isGenerating }) {
   const [targetAudience, setTargetAudience] = useState('')
   const [style, setStyle] = useState('direct_sale')
   const [transitionCount, setTransitionCount] = useState(4)
+  const [fileNames, setFileNames] = useState('') // 文件名列表，每行一个
+  const [showFilePicker, setShowFilePicker] = useState(false) // 显示 VFS 文件选择器
 
   const handleSubmit = (e) => {
     e.preventDefault()
@@ -607,6 +798,12 @@ function AIGenerateTemplateForm({ onGenerate, onCancel, isGenerating }) {
       alert('请输入产品名称')
       return
     }
+    // 解析文件名列表
+    const fileNameList = fileNames
+      .split('\n')
+      .map(name => name.trim())
+      .filter(name => name.length > 0)
+    
     onGenerate({
       productName,
       productType,
@@ -614,25 +811,68 @@ function AIGenerateTemplateForm({ onGenerate, onCancel, isGenerating }) {
       targetAudience,
       style,
       transitionCount,
+      fileNames: fileNameList.length > 0 ? fileNameList : undefined,
     })
+  }
+
+  // 从 VFS 选择文件并提取文件名
+  const handleSelectFilesFromVFS = async () => {
+    try {
+      // 测试 VFS 是否可用
+      const vfs = getVFS()
+      if (!vfs) {
+        alert('VFS 未初始化，请确保在 Electron 环境中运行')
+        return
+      }
+      setShowFilePicker(true)
+    } catch (e) {
+      console.error('VFS 初始化失败:', e)
+      alert('VFS 不可用，请手动输入文件名')
+    }
+  }
+
+  const handleVFSFileSelect = (selectedPath) => {
+    if (selectedPath) {
+      // 从路径提取文件名并添加到现有列表
+      const fileName = selectedPath.split('/').pop()
+      if (fileName) {
+        setFileNames(prev => {
+          const existingNames = prev.split('\n').filter(n => n.trim())
+          if (!existingNames.includes(fileName)) {
+            return prev ? `${prev}\n${fileName}` : fileName
+          }
+          return prev
+        })
+      }
+    }
+    setShowFilePicker(false)
   }
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      {/* VFS 文件选择器 */}
+      {showFilePicker && (
+        <VfsFilePicker
+          vfs={getVFS()}
+          onSelect={handleVFSFileSelect}
+          onCancel={() => setShowFilePicker(false)}
+        />
+      )}
+
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col">
         {/* 头部 */}
-        <div className="p-4 border-b border-slate-200 bg-gradient-to-r from-purple-50 to-pink-50 flex justify-between items-center">
-          <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
-            <Sparkles size={18} className="text-purple-600" />
-            AI 自动生成模板
-          </h3>
-          <button type="button" onClick={onCancel} className="text-slate-400 hover:text-slate-600">
-            <X size={20} />
-          </button>
-        </div>
+          <div className="p-4 border-b border-slate-200 bg-gradient-to-r from-purple-50 to-pink-50 flex justify-between items-center">
+            <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+              <Sparkles size={18} className="text-purple-600" />
+              AI 自动生成模板
+            </h3>
+            <button type="button" onClick={onCancel} className="text-slate-400 hover:text-slate-600">
+              <X size={20} />
+            </button>
+          </div>
 
-        {/* 表单内容 */}
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-5 custom-scrollbar">
+          {/* 表单内容 */}
+          <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-5 custom-scrollbar">
           {/* 第一行：产品名称 + 产品类型 */}
           <div className="grid grid-cols-2 gap-4 mb-4">
             <div>
@@ -705,50 +945,55 @@ function AIGenerateTemplateForm({ onGenerate, onCancel, isGenerating }) {
               <button
                 type="button"
                 onClick={() => setStyle('direct_sale')}
-                className={`px-3 py-2 text-xs rounded-lg border transition-all ${
+                className={`px-3 py-2 text-xs rounded-lg border transition-all flex items-center justify-center gap-2 ${
                   style === 'direct_sale'
-                    ? 'bg-purple-600 text-white border-purple-600'
-                    : 'bg-white text-slate-600 border-slate-200 hover:border-purple-300'
+                    ? 'bg-gradient-to-r from-orange-500 to-red-500 text-white border-orange-500 shadow-md'
+                    : 'bg-white text-slate-600 border-slate-200 hover:border-orange-300 hover:shadow-sm'
                 }`}
               >
-                🔥 直接促销型
+                <TrendingUp size={14} />
+                直接促销型
               </button>
               <button
                 type="button"
                 onClick={() => setStyle('premium')}
-                className={`px-3 py-2 text-xs rounded-lg border transition-all ${
+                className={`px-3 py-2 text-xs rounded-lg border transition-all flex items-center justify-center gap-2 ${
                   style === 'premium'
-                    ? 'bg-purple-600 text-white border-purple-600'
-                    : 'bg-white text-slate-600 border-slate-200 hover:border-purple-300'
+                    ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white border-purple-500 shadow-md'
+                    : 'bg-white text-slate-600 border-slate-200 hover:border-purple-300 hover:shadow-sm'
                 }`}
               >
-                💎 高端品质型
+                <Package size={14} />
+                高端品质型
               </button>
               <button
                 type="button"
                 onClick={() => setStyle('social_review')}
-                className={`px-3 py-2 text-xs rounded-lg border transition-all ${
+                className={`px-3 py-2 text-xs rounded-lg border transition-all flex items-center justify-center gap-2 ${
                   style === 'social_review'
-                    ? 'bg-purple-600 text-white border-purple-600'
-                    : 'bg-white text-slate-600 border-slate-200 hover:border-purple-300'
+                    ? 'bg-gradient-to-r from-blue-500 to-cyan-500 text-white border-blue-500 shadow-md'
+                    : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300 hover:shadow-sm'
                 }`}
               >
-                📝 种草推荐型
+                <Users size={14} />
+                种草推荐型
               </button>
               <button
                 type="button"
                 onClick={() => setStyle('explainer')}
-                className={`px-3 py-2 text-xs rounded-lg border transition-all ${
+                className={`px-3 py-2 text-xs rounded-lg border transition-all flex items-center justify-center gap-2 ${
                   style === 'explainer'
-                    ? 'bg-purple-600 text-white border-purple-600'
-                    : 'bg-white text-slate-600 border-slate-200 hover:border-purple-300'
+                    ? 'bg-gradient-to-r from-green-500 to-teal-500 text-white border-green-500 shadow-md'
+                    : 'bg-white text-slate-600 border-slate-200 hover:border-green-300 hover:shadow-sm'
                 }`}
               >
-                📖 讲解说明型
+                <FileBadge size={14} />
+                讲解说明型
               </button>
             </div>
-            <p className="text-[10px] text-slate-400 mt-1">
-              💡 风格将决定开场和结尾的文案调性
+            <p className="text-[10px] text-slate-500 mt-2 flex items-center gap-1">
+              <Sparkles size={10} className="text-purple-500" />
+              风格将决定开场和结尾的文案调性
             </p>
           </div>
 
@@ -771,8 +1016,40 @@ function AIGenerateTemplateForm({ onGenerate, onCancel, isGenerating }) {
               <span>4 个</span>
               <span>6 个</span>
             </div>
-            <p className="text-[10px] text-slate-400 mt-1">
-              💡 转场数量决定后期合成时的场景切换次数
+            <p className="text-[10px] text-slate-500 mt-2 flex items-center gap-1">
+              <Sliders size={10} className="text-purple-500" />
+              转场数量决定后期合成时的场景切换次数
+            </p>
+          </div>
+{/* 文件名参考列表 */}
+          <div className="mt-4">
+            <div className="flex justify-between items-center mb-1">
+              <label className="block text-xs font-medium text-slate-700">
+                素材文件名参考（可选）
+              </label>
+              <button
+                type="button"
+                onClick={handleSelectFilesFromVFS}
+                className="text-xs text-purple-600 hover:text-purple-800 flex items-center gap-1"
+              >
+                <FolderOpen size={12} />
+                从 VFS 选择文件
+              </button>
+            </div>
+            <textarea
+              value={fileNames}
+              onChange={(e) => setFileNames(e.target.value)}
+              placeholder="每行一个文件名，例如：
+割二杠鹿茸.mp4
+鹿场背景.MP4
+鹿血倒入杯中.MOV
+AI 将根据文件名自动设计模板结构"
+              rows={5}
+              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-purple-400 resize-none font-mono"
+            />
+            <p className="text-xs text-slate-500 mt-2 flex items-center gap-1">
+              <Sparkles size={10} className="text-purple-500" />
+              AI 会分析文件名中的关键词，自动匹配合适的素材位结构
             </p>
           </div>
 

@@ -4,12 +4,14 @@
  */
 import { useState, useCallback, useEffect } from 'react'
 import { getTemplateById } from '../templateRegistry.js'
-import { Plus, X, Play, Trash2, Upload, FileVideo, Sparkles, Loader2 } from 'lucide-react'
+import { CirclePlus, X, Play, Trash2, Upload, FileVideo, Sparkles, Loader2, ArrowUp, WandSparkles, BadgeCheck, AlertTriangle, Layers, Film, FolderOpen } from 'lucide-react'
 import { aiSuggestSlotFiles } from '../aiAssistant.js'
 
 export default function FillTemplateSlotsStep({ draft, updateDraft, vfs }) {
   const template = getTemplateById(draft.templateId)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [showFolderPicker, setShowFolderPicker] = useState(false)
+  const [selectedFolder, setSelectedFolder] = useState(null)
 
   if (!template) {
     return (
@@ -28,14 +30,28 @@ export default function FillTemplateSlotsStep({ draft, updateDraft, vfs }) {
       return
     }
 
+    // 打开文件夹选择器
+    setShowFolderPicker(true)
+  }
+
+  // 确认选择文件夹并开始分析
+  const handleFolderSelected = async (folderPath) => {
+    if (!folderPath) {
+      setShowFolderPicker(false)
+      return
+    }
+
+    setSelectedFolder(folderPath)
+    setShowFolderPicker(false)
     setIsAnalyzing(true)
+
     try {
-      // 1. 获取所有视频文件
-      const allFiles = await getAllVideoFiles(vfs)
-      console.log('[AI 素材助手] 找到视频文件:', allFiles.length, '个')
+      // 1. 获取选中文件夹下的所有视频文件
+      const allFiles = await getAllVideoFiles(vfs, folderPath)
+      console.log('[AI 素材助手] 找到视频文件:', allFiles.length, '个，文件夹:', folderPath)
 
       if (allFiles.length === 0) {
-        alert('素材库中没有找到视频文件')
+        alert('所选文件夹中没有找到视频文件')
         return
       }
 
@@ -116,19 +132,31 @@ export default function FillTemplateSlotsStep({ draft, updateDraft, vfs }) {
       </div>
 
       {/* 模板信息摘要 + AI 助手按钮 */}
-      <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
+      <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border border-blue-200 shadow-sm">
         <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm font-medium text-blue-900">
-              当前模板：{template.name}
-            </p>
-            <p className="text-xs text-blue-700 mt-1">
-              {template.description}
-            </p>
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-blue-100 rounded-lg">
+              <Layers size={20} className="text-blue-600" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-blue-900">
+                当前模板：{template.name}
+              </p>
+              <p className="text-xs text-blue-700 mt-0.5">
+                {template.description}
+              </p>
+              {selectedFolder && (
+                <p className="text-xs text-blue-600 mt-1 flex items-center gap-1">
+                  <FolderOpen size={12} />
+                  {selectedFolder}
+                </p>
+              )}
+            </div>
           </div>
           <div className="flex items-center gap-3">
             <div className="text-right">
-              <p className="text-xs text-blue-700">
+              <p className="text-xs text-blue-700 flex items-center gap-1 justify-end">
+                <Film size={12} />
                 已选口播：{draft.sourceVideo?.name || '未选择'}
               </p>
             </div>
@@ -136,7 +164,7 @@ export default function FillTemplateSlotsStep({ draft, updateDraft, vfs }) {
               type="button"
               onClick={handleAiAutoFill}
               disabled={isAnalyzing}
-              className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-300 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-2"
+              className="px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 disabled:from-purple-300 disabled:to-indigo-300 text-white text-sm font-semibold rounded-lg transition-all shadow-sm hover:shadow-md flex items-center gap-2"
             >
               {isAnalyzing ? (
                 <>
@@ -145,7 +173,7 @@ export default function FillTemplateSlotsStep({ draft, updateDraft, vfs }) {
                 </>
               ) : (
                 <>
-                  <Sparkles size={16} />
+                  <WandSparkles size={16} />
                   AI 智能填充
                 </>
               )}
@@ -153,6 +181,15 @@ export default function FillTemplateSlotsStep({ draft, updateDraft, vfs }) {
           </div>
         </div>
       </div>
+
+      {/* 文件夹选择器弹窗 */}
+      {showFolderPicker && (
+        <VfsFolderPicker
+          vfs={vfs}
+          onSelect={handleFolderSelected}
+          onCancel={() => setShowFolderPicker(false)}
+        />
+      )}
 
       {/* 素材位列表 */}
       <div className="space-y-6">
@@ -238,18 +275,18 @@ function TemplateSlotCard({ slot, binding, vfs, onUpdate }) {
       <div className="flex items-start justify-between mb-3">
         <div>
           <div className="flex items-center gap-2">
-            <span
+            <div
               className={[
-                'w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold',
+                'w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold shadow-sm',
                 isComplete
-                  ? 'bg-green-500 text-white'
+                  ? 'bg-gradient-to-br from-green-500 to-emerald-500 text-white'
                   : slot.required
-                  ? 'bg-amber-500 text-white'
-                  : 'bg-slate-200 text-slate-600',
+                  ? 'bg-gradient-to-br from-amber-500 to-orange-500 text-white'
+                  : 'bg-gradient-to-br from-slate-200 to-slate-300 text-slate-600',
               ].join(' ')}
             >
-              {slot.order}
-            </span>
+              {isComplete ? <BadgeCheck size={14} /> : slot.order}
+            </div>
             <h3 className="font-bold text-slate-800">{slot.title}</h3>
           </div>
           <div className="flex items-center gap-2 mt-1 ml-8">
@@ -281,9 +318,9 @@ function TemplateSlotCard({ slot, binding, vfs, onUpdate }) {
           <button
             type="button"
             onClick={() => setShowVfsBrowser(true)}
-            className="flex-1 py-2 border-2 border-dashed border-slate-300 rounded-lg text-slate-500 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 transition-all flex items-center justify-center gap-2 text-sm font-medium"
+            className="flex-1 py-2 border-2 border-dashed border-slate-300 rounded-lg text-slate-500 hover:border-blue-400 hover:text-blue-600 hover:bg-gradient-to-r hover:from-blue-50 hover:to-indigo-50 transition-all flex items-center justify-center gap-2 text-sm font-semibold"
           >
-            <Plus size={16} />
+            <CirclePlus size={16} />
             从素材库选择
           </button>
         </div>
@@ -298,7 +335,7 @@ function TemplateSlotCard({ slot, binding, vfs, onUpdate }) {
               key={`${file.path}-${index}`}
               className="flex items-center gap-3 p-3 bg-white rounded-lg border border-slate-200"
             >
-              <FileVideo size={18} className="text-blue-500 flex-shrink-0" />
+              <Film size={18} className="text-purple-500 flex-shrink-0" />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-slate-700 truncate">
                   {file.name}
@@ -502,6 +539,159 @@ function VideoPreviewModal({ videoPath, vfs, onClose }) {
           </div>
         )}
         <p className="text-xs text-slate-500 mt-2 truncate">{videoPath}</p>
+      </div>
+    </div>
+  )
+}/**
+ * VFS 文件夹选择器弹窗（简化版文件浏览器）
+ */
+function VfsFolderPicker({ vfs, onSelect, onCancel }) {
+  const [currentPath, setCurrentPath] = useState('/')
+  const [items, setItems] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [videoCount, setVideoCount] = useState(0)
+
+  const loadDirectory = async (path) => {
+    try {
+      setLoading(true)
+      const dirItems = await vfs.listDirectory(path)
+      // 显示所有项目（文件夹 + 视频文件）
+      const folders = (dirItems || []).filter(item => item.isDirectory)
+      const videoFiles = (dirItems || []).filter(item => 
+        !item.isDirectory && /\.(mp4|mov|webm|mkv|avi)$/i.test(item.name)
+      )
+      // 文件夹在前，视频文件在后
+      setItems([...folders, ...videoFiles])
+      setVideoCount(videoFiles.length)
+      setCurrentPath(path)
+    } catch (e) {
+      console.error('[VfsFolderPicker] 加载目录失败:', e)
+      setItems([])
+      setVideoCount(0)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const navigateTo = async (path) => {
+    try {
+      vfs.cd(path)
+      await loadDirectory(vfs.pwd())
+    } catch (e) {
+      console.error('[VfsFolderPicker] 导航失败:', e)
+    }
+  }
+
+  const handleSelect = () => {
+    onSelect(currentPath)
+  }
+
+  const goUp = () => {
+    if (currentPath !== '/') {
+      const parentPath = currentPath.substring(0, currentPath.lastIndexOf('/')) || '/'
+      navigateTo(parentPath)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onCancel}>
+      <div className="bg-white rounded-xl p-6 max-w-2xl w-full" onClick={(e) => e.stopPropagation()}>
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="font-bold text-lg text-slate-800">选择素材文件夹</h3>
+          <button className="p-2 hover:bg-slate-100 rounded-lg" onClick={onCancel}>
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* 路径导航栏 */}
+        <div className="mb-4">
+          <div className="flex items-center gap-2 mb-2">
+            <button
+              className="px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded transition-colors"
+              onClick={() => navigateTo('/projects')}
+            >
+              📁 项目
+            </button>
+            <button
+              className="px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded transition-colors"
+              onClick={() => navigateTo('/drafts')}
+            >
+              📁 草稿
+            </button>
+            <button
+              className="px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded transition-colors"
+              onClick={() => navigateTo('/')}
+            >
+              🏠 根目录
+            </button>
+          </div>
+          <div className="flex items-center gap-2 p-2 bg-slate-50 rounded-lg border border-slate-200">
+            <button
+              className="p-1 hover:bg-slate-200 rounded disabled:opacity-30"
+              onClick={goUp}
+              disabled={currentPath === '/'}
+            >
+              <ArrowUp size={16} />
+            </button>
+            <span className="flex-1 text-sm text-slate-600">{currentPath}</span>
+          </div>
+          {videoCount > 0 && (
+            <p className="text-xs text-green-600 mt-2">
+              ✓ 当前目录有 {videoCount} 个视频文件
+            </p>
+          )}
+        </div>
+
+        {/* 文件列表 */}
+        <div className="max-h-80 overflow-y-auto border border-slate-200 rounded-lg mb-4">
+          {loading ? (
+            <div className="p-8 text-center text-slate-400">加载中...</div>
+          ) : items.length === 0 ? (
+            <div className="p-8 text-center">
+              <p className="text-slate-400">当前目录为空</p>
+              {videoCount > 0 && (
+                <p className="text-xs text-green-600 mt-2">
+                  可以直接选择当前目录（有 {videoCount} 个视频文件）
+                </p>
+              )}
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-100">
+              {items.map((item) => (
+                <div
+                  key={item.path}
+                  className={`flex items-center gap-3 p-3 transition-colors ${
+                    item.isDirectory ? 'hover:bg-slate-50 cursor-pointer' : 'hover:bg-blue-50'
+                  }`}
+                  onClick={() => item.isDirectory && navigateTo(item.path)}
+                >
+                  {item.isDirectory ? <FolderOpen size={20} className="text-blue-500" /> : <Film size={20} className="text-purple-500" />}
+                  <span className="flex-1 text-sm text-slate-700">{item.name}</span>
+                  {item.isDirectory ? (
+                    <span className="text-xs text-slate-400">→</span>
+                  ) : (
+                    <span className="text-xs text-slate-400">{(item.size / 1024 / 1024).toFixed(1)} MB</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-3">
+          <button
+            className="px-4 py-2 text-sm bg-slate-100 hover:bg-slate-200 rounded-lg"
+            onClick={onCancel}
+          >
+            取消
+          </button>
+          <button
+            className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
+            onClick={handleSelect}
+          >
+            选择当前目录
+          </button>
+        </div>
       </div>
     </div>
   )

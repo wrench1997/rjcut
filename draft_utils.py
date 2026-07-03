@@ -509,6 +509,16 @@ TEMPLATE_LIBRARY = [
         "name": "鹿茸血·口播带货",
         "description": "适合鹿茸血、营养液、滋补饮品等口播带货视频",
         "category": "滋补保健",
+        "segments": [
+            {"flag": "hook", "note": "开场吸引 - 数字人出镜"},
+            {"flag": "scene", "note": "割二杠鹿茸 - 鹿场场景"},
+            {"flag": "scene", "note": "鹿场背景 - 梅花鹿环境"},
+            {"flag": "scene", "note": "鹿吃草背景 - 自然场景"},
+            {"flag": "scene", "note": "鹿血倒入杯中 - 倒酒特写"},
+            {"flag": "scene", "note": "灌装成瓶的鹿血酒 - 产品展示"},
+            {"flag": "scene", "note": "杀鹿放血 - 制作过程"},
+            {"flag": "ending", "note": "结尾引导 - 数字人出镜收尾"},
+        ],
     },
     {
         "id": "health_product_v1",
@@ -831,6 +841,7 @@ async def ai_generate_template_via_gateway(
     transition_count: int,
     selling_points: str = "",
     target_audience: str = "",
+    file_names: List[str] = None,  # 新增：文件名参考列表
     model_name: str = None,
 ) -> Dict[str, Any]:
     """
@@ -867,7 +878,7 @@ async def ai_generate_template_via_gateway(
     }
 
     system_prompt = """你是一位专业的短视频模板设计专家。
-请根据用户输入的产品类型和风格，生成一个完整的视频模板结构。
+请根据用户输入的产品类型、风格和素材文件名，生成一个完整的视频模板结构。
 
 【输出格式要求】
 - 必须返回纯 JSON 格式，不要包含任何 Markdown 代码块（如 ```json ... ```）
@@ -878,14 +889,21 @@ JSON 必须包含以下字段：
 - name: 模板名称（格式：{产品类型}·{风格简称}）
 - description: 模板描述（一句话说明适用场景）
 - category: 分类（根据产品类型选择：滋补保健/数码科技/时尚穿搭/美食推荐/美妆护肤/通用）
-- segments: 段落结构数组，每个段落包含 flag（hook/transition/ending）和 note（说明）
+- segments: 段落结构数组，每个段落包含 flag（hook/scene/ending）和 note（说明）
 - style: 文案风格配置，包含 hook（开场文案模板）和 ending（结尾文案模板），支持{product}变量
 
 要求：
 1. 必须包含 1 个 hook 开场段落和 1 个 ending 结尾段落
-2. 中间包含指定数量的 transition 转场段落
-3. 开场和结尾文案要符合指定风格，口语化，适合短视频节奏"""
+2. 中间包含指定数量的 scene/transition 段落，用于展示产品细节
+3. 开场和结尾文案要符合指定风格，口语化，适合短视频节奏
+4. 如果提供了素材文件名，请根据文件名中的关键词设计对应的场景段落"""
 
+    # 构建文件名参考文本
+    file_names_text = ""
+    if file_names and len(file_names) > 0:
+        file_names_text = "\n".join([f"- {name}" for name in file_names])
+        file_names_text = f"\n【素材文件名参考】\n{file_names_text}\n\n请分析这些文件名中的关键词（如：鹿场、倒酒、杀鹿等），为每个关键场景设计对应的 segment 段落。"
+    
     user_prompt = f"""请生成一个短视频模板：
 
 【产品信息】
@@ -895,9 +913,9 @@ JSON 必须包含以下字段：
 - 目标人群：{target_audience or "未提供"}
 
 【文案风格】{style_descriptions.get(style, style)}
-【转场数量】{transition_count} 个
+【转场数量】{transition_count} 个{file_names_text}
 
-请根据以上产品信息，生成包含开场、{transition_count}个转场、结尾的完整模板结构。开场和结尾文案要体现产品卖点和目标人群特点。"""
+请根据以上产品信息，生成包含开场、{transition_count}个转场/场景、结尾的完整模板结构。开场和结尾文案要体现产品卖点和目标人群特点。"""
 
     payload = {
         "model": model_name or os.getenv("MODEL_NAME", "Qwen/Qwen3.5-397B-A17B-FP8"),

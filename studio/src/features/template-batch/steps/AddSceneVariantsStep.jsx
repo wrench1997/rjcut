@@ -3,7 +3,7 @@
  * 支持添加多个场景版本，每个版本对应一条最终视频
  */
 import { useState } from 'react'
-import { Plus, Copy, Trash2, AlertCircle, CheckCircle2, Sparkles, Loader2, Wand2 } from 'lucide-react'
+import { CirclePlus, Copy, Trash2, AlertTriangle, BadgeCheck, Loader2, WandSparkles, ArrowUp, X, Layers, Film, FolderOpen, Sparkles as SparklesIcon } from 'lucide-react'
 import { getTemplateById } from '../templateRegistry.js'
 import { aiSuggestSlotFiles, aiAutoCreateScene } from '../aiAssistant.js'
 
@@ -12,6 +12,8 @@ export default function AddSceneVariantsStep({ draft, updateDraft, vfs, apiKey }
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [isAutoCreating, setIsAutoCreating] = useState(false)
   const [aiSuggestion, setAiSuggestion] = useState(null)
+  const [showFolderPicker, setShowFolderPicker] = useState(false)
+  const [selectedFolder, setSelectedFolder] = useState(null)
 
   if (!template) {
     return (
@@ -28,21 +30,36 @@ export default function AddSceneVariantsStep({ draft, updateDraft, vfs, apiKey }
       return
     }
 
+    // 打开文件夹选择器
+    setShowFolderPicker(true)
+  }
+
+  // 确认选择文件夹并开始分析
+  const handleFolderSelected = async (folderPath) => {
+    if (!folderPath) {
+      setShowFolderPicker(false)
+      return
+    }
+
+    setSelectedFolder(folderPath)
+    setShowFolderPicker(false)
     setIsAnalyzing(true)
+
     try {
-      // 扫描根目录下的视频文件
-      const rootFiles = await vfs.listDirectory('/')
-      const videoFiles = rootFiles.filter((f) =>
-        !f.isDirectory && /\.(mp4|mov|webm)$/i.test(f.name)
+      // 扫描指定文件夹下的视频文件
+      const folderFiles = await vfs.listDirectory(folderPath)
+      const videoFiles = (folderFiles || []).filter((f) =>
+        !f.isDirectory && /\.(mp4|mov|webm|mkv|avi)$/i.test(f.name)
       )
 
       if (videoFiles.length === 0) {
-        alert('未在素材库中找到视频文件，请先上传素材')
+        alert('所选文件夹中没有找到视频文件')
         return
       }
 
       const suggestions = await aiSuggestSlotFiles(videoFiles, template.slots)
       setAiSuggestion(suggestions)
+      alert(`AI 分析完成，已生成 ${suggestions.length} 个素材位推荐`)
     } catch (error) {
       console.error('AI 素材分析失败:', error)
       alert('AI 分析失败，请稍后重试')
@@ -227,37 +244,52 @@ export default function AddSceneVariantsStep({ draft, updateDraft, vfs, apiKey }
       </div>
 
       {/* 模板和数字人摘要 */}
-      <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
+      <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border border-blue-200 shadow-sm">
         <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm font-medium text-blue-900">
-              当前模板：{template.name}
-            </p>
-            <p className="text-xs text-blue-700 mt-1">
-              {template.description}
-            </p>
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-blue-100 rounded-lg">
+              <Layers size={20} className="text-blue-600" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-blue-900">
+                当前模板：{template.name}
+              </p>
+              <p className="text-xs text-blue-700 mt-0.5">
+                {template.description}
+              </p>
+              {selectedFolder && (
+                <p className="text-xs text-blue-600 mt-1 flex items-center gap-1">
+                  <FolderOpen size={12} />
+                  {selectedFolder}
+                </p>
+              )}
+            </div>
           </div>
           <div className="text-right">
-            <p className="text-xs text-blue-700">
+            <p className="text-xs text-blue-700 flex items-center gap-1 justify-end">
+              <Film size={12} />
               数字人：{draft.avatarVideo?.name || '未选择'}
             </p>
-            <p className="text-xs text-blue-600 font-semibold mt-1">
-              已添加 {(draft.scenes || []).length} 个场景版本
+            <p className="text-xs text-blue-600 font-bold mt-1 bg-blue-100 px-2 py-0.5 rounded-full inline-block">
+              {(draft.scenes || []).length} 个场景
             </p>
           </div>
         </div>
       </div>
 
       {/* AI 素材助手 */}
-      <div className="p-4 bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl border border-purple-200">
+      <div className="p-4 bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl border border-purple-200 shadow-sm">
         <div className="flex items-start gap-3">
-          <div className="p-2 bg-purple-100 rounded-lg">
-            <Sparkles size={20} className="text-purple-600" />
+          <div className="p-2 bg-gradient-to-br from-purple-100 to-pink-100 rounded-xl shadow-sm">
+            <SparklesIcon size={20} className="text-purple-600" />
           </div>
           <div className="flex-1">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between mb-3">
               <div>
-                <h3 className="text-sm font-bold text-purple-900">AI 素材助手</h3>
+                <h3 className="text-sm font-bold text-purple-900 flex items-center gap-2">
+                  <SparklesIcon size={16} className="text-purple-500" />
+                  AI 素材助手
+                </h3>
                 <p className="text-xs text-purple-700 mt-1">
                   智能分析素材文件名，自动推荐到合适的素材位
                 </p>
@@ -267,7 +299,7 @@ export default function AddSceneVariantsStep({ draft, updateDraft, vfs, apiKey }
                   type="button"
                   onClick={handleAISuggest}
                   disabled={isAnalyzing}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-300 text-white text-xs font-medium rounded-lg transition-colors"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 disabled:from-purple-300 disabled:to-indigo-300 text-white text-xs font-semibold rounded-lg transition-all shadow-sm hover:shadow-md"
                 >
                   {isAnalyzing ? (
                     <>
@@ -276,7 +308,7 @@ export default function AddSceneVariantsStep({ draft, updateDraft, vfs, apiKey }
                     </>
                   ) : (
                     <>
-                      <Wand2 size={14} />
+                      <WandSparkles size={14} />
                       分析素材
                     </>
                   )}
@@ -285,7 +317,7 @@ export default function AddSceneVariantsStep({ draft, updateDraft, vfs, apiKey }
                   type="button"
                   onClick={handleAIAutoCreate}
                   disabled={isAutoCreating}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-pink-600 hover:bg-pink-700 disabled:bg-pink-300 text-white text-xs font-medium rounded-lg transition-colors"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-700 hover:to-rose-700 disabled:from-pink-300 disabled:to-rose-300 text-white text-xs font-semibold rounded-lg transition-all shadow-sm hover:shadow-md"
                 >
                   {isAutoCreating ? (
                     <>
@@ -294,13 +326,22 @@ export default function AddSceneVariantsStep({ draft, updateDraft, vfs, apiKey }
                     </>
                   ) : (
                     <>
-                      <Sparkles size={14} />
+                      <SparklesIcon size={14} />
                       自动生成场景
                     </>
                   )}
                 </button>
               </div>
             </div>
+
+            {/* 文件夹选择器弹窗 */}
+            {showFolderPicker && (
+              <VfsFolderPicker
+                vfs={vfs}
+                onSelect={handleFolderSelected}
+                onCancel={() => setShowFolderPicker(false)}
+              />
+            )}
 
             {/* AI 推荐结果 */}
             {aiSuggestion && (
@@ -380,9 +421,9 @@ export default function AddSceneVariantsStep({ draft, updateDraft, vfs, apiKey }
             <button
               type="button"
               onClick={handleAddScene}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold rounded-xl transition-all shadow-md hover:shadow-lg"
             >
-              <Plus size={16} />
+              <CirclePlus size={18} />
               添加第一个场景版本
             </button>
           </div>
@@ -395,16 +436,16 @@ export default function AddSceneVariantsStep({ draft, updateDraft, vfs, apiKey }
           <button
             type="button"
             onClick={handleAddScene}
-            className="flex-1 py-3 border-2 border-dashed border-slate-300 rounded-xl text-slate-500 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 transition-all flex items-center justify-center gap-2 font-medium"
+            className="flex-1 py-3 border-2 border-dashed border-slate-300 rounded-xl text-slate-500 hover:border-blue-400 hover:text-blue-600 hover:bg-gradient-to-r hover:from-blue-50 hover:to-indigo-50 transition-all flex items-center justify-center gap-2 font-semibold"
           >
-            <Plus size={18} />
+            <CirclePlus size={18} />
             添加一个场景版本
           </button>
           {(draft.scenes || []).length > 0 && (
             <button
               type="button"
               onClick={() => handleDuplicateScene((draft.scenes || []).length - 1)}
-              className="px-4 py-3 border border-slate-300 rounded-xl text-slate-600 hover:bg-slate-50 transition-colors flex items-center gap-2 font-medium"
+              className="px-4 py-3 border border-slate-300 rounded-xl text-slate-600 hover:bg-slate-50 hover:border-slate-400 transition-all flex items-center gap-2 font-semibold shadow-sm"
             >
               <Copy size={18} />
               复制最后一个
@@ -417,7 +458,7 @@ export default function AddSceneVariantsStep({ draft, updateDraft, vfs, apiKey }
       {incompleteScenes.length > 0 && (
         <div className="p-4 bg-amber-50 rounded-xl border border-amber-200">
           <div className="flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+            <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
             <div>
               <p className="text-sm font-semibold text-amber-800">
                 有 {incompleteScenes.length} 个场景版本缺少必填素材
@@ -471,13 +512,13 @@ function SceneVariantCard({
         <div className="flex items-center gap-3 flex-1">
           <div
             className={[
-              'w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold',
+              'w-9 h-9 rounded-xl flex items-center justify-center text-base font-bold shadow-sm',
               isComplete
-                ? 'bg-green-500 text-white'
-                : 'bg-amber-500 text-white',
+                ? 'bg-gradient-to-br from-green-500 to-emerald-500 text-white'
+                : 'bg-gradient-to-br from-amber-500 to-orange-500 text-white',
             ].join(' ')}
           >
-            {isComplete ? <CheckCircle2 size={18} /> : index + 1}
+            {isComplete ? <BadgeCheck size={20} /> : index + 1}
           </div>
           <input
             type="text"
@@ -611,9 +652,9 @@ function SlotFilePicker({ slot, binding, vfs, onChange }) {
         <button
           type="button"
           onClick={() => setShowBrowser(true)}
-          className="w-full py-2 border-2 border-dashed border-slate-300 rounded-lg text-slate-500 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 transition-all flex items-center justify-center gap-2 text-sm font-medium mb-3"
+          className="w-full py-2 border-2 border-dashed border-slate-300 rounded-lg text-slate-500 hover:border-blue-400 hover:text-blue-600 hover:bg-gradient-to-r hover:from-blue-50 hover:to-indigo-50 transition-all flex items-center justify-center gap-2 text-sm font-semibold mb-3"
         >
-          <Plus size={16} />
+          <CirclePlus size={16} />
           从素材库选择
         </button>
       )}
@@ -771,6 +812,159 @@ function VfsFileBrowser({ vfs, currentPath, onSelect, onClose, acceptTypes }) {
               })}
             </div>
           )}
+        </div>
+      </div>
+    </div>
+  )
+}/**
+ * VFS 文件夹选择器弹窗（简化版文件浏览器）
+ */
+function VfsFolderPicker({ vfs, onSelect, onCancel }) {
+  const [currentPath, setCurrentPath] = useState('/')
+  const [items, setItems] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [videoCount, setVideoCount] = useState(0)
+
+  const loadDirectory = async (path) => {
+    try {
+      setLoading(true)
+      const dirItems = await vfs.listDirectory(path)
+      // 显示所有项目（文件夹 + 视频文件）
+      const folders = (dirItems || []).filter(item => item.isDirectory)
+      const videoFiles = (dirItems || []).filter(item => 
+        !item.isDirectory && /\.(mp4|mov|webm|mkv|avi)$/i.test(item.name)
+      )
+      // 文件夹在前，视频文件在后
+      setItems([...folders, ...videoFiles])
+      setVideoCount(videoFiles.length)
+      setCurrentPath(path)
+    } catch (e) {
+      console.error('[VfsFolderPicker] 加载目录失败:', e)
+      setItems([])
+      setVideoCount(0)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const navigateTo = async (path) => {
+    try {
+      vfs.cd(path)
+      await loadDirectory(vfs.pwd())
+    } catch (e) {
+      console.error('[VfsFolderPicker] 导航失败:', e)
+    }
+  }
+
+  const handleSelect = () => {
+    onSelect(currentPath)
+  }
+
+  const goUp = () => {
+    if (currentPath !== '/') {
+      const parentPath = currentPath.substring(0, currentPath.lastIndexOf('/')) || '/'
+      navigateTo(parentPath)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onCancel}>
+      <div className="bg-white rounded-xl p-6 max-w-2xl w-full" onClick={(e) => e.stopPropagation()}>
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="font-bold text-lg text-slate-800">选择素材文件夹</h3>
+          <button className="p-2 hover:bg-slate-100 rounded-lg" onClick={onCancel}>
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* 路径导航栏 */}
+        <div className="mb-4">
+          <div className="flex items-center gap-2 mb-2">
+            <button
+              className="px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded transition-colors"
+              onClick={() => navigateTo('/projects')}
+            >
+              📁 项目
+            </button>
+            <button
+              className="px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded transition-colors"
+              onClick={() => navigateTo('/drafts')}
+            >
+              📁 草稿
+            </button>
+            <button
+              className="px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded transition-colors"
+              onClick={() => navigateTo('/')}
+            >
+              🏠 根目录
+            </button>
+          </div>
+          <div className="flex items-center gap-2 p-2 bg-slate-50 rounded-lg border border-slate-200">
+            <button
+              className="p-1 hover:bg-slate-200 rounded disabled:opacity-30"
+              onClick={goUp}
+              disabled={currentPath === '/'}
+            >
+              <ArrowUp size={16} />
+            </button>
+            <span className="flex-1 text-sm text-slate-600">{currentPath}</span>
+          </div>
+          {videoCount > 0 && (
+            <p className="text-xs text-green-600 mt-2">
+              ✓ 当前目录有 {videoCount} 个视频文件
+            </p>
+          )}
+        </div>
+
+        {/* 文件列表 */}
+        <div className="max-h-80 overflow-y-auto border border-slate-200 rounded-lg mb-4">
+          {loading ? (
+            <div className="p-8 text-center text-slate-400">加载中...</div>
+          ) : items.length === 0 ? (
+            <div className="p-8 text-center">
+              <p className="text-slate-400">当前目录为空</p>
+              {videoCount > 0 && (
+                <p className="text-xs text-green-600 mt-2">
+                  可以直接选择当前目录（有 {videoCount} 个视频文件）
+                </p>
+              )}
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-100">
+              {items.map((item) => (
+                <div
+                  key={item.path}
+                  className={`flex items-center gap-3 p-3 transition-colors ${
+                    item.isDirectory ? 'hover:bg-slate-50 cursor-pointer' : 'hover:bg-blue-50'
+                  }`}
+                  onClick={() => item.isDirectory && navigateTo(item.path)}
+                >
+                  {item.isDirectory ? <FolderOpen size={20} className="text-blue-500" /> : <Film size={20} className="text-purple-500" />}
+                  <span className="flex-1 text-sm text-slate-700">{item.name}</span>
+                  {item.isDirectory ? (
+                    <span className="text-xs text-slate-400">→</span>
+                  ) : (
+                    <span className="text-xs text-slate-400">{(item.size / 1024 / 1024).toFixed(1)} MB</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-3">
+          <button
+            className="px-4 py-2 text-sm bg-slate-100 hover:bg-slate-200 rounded-lg"
+            onClick={onCancel}
+          >
+            取消
+          </button>
+          <button
+            className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
+            onClick={handleSelect}
+          >
+            选择当前目录
+          </button>
         </div>
       </div>
     </div>

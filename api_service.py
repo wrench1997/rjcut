@@ -1204,7 +1204,8 @@ async def generate_template(
         "selling_points": "核心卖点（可选）",
         "target_audience": "目标人群（可选）",
         "style": "文案风格（direct_sale/premium/social_review/explainer）",
-        "transition_count": 转场数量（数字，默认 4）
+        "transition_count": 转场数量（数字，默认 4）,
+        "file_names": ["文件名 1.mp4", "文件名 2.MOV"]（可选，AI 将根据文件名设计模板结构）
     }
     """
     try:
@@ -1220,6 +1221,7 @@ async def generate_template(
     target_audience = body.get("target_audience", "")
     style = body.get("style", "direct_sale")
     transition_count = body.get("transition_count", 4)
+    file_names = body.get("file_names", [])  # 新增：文件名参考列表
 
     if not product_name:
         return fail(40002, "产品名称不能为空")
@@ -1231,6 +1233,7 @@ async def generate_template(
         target_audience=target_audience,
         style=style,
         transition_count=transition_count,
+        file_names=file_names,
     )
 
     if result["success"]:

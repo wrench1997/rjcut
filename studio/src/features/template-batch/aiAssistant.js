@@ -14,11 +14,12 @@ export const DEFAULT_TEMPLATES = [
     category: '滋补保健',
     segments: [
       { flag: 'hook', note: '开场吸引 - 数字人出镜' },
-      { flag: 'transition', note: '转场 1 - 产品瓶身展示' },
-      { flag: 'transition', note: '转场 2 - 倒出液体特写' },
-      { flag: 'transition', note: '转场 3 - 饮用或冲泡场景' },
-      { flag: 'transition', note: '转场 4 - 礼盒与包装细节' },
-      { flag: 'transition', note: '转场 5 - 结尾产品定帧' },
+      { flag: 'scene', note: '割二杠鹿茸 - 鹿场场景' },
+      { flag: 'scene', note: '鹿场背景 - 梅花鹿环境' },
+      { flag: 'scene', note: '鹿吃草背景 - 自然场景' },
+      { flag: 'scene', note: '鹿血倒入杯中 - 倒酒特写' },
+      { flag: 'scene', note: '灌装成瓶的鹿血酒 - 产品展示' },
+      { flag: 'scene', note: '杀鹿放血 - 制作过程' },
       { flag: 'ending', note: '结尾引导 - 数字人出镜收尾' },
     ],
     style: {
@@ -255,6 +256,7 @@ export async function aiGenerateTemplate({
   targetAudience = '',
   style = 'direct_sale',
   transitionCount = 4,
+  fileNames = [],  // 新增：文件名参考列表
 }) {
   // 调用后端 AI 接口
   const baseUrl = typeof localStorage !== 'undefined' 
@@ -274,6 +276,7 @@ export async function aiGenerateTemplate({
       target_audience: targetAudience || '',
       style: style,
       transition_count: transitionCount,
+      file_names: fileNames,  // 传递文件名列表
     }
     
     console.log('[AI 生成模板] 请求 URL:', `${baseUrl}/v1/ai/generate-template`)
