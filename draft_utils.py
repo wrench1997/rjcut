@@ -661,13 +661,13 @@ async def ai_recommend_templates_via_gateway(
             if not recommendations:
                 raise ValueError(f"JSON 中缺少 recommendations 字段，AI 返回：{ai_content[:300]}")
             
-            # 验证推荐结果格式
+            # 验证推荐结果格式（使用前端传入的模板库进行验证，而不是硬编码的 TEMPLATE_LIBRARY）
             valid_recommendations = []
-            valid_template_ids = {t["id"] for t in TEMPLATE_LIBRARY}
+            current_template_ids = {t.get('id') or t.get('template_id') for t in template_lib}
             for rec in recommendations:
                 if isinstance(rec, dict):
                     tid = rec.get("template_id")
-                    if tid in valid_template_ids:
+                    if tid in current_template_ids:
                         valid_recommendations.append({
                             "template_id": tid,
                             "score": float(rec.get("score", 0.5)),
@@ -675,7 +675,7 @@ async def ai_recommend_templates_via_gateway(
                         })
             
             if not valid_recommendations:
-                raise ValueError(f"AI 返回的模板 ID 无效，期望：{valid_template_ids}，实际：{recommendations}")
+                raise ValueError(f"AI 返回的模板 ID 无效，期望：{current_template_ids}，实际：{recommendations}")
             
             # 按匹配度排序
             valid_recommendations.sort(key=lambda x: x["score"], reverse=True)

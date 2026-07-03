@@ -47,12 +47,30 @@ export default function SelectTemplateStep({ draft, updateDraft }) {
   }
 
   const handleSelectRecommended = (templateId) => {
+    // 先更新选中的模板 ID
     updateDraft((d) => ({
       ...d,
       templateId,
       templateVersion: 1,
     }))
-    setRecommendations(null)
+    
+    // 等待 React 渲染完成后再滚动（使用 requestAnimationFrame 确保 DOM 已更新）
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        const templateElement = document.getElementById(`template-card-${templateId}`)
+        if (templateElement) {
+          templateElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          // 添加一个闪烁动画强调选中
+          templateElement.classList.add('ring-4', 'ring-blue-400', 'ring-opacity-50', 'animate-pulse')
+          setTimeout(() => {
+            templateElement.classList.remove('ring-4', 'ring-blue-400', 'ring-opacity-50', 'animate-pulse')
+          }, 2000)
+        } else {
+          // 如果是 AI 生成的自定义模板（不在模板库中），提示用户
+          console.log('[AI 推荐] 模板', templateId, '不在本地模板库中，可能是 AI 生成的自定义模板')
+        }
+      }, 100)
+    })
   }
 
   return (
@@ -120,10 +138,11 @@ export default function SelectTemplateStep({ draft, updateDraft }) {
                 <p className="text-xs font-semibold text-purple-800">推荐结果：</p>
                 {recommendations.map((rec, index) => {
                   const template = TEMPLATE_CATALOG.find((t) => t.id === rec.templateId)
+                  const templateInCatalog = !!template
                   return (
                     <div
                       key={`${rec.templateId}-${index}`}
-                      className="flex items-center justify-between p-3 bg-white rounded-lg border border-purple-100"
+                      className="flex items-center justify-between p-3 bg-white rounded-lg border border-purple-100 hover:border-purple-200 transition-all"
                     >
                       <div className="flex-1">
                         <div className="flex items-center gap-2">
@@ -133,6 +152,11 @@ export default function SelectTemplateStep({ draft, updateDraft }) {
                           <span className="text-xs px-2 py-0.5 bg-green-100 text-green-700 rounded-full">
                             匹配度 {(rec.score * 100).toFixed(0)}%
                           </span>
+                          {!templateInCatalog && (
+                            <span className="text-xs px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full font-medium">
+                              AI 生成
+                            </span>
+                          )}
                         </div>
                         <p className="text-xs text-slate-600 mt-1">{rec.reason}</p>
                       </div>
@@ -190,6 +214,7 @@ export default function SelectTemplateStep({ draft, updateDraft }) {
           return (
             <button
               key={template.id}
+              id={`template-card-${template.id}`}
               type="button"
               onClick={() => {
                 updateDraft((d) => ({
