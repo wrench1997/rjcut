@@ -661,13 +661,14 @@ async def ai_recommend_templates_via_gateway(
             if not recommendations:
                 raise ValueError(f"JSON 中缺少 recommendations 字段，AI 返回：{ai_content[:300]}")
             
-            # 验证推荐结果格式（使用前端传入的模板库进行验证，而不是硬编码的 TEMPLATE_LIBRARY）
+            # 验证推荐结果格式（允许前端模板库中的 ID 和 AI 生成的模板 ID）
             valid_recommendations = []
             current_template_ids = {t.get('id') or t.get('template_id') for t in template_lib}
             for rec in recommendations:
                 if isinstance(rec, dict):
                     tid = rec.get("template_id")
-                    if tid in current_template_ids:
+                    # 允许前端模板库中的 ID，也允许 AI 生成的模板（以 ai_generated_ 开头）
+                    if tid in current_template_ids or (tid and tid.startswith("ai_generated_")):
                         valid_recommendations.append({
                             "template_id": tid,
                             "score": float(rec.get("score", 0.5)),
@@ -675,7 +676,7 @@ async def ai_recommend_templates_via_gateway(
                         })
             
             if not valid_recommendations:
-                raise ValueError(f"AI 返回的模板 ID 无效，期望：{current_template_ids}，实际：{recommendations}")
+                raise ValueError(f"AI 返回的模板 ID 无效，期望：{current_template_ids} 或 ai_generated_*，实际：{recommendations}")
             
             # 按匹配度排序
             valid_recommendations.sort(key=lambda x: x["score"], reverse=True)
@@ -733,8 +734,30 @@ async def ai_analyze_videos_via_gateway(
     system_prompt = """你是一位专业的视频素材分析专家。
 请根据视频文件名和模板素材位定义，分析每个视频最适合放在哪个素材位。
 
-请以 JSON 格式返回，包含以下字段：
-- suggestions: 数组，每个元素包含 slot_id（素材位 ID）、slot_title（素材位标题）、files（推荐的文件数组，包含 name 和 match_reason）、confidence（匹配置信度 0-1）"""
+请严格按照以下 JSON 格式返回（不要包含任何其他内容）：
+{
+    "suggestions": [
+        {
+            "slot_id": "素材位 ID",
+            "slot_title": "素材位标题",
+            "order": 素材位序号（整数）,
+            "files": [
+                {
+                    "name": "文件名",
+                    "path": "文件路径",
+                    "match_reason": "匹配理由"
+                }
+            ],
+            "confidence": 0.85
+        }
+    ]
+}
+
+注意：
+- order 字段必须与输入的素材位 ID 对应
+- files 数组包含推荐到该素材位的文件（1-3 个）
+- confidence 范围 0-1，表示匹配置信度
+- match_reason 简要说明为什么推荐该文件到此素材位"""
 
     video_info = "\n".join([f"- {f['name']} (时长：{f.get('duration', '未知')}秒)" for f in video_files])
     slot_info = "\n".join([f"- {s['id']}: {s['title']} - {s.get('prompt', '无描述')}" for s in template_slots])

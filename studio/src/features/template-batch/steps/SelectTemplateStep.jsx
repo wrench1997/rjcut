@@ -137,17 +137,19 @@ export default function SelectTemplateStep({ draft, updateDraft }) {
               <div className="mt-4 space-y-2">
                 <p className="text-xs font-semibold text-purple-800">推荐结果：</p>
                 {recommendations.map((rec, index) => {
-                  const template = TEMPLATE_CATALOG.find((t) => t.id === rec.templateId)
+                  // 兼容后端字段名（template_id）和前端字段名（templateId）
+                  const templateId = rec.templateId || rec.template_id
+                  const template = TEMPLATE_CATALOG.find((t) => t.id === templateId)
                   const templateInCatalog = !!template
                   return (
                     <div
-                      key={`${rec.templateId}-${index}`}
+                      key={`${templateId}-${index}`}
                       className="flex items-center justify-between p-3 bg-white rounded-lg border border-purple-100 hover:border-purple-200 transition-all"
                     >
                       <div className="flex-1">
                         <div className="flex items-center gap-2">
                           <span className="text-xs font-bold text-purple-600">
-                            {index + 1}. {template?.name || rec.templateId}
+                            {index + 1}. {template?.name || templateId}
                           </span>
                           <span className="text-xs px-2 py-0.5 bg-green-100 text-green-700 rounded-full">
                             匹配度 {(rec.score * 100).toFixed(0)}%
@@ -162,7 +164,7 @@ export default function SelectTemplateStep({ draft, updateDraft }) {
                       </div>
                       <button
                         type="button"
-                        onClick={() => handleSelectRecommended(rec.templateId)}
+                        onClick={() => handleSelectRecommended(templateId)}
                         className="ml-3 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-medium rounded-lg transition-colors"
                       >
                         选择此模板

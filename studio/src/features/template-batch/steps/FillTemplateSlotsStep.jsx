@@ -4,10 +4,12 @@
  */
 import { useState, useCallback, useEffect } from 'react'
 import { getTemplateById } from '../templateRegistry.js'
-import { Plus, X, Play, Trash2, Upload, FileVideo } from 'lucide-react'
+import { Plus, X, Play, Trash2, Upload, FileVideo, Sparkles, Loader2 } from 'lucide-react'
+import { aiSuggestSlotFiles } from '../aiAssistant.js'
 
 export default function FillTemplateSlotsStep({ draft, updateDraft, vfs }) {
   const template = getTemplateById(draft.templateId)
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
 
   if (!template) {
     return (
@@ -19,6 +21,91 @@ export default function FillTemplateSlotsStep({ draft, updateDraft, vfs }) {
 
   const sortedSlots = [...template.slots].sort((a, b) => a.order - b.order)
 
+  // AI 智能分析文件夹，自动推荐素材
+  const handleAiAutoFill = async () => {
+    if (!vfs) {
+      alert('素材库未初始化')
+      return
+    }
+
+    setIsAnalyzing(true)
+    try {
+      // 1. 获取所有视频文件
+      const allFiles = await getAllVideoFiles(vfs)
+      console.log('[AI 素材助手] 找到视频文件:', allFiles.length, '个')
+
+      if (allFiles.length === 0) {
+        alert('素材库中没有找到视频文件')
+        return
+      }
+
+      // 2. 调用 AI 推荐
+      const suggestions = await aiSuggestSlotFiles(allFiles, sortedSlots)
+      console.log('[AI 素材助手] 推荐结果:', suggestions)
+
+      // 3. 自动填充素材位
+      const newBindings = {}
+      suggestions.forEach((suggestion) => {
+        if (suggestion.files.length > 0) {
+          newBindings[suggestion.slotId] = {
+            order: suggestion.order,
+            title: suggestion.slotTitle,
+            files: suggestion.files.map((f) => ({
+              path: f.path,
+              name: f.name,
+              durationSeconds: null,
+            })),
+          }
+        }
+      })
+
+      // 4. 更新 draft
+      updateDraft((d) => ({
+        ...d,
+        slotBindings: {
+          ...d.slotBindings,
+          ...newBindings,
+        },
+      }))
+
+      alert(`AI 已自动填充 ${Object.keys(newBindings).length} 个素材位`)
+    } catch (error) {
+      console.error('[AI 素材助手] 分析失败:', error)
+      alert('AI 分析失败，请稍后重试')
+    } finally {
+      setIsAnalyzing(false)
+    }
+  }
+
+  // 递归获取所有视频文件
+  const getAllVideoFiles = async (vfs, path = '/') => {
+    const videoExtensions = ['.mp4', '.mov', '.webm', '.mkv', '.avi']
+    const files = []
+
+    try {
+      const items = await vfs.listDirectory(path)
+      for (const item of items) {
+        if (item.isDirectory) {
+          // 递归遍历子目录
+          const subFiles = await getAllVideoFiles(vfs, item.path)
+          files.push(...subFiles)
+        } else {
+          // 检查是否为视频文件
+          const isVideo = videoExtensions.some((ext) =>
+            item.name.toLowerCase().endsWith(ext)
+          )
+          if (isVideo) {
+            files.push(item)
+          }
+        }
+      }
+    } catch (e) {
+      console.error('[getAllVideoFiles] 加载失败:', path, e)
+    }
+
+    return files
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -28,7 +115,7 @@ export default function FillTemplateSlotsStep({ draft, updateDraft, vfs }) {
         </p>
       </div>
 
-      {/* 模板信息摘要 */}
+      {/* 模板信息摘要 + AI 助手按钮 */}
       <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
         <div className="flex items-center justify-between">
           <div>
@@ -39,10 +126,30 @@ export default function FillTemplateSlotsStep({ draft, updateDraft, vfs }) {
               {template.description}
             </p>
           </div>
-          <div className="text-right">
-            <p className="text-xs text-blue-700">
-              已选口播：{draft.sourceVideo?.name || '未选择'}
-            </p>
+          <div className="flex items-center gap-3">
+            <div className="text-right">
+              <p className="text-xs text-blue-700">
+                已选口播：{draft.sourceVideo?.name || '未选择'}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleAiAutoFill}
+              disabled={isAnalyzing}
+              className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-300 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-2"
+            >
+              {isAnalyzing ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  分析中...
+                </>
+              ) : (
+                <>
+                  <Sparkles size={16} />
+                  AI 智能填充
+                </>
+              )}
+            </button>
           </div>
         </div>
       </div>

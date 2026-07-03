@@ -144,10 +144,19 @@ export async function aiRecommendTemplates(productKeyword, category = '', templa
   console.log('[AI 推荐模板] 成功响应:', result)
   
   // 后端返回格式：{ code: 0, message: "ok", data: { recommendations: [...], usage: {...} } }
+  // 需要将后端的 template_id 转换为前端的 templateId
   if (result.code === 0 && result.data?.recommendations) {
-    return result.data.recommendations
+    return result.data.recommendations.map(rec => ({
+      templateId: rec.template_id,
+      score: rec.score,
+      reason: rec.reason,
+    }))
   } else if (result.code === 200 && result.data?.recommendations) {
-    return result.data.recommendations
+    return result.data.recommendations.map(rec => ({
+      templateId: rec.template_id,
+      score: rec.score,
+      reason: rec.reason,
+    }))
   } else {
     throw new Error(result.message || result.msg || 'AI 推荐模板失败')
   }
@@ -305,56 +314,84 @@ export async function aiGenerateTemplate({
 }
 
 /**
- * AI 素材建议 - 分析素材文件名，推荐到素材位
- * @param {Array} files - 素材文件列表
- * @param {Array} slots - 模板素材位定义
- * @returns {Promise<{ slotId: string, files: Array, confidence: number }[]>}
+ * AI 素材建议 - 调用后端 AI 网关分析视频素材，推荐到素材位
+ * @param {Array} files - 素材文件列表 [{name, path, duration}]
+ * @param {Array} slots - 模板素材位定义 [{id, title, prompt, order, maxFiles}]
+ * @returns {Promise<{ slotId: string, slotTitle: string, order: number, files: Array, confidence: number }[]>}
  */
 export async function aiSuggestSlotFiles(files, slots) {
-  // TODO: 调用后端 AI 接口分析视频内容
-  // const response = await fetch('/v1/ai/analyze-videos', {
-  //   method: 'POST',
-  //   headers: { 'Content-Type': 'application/json' },
-  //   body: JSON.stringify({ files })
-  // })
-  // return response.json()
-
-  // 基于文件名的简单匹配逻辑
-  await new Promise((resolve) => setTimeout(resolve, 800))
-
-  const suggestions = slots.map((slot) => {
-    const matchedFiles = []
-
-    files.forEach((file) => {
-      const fileName = file.name?.toLowerCase() || ''
-      const slotTitle = slot.title?.toLowerCase() || ''
-      const slotPrompt = slot.prompt?.toLowerCase() || ''
-
-      // 关键词匹配
-      const matchScore = calculateMatchScore(fileName, slotTitle, slotPrompt)
-
-      if (matchScore > 0.3) {
-        matchedFiles.push({
-          ...file,
-          matchScore,
-        })
-      }
-    })
-
-    // 按匹配度排序
-    matchedFiles.sort((a, b) => b.matchScore - a.matchScore)
-
-    return {
-      slotId: slot.id,
-      slotTitle: slot.title,
-      files: matchedFiles.slice(0, slot.maxFiles || 3),
-      confidence: matchedFiles.length > 0
-        ? Math.max(...matchedFiles.map((f) => f.matchScore))
-        : 0,
-    }
+  // 调用后端 AI 接口分析视频内容
+  const apiBaseUrl = typeof localStorage !== 'undefined' 
+    ? localStorage.getItem('rjcut_api_base_url') || 'http://192.168.166.151:8000'
+    : 'http://192.168.166.151:8000'
+  
+  const apiKey = typeof localStorage !== 'undefined'
+    ? localStorage.getItem('rjcut_api_key') || 'rjk_oG3u1bRu10myprstb5o2AYVW6v9HipNT33ALuJTmFxaqemUC'
+    : 'rjk_oG3u1bRu10myprstb5o2AYVW6v9HipNT33ALuJTmFxaqemUC'
+  
+  // 准备请求数据
+  const videoFiles = files.map(f => ({
+    name: f.name,
+    path: f.path,
+    duration: f.durationSeconds || null,
+  }))
+  
+  const templateSlots = slots.map(s => ({
+    id: s.id,
+    title: s.title,
+    prompt: s.prompt || '',
+    order: s.order,
+  }))
+  
+  const requestBody = {
+    video_files: videoFiles,
+    template_slots: templateSlots,
+  }
+  
+  console.log('[AI 素材分析] 请求 URL:', `${apiBaseUrl}/v1/ai/analyze-videos`)
+  console.log('[AI 素材分析] 请求体:', requestBody)
+  
+  const response = await fetch(`${apiBaseUrl}/v1/ai/analyze-videos`, {
+    method: 'POST',
+    headers: { 
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(requestBody),
   })
-
-  return suggestions
+  
+  console.log('[AI 素材分析] 响应状态:', response.status)
+  
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    console.error('[AI 素材分析] 错误响应:', errorData)
+    throw new Error(errorData.message || `HTTP ${response.status}`)
+  }
+  
+  const result = await response.json()
+  console.log('[AI 素材分析] 成功响应:', result)
+  
+  // 后端返回格式：{ code: 0, message: "ok", data: { suggestions: [...], usage: {...} } }
+  if (result.code === 0 && result.data?.suggestions) {
+    // 将后端的 snake_case 字段转换为前端 camelCase
+    return result.data.suggestions.map(rec => ({
+      slotId: rec.slot_id,
+      slotTitle: rec.slot_title,
+      order: rec.order || 0,
+      files: rec.files || [],
+      confidence: rec.confidence || 0.5,
+    }))
+  } else if (result.code === 200 && result.data?.suggestions) {
+    return result.data.suggestions.map(rec => ({
+      slotId: rec.slot_id,
+      slotTitle: rec.slot_title,
+      order: rec.order || 0,
+      files: rec.files || [],
+      confidence: rec.confidence || 0.5,
+    }))
+  } else {
+    throw new Error(result.message || result.msg || 'AI 素材分析失败')
+  }
 }
 
 /**
