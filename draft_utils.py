@@ -601,7 +601,7 @@ async def ai_recommend_templates_via_gateway(
             {"role": "user", "content": user_prompt}
         ],
         "temperature": 0.3,
-        "max_tokens": 1500,
+        "max_tokens": 10000,
         "stream": False,
         "response_format": {"type": "json_object"},
     }
@@ -740,7 +740,7 @@ async def ai_analyze_videos_via_gateway(
             {"role": "user", "content": user_prompt}
         ],
         "temperature": 0.3,
-        "max_tokens": 2000,
+        "max_tokens": 10000,
         "stream": False,
         "response_format": {"type": "json_object"},
     }
@@ -867,7 +867,7 @@ JSON 必须包含以下字段：
             {"role": "user", "content": user_prompt}
         ],
         "temperature": 0.7,
-        "max_tokens": 8000,  # 增加 token 限制，确保 JSON 完整输出
+        "max_tokens": 10000,  # 增加 token 限制，确保 JSON 完整输出
         "stream": False,
         "response_format": {"type": "json_object"},
         # 关闭思考模式，因为我们需要 JSON 输出而不是思考过程
