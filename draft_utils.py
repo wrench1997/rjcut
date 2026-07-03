@@ -607,6 +607,9 @@ async def ai_recommend_templates_via_gateway(
     }
 
     try:
+        print(f"[AI 推荐] 请求 Gateway: {GATEWAY_BASE_URL}/v1/chat/completions")
+        print(f"[AI 推荐] 请求 payload: {payload}")
+        
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(
                 f"{GATEWAY_BASE_URL}/v1/chat/completions",
@@ -615,12 +618,19 @@ async def ai_recommend_templates_via_gateway(
             response.raise_for_status()
             result = response.json()
 
+            print(f"[AI 推荐] Gateway 返回：{result}")
+            
             # 解析 AI 返回的 JSON
-            message = result["choices"][0]["message"]
-            ai_content = message.get("content", "")
+            choices = result.get("choices", [])
+            if not choices:
+                raise ValueError(f"Gateway 返回格式异常：缺少 choices 字段，完整响应：{result}")
+            
+            message = choices[0].get("message", {})
+            # 优先使用 content，如果没有则尝试 reasoning（某些模型会返回思考过程）
+            ai_content = message.get("content") or message.get("reasoning", "")
             
             if not ai_content:
-                raise ValueError("AI 返回内容为空")
+                raise ValueError(f"AI 返回内容为空，完整 message: {message}")
             
             print(f"[AI 推荐] 原始返回内容：{ai_content[:500]}...")
             
@@ -629,13 +639,13 @@ async def ai_recommend_templates_via_gateway(
             try:
                 parsed = json.loads(ai_content)
                 recommendations = parsed.get("recommendations", [])
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as je:
                 # JSON 解析失败，尝试使用正则提取 recommendations 字段
-                print("[AI 推荐] JSON 解析失败，尝试正则提取")
+                print(f"[AI 推荐] JSON 解析失败：{je}，尝试正则提取")
                 recommendations = extract_json_field(ai_content, "recommendations")
             
             if not recommendations:
-                raise ValueError("无法提取 recommendations 字段")
+                raise ValueError(f"无法提取 recommendations 字段，AI 返回：{ai_content[:300]}")
             
             # 验证推荐结果格式
             valid_recommendations = []
@@ -651,7 +661,7 @@ async def ai_recommend_templates_via_gateway(
                         })
             
             if not valid_recommendations:
-                raise ValueError("AI 返回的模板 ID 无效")
+                raise ValueError(f"AI 返回的模板 ID 无效，期望：{valid_template_ids}，实际：{recommendations}")
             
             # 按匹配度排序
             valid_recommendations.sort(key=lambda x: x["score"], reverse=True)
@@ -663,12 +673,14 @@ async def ai_recommend_templates_via_gateway(
             }
 
     except httpx.HTTPError as e:
+        print(f"[AI 推荐] Gateway 调用失败：{e}")
         return {
             "success": False,
             "recommendations": [],
             "error": f"Gateway 调用失败：{str(e)}",
         }
     except Exception as e:
+        print(f"[AI 推荐] 异常：{e}")
         return {
             "success": False,
             "recommendations": [],
