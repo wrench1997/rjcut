@@ -534,14 +534,16 @@ TEMPLATE_LIBRARY = [
 async def ai_recommend_templates_via_gateway(
     product_keyword: str,
     category: str = "",
+    templates: List[Dict] = None,  # 前端传来的模板库
     model_name: str = None,
 ) -> Dict[str, Any]:
     """
-    通过 Gateway 调用 vLLM AI 推荐模板（纯 AI 推荐，不使用关键词匹配）
+    通过 Gateway 调用 vLLM AI 推荐模板
 
     Args:
         product_keyword: 产品关键词
         category: 产品类目
+        templates: 模板库列表（由前端传入，包含 id, name, description, category）
         model_name: 模型名称（可选）
 
     Returns:
@@ -558,11 +560,24 @@ async def ai_recommend_templates_via_gateway(
             "error": str
         }
     """
+    # 使用前端传入的模板库，如果没有则使用后端默认库
+    template_lib = templates if templates and len(templates) > 0 else TEMPLATE_LIBRARY
+    
+    if not template_lib:
+        return {
+            "success": False,
+            "recommendations": [],
+            "error": "模板库为空",
+        }
+    
     # 构建模板库描述（供 AI 参考）
     template_descriptions = "\n".join([
-        f"{i+1}. {t['id']} - {t['name']}：{t['description']}"
-        for i, t in enumerate(TEMPLATE_LIBRARY)
+        f"{i+1}. {t.get('id') or t.get('template_id')} - {t.get('name', '未知')}: {t.get('description', '无描述')}"
+        for i, t in enumerate(template_lib)
     ])
+    
+    # 提取所有有效模板 ID
+    valid_template_ids = [t.get('id') or t.get('template_id') for t in template_lib]
 
     system_prompt = f"""你是一位专业的短视频模板推荐专家。
 请根据用户的产品信息，从以下模板库中选择最适合的模板：
@@ -574,7 +589,7 @@ async def ai_recommend_templates_via_gateway(
 {{
     "recommendations": [
         {{
-            "template_id": "模板 ID（必须是上述 4 个之一）",
+            "template_id": "模板 ID（必须是上述模板库中的 ID）",
             "score": 0.85,
             "reason": "推荐理由"
         }}
@@ -584,7 +599,8 @@ async def ai_recommend_templates_via_gateway(
 注意：
 - score 范围 0-1，表示匹配度
 - 推荐 2-4 个模板即可
-- 根据产品特性智能匹配，不要仅依赖关键词"""
+- 根据产品特性智能匹配，不要仅依赖关键词
+- template_id 必须是模板库中实际存在的 ID"""
 
     user_prompt = f"""请为以下产品推荐合适的短视频模板：
 
@@ -601,7 +617,7 @@ async def ai_recommend_templates_via_gateway(
             {"role": "user", "content": user_prompt}
         ],
         "temperature": 0.3,
-        "max_tokens": 10000,
+        "max_tokens": 1500,
         "stream": False,
         "response_format": {"type": "json_object"},
     }

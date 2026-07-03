@@ -1123,7 +1123,10 @@ async def recommend_templates(
     请求体：
     {
         "product_keyword": "产品关键词",
-        "category": "产品类目（可选）"
+        "category": "产品类目（可选）",
+        "templates": [  # 模板库（可选，不传则使用后端默认库）
+            {"id": "xxx", "name": "xxx", "description": "xxx", "category": "xxx"}
+        ]
     }
     """
     try:
@@ -1133,10 +1136,12 @@ async def recommend_templates(
 
     product_keyword = body.get("product_keyword", "")
     category = body.get("category", "")
+    templates = body.get("templates", None)  # 前端传来的模板库
 
     result = await ai_recommend_templates_via_gateway(
         product_keyword=product_keyword,
         category=category,
+        templates=templates,
     )
 
     if result["success"]:

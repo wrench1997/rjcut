@@ -97,9 +97,10 @@ export function getTemplateConfig(templateId) {
  * AI 推荐模板 - 根据产品关键词匹配模板
  * @param {string} productKeyword - 产品关键词
  * @param {string} category - 类目（可选）
+ * @param {Array} templates - 模板库（可选，不传则使用后端默认库）
  * @returns {Promise<{ templateId: string, score: number, reason: string }[]>}
  */
-export async function aiRecommendTemplates(productKeyword, category = '') {
+export async function aiRecommendTemplates(productKeyword, category = '', templates = null) {
   // 使用 api 客户端调用后端 AI 推荐接口（自动携带 Authorization header）
   const apiBaseUrl = typeof localStorage !== 'undefined' 
     ? localStorage.getItem('rjcut_api_base_url') || 'http://192.168.166.151:8000'
@@ -112,6 +113,11 @@ export async function aiRecommendTemplates(productKeyword, category = '') {
   const requestBody = {
     product_keyword: productKeyword,
     category: category || '',
+  }
+  
+  // 如果传入了模板库，一起发给后端
+  if (templates && templates.length > 0) {
+    requestBody.templates = templates
   }
   
   console.log('[AI 推荐模板] 请求 URL:', `${apiBaseUrl}/v1/ai/recommend-templates`)

@@ -26,7 +26,17 @@ export default function SelectTemplateStep({ draft, updateDraft }) {
 
     setIsRecommending(true)
     try {
-      const result = await aiRecommendTemplates(productKeyword, selectedCategory === 'all' ? '' : selectedCategory)
+      // 将当前模板库传给后端，让 AI 基于实际可用的模板进行推荐
+      const result = await aiRecommendTemplates(
+        productKeyword,
+        selectedCategory === 'all' ? '' : selectedCategory,
+        TEMPLATE_CATALOG.map(t => ({
+          id: t.id,
+          name: t.name,
+          description: t.description,
+          category: t.category,
+        }))
+      )
       setRecommendations(result)
     } catch (error) {
       console.error('AI 推荐失败:', error)
@@ -112,7 +122,7 @@ export default function SelectTemplateStep({ draft, updateDraft }) {
                   const template = TEMPLATE_CATALOG.find((t) => t.id === rec.templateId)
                   return (
                     <div
-                      key={rec.templateId}
+                      key={`${rec.templateId}-${index}`}
                       className="flex items-center justify-between p-3 bg-white rounded-lg border border-purple-100"
                     >
                       <div className="flex-1">
