@@ -1,254 +1,160 @@
 /**
  * 模板混剪 - 模板注册表
  * 定义所有可用的行业模板及其素材位要求
+ * 
+ * 注意：模板数据来源于 aiAssistant.js 的 DEFAULT_TEMPLATES + 用户自定义模板
+ * 本文件负责将文案模板（segments 结构）转换为混剪模板（slots 结构）
  */
+import { DEFAULT_TEMPLATES } from './aiAssistant.js'
 
 /**
- * 创建鹿茸血口播带货模板的脚本工厂
- * 根据素材位绑定生成兼容后端的 script.json
+ * 为模板生成通用的 scriptFactory
+ * 根据模板的 segments 结构和素材位绑定生成脚本
  */
-export function createDeerAntlerBloodScript(sourceVideoName, slotBindings) {
-  // 按 slot 的 order 排序，确保顺序正确
-  const sortedSlots = Object.entries(slotBindings)
-    .sort(([, a], [, b]) => a.order - b.order)
+function createGenericScriptFactory(template) {
+  return function generateScript(sourceVideoName, slotBindings) {
+    // 按 slot 的 order 排序
+    const sortedSlots = Object.entries(slotBindings)
+      .sort(([, a], [, b]) => a.order - b.order)
 
-  const segments = []
+    const segments = []
 
-  // 第一段：数字人开场（human flag）
-  segments.push({
-    text: '想买鹿茸血的家人们，这条鹿茸血和鹿血区别的视频你必须看完，否则你可就要上当啦！',
-    flag: 'human',
-    note: '开场介绍 - 数字人出镜',
-  })
+    // 遍历模板的 segments，生成对应的脚本
+    template.segments.forEach((segment) => {
+      if (segment.flag === 'hook' || segment.flag === 'human') {
+        // 开场段落：使用模板的 style.hook 或默认文案
+        const text = template.style?.hook || segment.note || ''
+        segments.push({
+          text,
+          flag: 'human',
+          note: segment.note,
+        })
+      } else if (segment.flag === 'transition' || segment.flag === 'scene') {
+        // 转场段落：从 slotBindings 中查找对应的素材
+        const slotEntry = sortedSlots.find(([, slotData]) => 
+          slotData.title === segment.note.split('-')[1]?.trim() ||
+          slotData.sourceSegment === segment
+        )
 
-  // 根据素材位插入 scene segments
-  // 模板约定：第 1 个素材位对应第 1 个转场，以此类推
-  sortedSlots.forEach(([slotId, slotData]) => {
-    // 每个素材位可以有多个候选视频，这里取第一个（轮换逻辑在 adapter 中处理）
-    const files = slotData.files || []
-    
-    files.forEach((file, index) => {
-      segments.push({
-        text: '',
-        flag: 'scene',
-        scene_file: file.path,
-        note: `${slotData.title} - 素材 ${index + 1}`,
-        templateSlotId: slotId,
-      })
+        if (slotEntry) {
+          const [, slotData] = slotEntry
+          const files = slotData.files || []
+          
+          files.forEach((file, index) => {
+            segments.push({
+              text: '',
+              flag: 'scene',
+              scene_file: file.path,
+              note: `${slotData.title} - 素材 ${index + 1}`,
+              templateSlotId: slotEntry[0],
+            })
+          })
+        }
+      } else if (segment.flag === 'ending') {
+        // 结尾段落：使用模板的 style.ending 或默认文案
+        const text = template.style?.ending || segment.note || ''
+        segments.push({
+          text,
+          flag: 'human',
+          note: segment.note,
+        })
+      }
     })
-  })
 
-  // 最后一段：数字人收尾（human flag）
-  segments.push({
-    text: '老妹家自家鹿场养了 1000 头梅花鹿，无论是鹿茸血还是鹿血，我们家都有。只要是我们的粉丝来，全部是地板价哦！',
-    flag: 'human',
-    note: '总结推荐 - 数字人出镜收尾',
-  })
-
-  return {
-    description: `鹿茸血产品介绍 - 数字人带货视频脚本（模板：鹿茸血·口播带货）`,
-    templateId: 'deer_antler_blood_v1',
-    sourceVideo: sourceVideoName,
-    segments,
+    return {
+      description: `${template.name} - 视频脚本`,
+      templateId: template.id,
+      sourceVideo: sourceVideoName,
+      segments,
+    }
   }
 }
 
 /**
- * 创建保健品口播模板的脚本工厂
+ * 将文案模板（segments 结构）转换为混剪模板（slots 结构）
+ * segments: [{ flag, note }] - 用于文案生成
+ * slots: [{ id, order, title, required, minFiles, maxFiles, ... }] - 用于素材位管理
  */
-export function createHealthProductScript(sourceVideoName, slotBindings) {
-  const sortedSlots = Object.entries(slotBindings)
-    .sort(([, a], [, b]) => a.order - b.order)
+function convertTemplateToSlots(template) {
+  // 如果模板已经有 slots 定义，直接返回（说明是原生混剪模板）
+  if (template.slots) {
+    return template
+  }
 
-  const segments = []
+  // 从 segments 生成 slots
+  // 规则：
+  // - flag='hook' 或 flag='human' 的段落不需要素材位（由数字人视频填充）
+  // - flag='transition' 或 flag='scene' 的段落需要素材位
+  // - flag='ending' 的段落不需要素材位（由数字人视频填充）
+  const slots = []
+  let slotIndex = 0
 
-  // 开场
-  segments.push({
-    text: '家人们，今天给大家揭秘这款保健品的真相！',
-    flag: 'human',
-    note: '开场吸引',
-  })
+  template.segments.forEach((segment, index) => {
+    if (segment.flag === 'transition' || segment.flag === 'scene') {
+      slotIndex++
+      // 从 note 中提取素材位标题
+      // 例如："转场 1 - 产品瓶身展示" -> "产品瓶身展示"
+      const titleParts = segment.note.split('-')
+      const title = titleParts.length > 1 ? titleParts[1].trim() : segment.note
 
-  sortedSlots.forEach(([slotId, slotData]) => {
-    const files = slotData.files || []
-    files.forEach((file, index) => {
-      segments.push({
-        text: '',
-        flag: 'scene',
-        scene_file: file.path,
-        note: `${slotData.title} - 素材 ${index + 1}`,
-        templateSlotId: slotId,
+      slots.push({
+        id: `slot_${slotIndex}`,
+        order: slotIndex,
+        title: title,
+        required: true,
+        minFiles: 1,
+        maxFiles: 3,
+        durationHint: '3～5 秒',
+        prompt: `请上传与"${title}"相关的视频素材`,
+        acceptedTypes: ['video/mp4', 'video/quicktime', 'video/webm'],
+        templateSegmentKey: `scene_${slotIndex}`,
+        sourceSegment: segment,
       })
-    })
-  })
-
-  // 收尾
-  segments.push({
-    text: '想要了解更多，点击评论区链接！',
-    flag: 'human',
-    note: '结尾引导',
+    }
   })
 
   return {
-    description: `保健品口播脚本（模板：${slotBindings[0]?.templateName || '保健品口播'}）`,
-    templateId: 'health_product_v1',
-    sourceVideo: sourceVideoName,
-    segments,
+    ...template,
+    slots,
+    version: template.version || 1,
+    cover: template.cover || '/template-covers/default.jpg',
+    durationHint: template.durationHint || `约 ${template.segments.length * 3}～${template.segments.length * 5}秒`,
+    aspectRatio: template.aspectRatio || '9:16',
+    sourceVideoRequirement: {
+      expectedTransitionCount: slots.length,
+      transitionKeyword: '转场',
+      hint: `请选择使用本模板口播稿生成的数字人视频；视频中应包含 ${slots.length} 次"转场"标记。`,
+    },
+    scriptFactory: createGenericScriptFactory(template),
   }
 }
 
-export const TEMPLATE_CATALOG = [
-  {
-    id: 'deer_antler_blood_v1',
-    version: 1,
-    category: '滋补保健',
-    name: '鹿茸血 · 口播带货',
-    description: '适合鹿茸血、营养液、滋补饮品等口播带货视频。',
-    cover: '/template-covers/deer-antler-blood.jpg',
-    durationHint: '约 25～35 秒',
-    aspectRatio: '9:16',
+/**
+ * 获取完整的模板目录（包含默认模板和用户自定义模板）
+ */
+function getFullTemplateCatalog() {
+  try {
+    // 从 localStorage 加载用户自定义模板
+    const stored = typeof localStorage !== 'undefined' ? localStorage.getItem('rjcut_custom_templates') : null
+    const customTemplates = stored ? JSON.parse(stored) : []
 
-    sourceVideoRequirement: {
-      expectedTransitionCount: 5,
-      transitionKeyword: '转场',
-      hint: '请选择使用本模板口播稿生成的数字人视频；视频中应包含 5 次"转场"标记。',
-    },
+    // 合并默认模板和自定义模板
+    const allTemplates = [...DEFAULT_TEMPLATES, ...customTemplates]
 
-    slots: [
-      {
-        id: 'bottle_hero',
-        order: 1,
-        title: '产品瓶身展示',
-        required: true,
-        minFiles: 1,
-        maxFiles: 3,
-        durationHint: '3～5 秒',
-        prompt: '放入瓶身正面、包装、标签清晰可见的视频。不要有其他品牌和明显水印。',
-        acceptedTypes: ['video/mp4', 'video/quicktime', 'video/webm'],
-        templateSegmentKey: 'scene_bottle_hero',
-      },
-      {
-        id: 'pouring_closeup',
-        order: 2,
-        title: '倒出液体特写',
-        required: true,
-        minFiles: 1,
-        maxFiles: 3,
-        durationHint: '2～4 秒',
-        prompt: '放入倒出鹿茸血、液体流动、杯中颜色展示的视频。画面要稳定。',
-        acceptedTypes: ['video/mp4', 'video/quicktime', 'video/webm'],
-        templateSegmentKey: 'scene_pouring_closeup',
-      },
-      {
-        id: 'drinking_scene',
-        order: 3,
-        title: '饮用或冲泡场景',
-        required: true,
-        minFiles: 1,
-        maxFiles: 3,
-        durationHint: '3～5 秒',
-        prompt: '放入饮用、冲泡、家庭滋补氛围的视频。优先干净桌面和暖色生活场景。',
-        acceptedTypes: ['video/mp4', 'video/quicktime', 'video/webm'],
-        templateSegmentKey: 'scene_drinking_scene',
-      },
-      {
-        id: 'gift_box_detail',
-        order: 4,
-        title: '礼盒与包装细节',
-        required: false,
-        minFiles: 0,
-        maxFiles: 3,
-        durationHint: '2～4 秒',
-        prompt: '放入礼盒、瓶盖、包装细节、送礼场景或成分展示视频。',
-        acceptedTypes: ['video/mp4', 'video/quicktime', 'video/webm'],
-        templateSegmentKey: 'scene_gift_box_detail',
-      },
-      {
-        id: 'ending_packshot',
-        order: 5,
-        title: '结尾产品定帧',
-        required: true,
-        minFiles: 1,
-        maxFiles: 2,
-        durationHint: '2～3 秒',
-        prompt: '放入产品正面定帧或优惠信息背景。画面要干净，主体居中。',
-        acceptedTypes: ['video/mp4', 'video/quicktime', 'video/webm'],
-        templateSegmentKey: 'scene_ending_packshot',
-      },
-    ],
+    // 转换为 slots 结构
+    return allTemplates.map(convertTemplateToSlots)
+  } catch (e) {
+    console.error('[templateRegistry] 加载模板目录失败:', e)
+    return DEFAULT_TEMPLATES.map(convertTemplateToSlots)
+  }
+}
 
-    scriptFactory: createDeerAntlerBloodScript,
-  },
-  {
-    id: 'health_product_v1',
-    version: 1,
-    category: '滋补保健',
-    name: '保健品 · 口播种草',
-    description: '适合保健品、营养补充剂、健康食品的口播种草视频。',
-    cover: '/template-covers/health-product.jpg',
-    durationHint: '约 20～30 秒',
-    aspectRatio: '9:16',
+/**
+ * 模板目录（动态生成，包含用户自定义模板）
+ */
+export const TEMPLATE_CATALOG = getFullTemplateCatalog()
 
-    sourceVideoRequirement: {
-      expectedTransitionCount: 4,
-      transitionKeyword: '转场',
-      hint: '请选择包含 4 次"转场"标记的数字人视频。',
-    },
 
-    slots: [
-      {
-        id: 'product_intro',
-        order: 1,
-        title: '产品介绍',
-        required: true,
-        minFiles: 1,
-        maxFiles: 2,
-        durationHint: '3～5 秒',
-        prompt: '产品正面展示、包装细节、品牌 Logo 清晰可见。',
-        acceptedTypes: ['video/mp4', 'video/quicktime', 'video/webm'],
-        templateSegmentKey: 'scene_product_intro',
-      },
-      {
-        id: 'ingredient_show',
-        order: 2,
-        title: '成分展示',
-        required: true,
-        minFiles: 1,
-        maxFiles: 3,
-        durationHint: '2～4 秒',
-        prompt: '成分特写、原料展示、实验室或生产环境。',
-        acceptedTypes: ['video/mp4', 'video/quicktime', 'video/webm'],
-        templateSegmentKey: 'scene_ingredient_show',
-      },
-      {
-        id: 'usage_demo',
-        order: 3,
-        title: '使用演示',
-        required: true,
-        minFiles: 1,
-        maxFiles: 3,
-        durationHint: '3～5 秒',
-        prompt: '服用方法、使用场景、日常生活融入。',
-        acceptedTypes: ['video/mp4', 'video/quicktime', 'video/webm'],
-        templateSegmentKey: 'scene_usage_demo',
-      },
-      {
-        id: 'effect_feedback',
-        order: 4,
-        title: '效果反馈',
-        required: false,
-        minFiles: 0,
-        maxFiles: 2,
-        durationHint: '2～4 秒',
-        prompt: '用户反馈、对比效果、好评截图等。',
-        acceptedTypes: ['video/mp4', 'video/quicktime', 'video/webm'],
-        templateSegmentKey: 'scene_effect_feedback',
-      },
-    ],
-
-    scriptFactory: createHealthProductScript,
-  },
-]
 
 export function getTemplateById(templateId) {
   return TEMPLATE_CATALOG.find((item) => item.id === templateId) || null

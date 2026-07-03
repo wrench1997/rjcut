@@ -19,8 +19,8 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "change_me_in_production_2024"
     RQ_QUEUE_NAME: str = "rjcut_tasks"
     
-    CHANJING_APP_ID: str = "a6871cde"
-    CHANJING_SECRET_KEY: str = "3f709495adf24183910839ff68db2e6c"
+    CHANJING_APP_ID: str = ""
+    CHANJING_SECRET_KEY: str = ""
     
     # 文件存储策略配置
     FILE_STORAGE_DAYS: int = 30  # 文件默认保留天数

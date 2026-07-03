@@ -13,6 +13,8 @@ x-common-env: &common-env
   SECRET_KEY: change_me_in_production_2024
   RQ_QUEUE_NAME: rjcut_tasks
   PYTHONUNBUFFERED: "1"
+  CHANJING_APP_ID: f9b27742
+  CHANJING_SECRET_KEY: a4052092f03745bfb87ff0f2e65bb61b
 
 services:
 # --- 新增 Loki 监控组件 ---
