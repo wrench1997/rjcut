@@ -634,18 +634,16 @@ async def ai_recommend_templates_via_gateway(
             
             print(f"[AI 推荐] 原始返回内容：{ai_content[:500]}...")
             
-            # 尝试直接解析 JSON
-            import json
-            try:
-                parsed = json.loads(ai_content)
-                recommendations = parsed.get("recommendations", [])
-            except json.JSONDecodeError as je:
-                # JSON 解析失败，尝试使用正则提取 recommendations 字段
-                print(f"[AI 推荐] JSON 解析失败：{je}，尝试正则提取")
-                recommendations = extract_json_field(ai_content, "recommendations")
+            # 使用 extract_json_object 提取完整 JSON 对象（与 AI 生成模板相同的方法）
+            parsed = extract_json_object(ai_content)
+            
+            if not parsed:
+                raise ValueError(f"无法解析 JSON 对象，AI 返回：{ai_content[:300]}")
+            
+            recommendations = parsed.get("recommendations", [])
             
             if not recommendations:
-                raise ValueError(f"无法提取 recommendations 字段，AI 返回：{ai_content[:300]}")
+                raise ValueError(f"JSON 中缺少 recommendations 字段，AI 返回：{ai_content[:300]}")
             
             # 验证推荐结果格式
             valid_recommendations = []

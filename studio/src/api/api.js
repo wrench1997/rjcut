@@ -29,6 +29,13 @@ apiClient.interceptors.request.use((config) => {
   if (baseUrl && config.baseURL !== baseUrl) {
     config.baseURL = baseUrl;
   }
+  // 设置 API Key
+  const apiKey = typeof localStorage !== 'undefined'
+    ? localStorage.getItem('rjcut_api_key') || DEFAULT_API_KEY
+    : DEFAULT_API_KEY;
+  if (apiKey) {
+    config.headers.Authorization = `Bearer ${apiKey}`;
+  }
   return config;
 });
 

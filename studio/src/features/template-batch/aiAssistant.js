@@ -100,7 +100,8 @@ export function getTemplateConfig(templateId) {
  * @returns {Promise<{ templateId: string, score: number, reason: string }[]>}
  */
 export async function aiRecommendTemplates(productKeyword, category = '') {
-  const baseUrl = typeof localStorage !== 'undefined' 
+  // 使用 api 客户端调用后端 AI 推荐接口（自动携带 Authorization header）
+  const apiBaseUrl = typeof localStorage !== 'undefined' 
     ? localStorage.getItem('rjcut_api_base_url') || 'http://192.168.166.151:8000'
     : 'http://192.168.166.151:8000'
   
@@ -113,10 +114,10 @@ export async function aiRecommendTemplates(productKeyword, category = '') {
     category: category || '',
   }
   
-  console.log('[AI 推荐模板] 请求 URL:', `${baseUrl}/v1/ai/recommend-templates`)
+  console.log('[AI 推荐模板] 请求 URL:', `${apiBaseUrl}/v1/ai/recommend-templates`)
   console.log('[AI 推荐模板] 请求体:', requestBody)
   
-  const response = await fetch(`${baseUrl}/v1/ai/recommend-templates`, {
+  const response = await fetch(`${apiBaseUrl}/v1/ai/recommend-templates`, {
     method: 'POST',
     headers: { 
       'Content-Type': 'application/json',
