@@ -617,7 +617,7 @@ async def ai_recommend_templates_via_gateway(
             {"role": "user", "content": user_prompt}
         ],
         "temperature": 0.3,
-        "max_tokens": 1500,
+        "max_tokens": 15000,
         "stream": False,
         "response_format": {"type": "json_object"},
     }
