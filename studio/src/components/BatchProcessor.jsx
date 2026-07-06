@@ -2,81 +2,12 @@ import { useState, useEffect, useCallback } from 'react'
 import useBatchStore from '../api/useBatchProcessStore'
 import { setApiKey } from '../api/api'
 import { PROJECT_FOLDERS, parseProjectNameFromVFS, buildVFSPath } from '../utils/project-structure'
-import { Hourglass, Upload, FileText, Clapperboard, Download, CheckCircle, XCircle, Ban, Rocket, Folder, Music, X, Check, ArrowLeft, Info, Inbox } from 'lucide-react'
+import { Rocket, Folder, Music, Check, ArrowLeft, Info, Inbox } from 'lucide-react'
 import Tooltip from './Tooltip'
 import GlobalParamsVisualEditor from './GlobalParamsVisualEditor'
+import { StatCard, MinimizedProgress } from './BatchProgress.jsx'
 
-// --- 现代化进度条 ---
-function TailwindProgressBar({ progress, status }) {
-  const colors = {
-    uploading: 'bg-blue-500',
-    drafting: 'bg-indigo-500',
-    composing: 'bg-amber-500',
-    downloading: 'bg-green-500',
-    succeeded: 'bg-green-500',
-    failed: 'bg-red-500',
-    cancelled: 'bg-slate-400',
-    idle: 'bg-slate-300'
-  }
-  return (
-    <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden mt-3">
-      <div 
-        className={`h-full transition-all duration-300 ease-out ${colors[status] || 'bg-blue-500'}`}
-        style={{ width: `${Math.min(progress, 100)}%` }}
-      />
-    </div>
-  )
-}
-// =====================================================
-// 最小化进度悬浮窗 (右下角)
-// =====================================================
-function MinimizedProgress({ tasks, onExpand, onClose }) {
-  if (tasks.length === 0) return null
-
-  const runningCount = tasks.filter(t => t.stage !== 'done' && t.stage !== 'failed' && t.stage !== 'cancelled').length
-  const successCount = tasks.filter(t => t.stage === 'done').length
-  const failedCount = tasks.filter(t => t.stage === 'failed').length
-  const allDone = runningCount === 0
-
-  return (
-    <div className="fixed bottom-6 right-6 z-50 flex items-end gap-2">
-      {/* 关闭按钮 */}
-      <button
-        onClick={(e) => { e.stopPropagation(); onClose() }}
-        className="bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-full p-1.5 transition-colors shadow-lg"
-        title="关闭进度查看"
-      >
-        <X size={16} />
-      </button>
-      {/* 进度悬浮球 */}
-      <div 
-        className={`bg-white rounded-full shadow-2xl border-2 cursor-pointer transition-all duration-300 hover:scale-105 ${
-          allDone ? 'border-green-500' : 'border-blue-500 animate-pulse'
-        }`}
-        onClick={onExpand}
-        style={{ width: '64px', height: '64px' }}
-      >
-        <div className="w-full h-full flex flex-col items-center justify-center">
-          <Inbox size={20} className={allDone ? 'text-green-500' : 'text-blue-500'} />
-          <span className={`text-xs font-bold ${allDone ? 'text-green-600' : 'text-blue-600'}`}>
-            {runningCount > 0 ? runningCount : (failedCount > 0 ? '!' : '✓')}
-          </span>
-        </div>
-      </div>
-      {/* 简单状态提示 */}
-      <div className="absolute bottom-full right-0 mb-2 bg-slate-800 text-white px-3 py-2 rounded-lg text-xs whitespace-nowrap shadow-lg">
-        {allDone ? (
-          <span>✓ 全部完成 ({successCount}/{tasks.length})，点击展开查看详情</span>
-        ) : (
-          <span>⟳ 进行中：{runningCount} 个任务，点击展开查看详情</span>
-        )}
-        <div className="absolute top-full right-4 mt-1 border-4 border-transparent border-t-slate-800"></div>
-      </div>
-    </div>
-  )
-}
-
-// --- 任务卡片组件 ---
+// --- 任务卡片组件（完整下载逻辑） ---
 function TaskCard({ task, vfs }) {
   const [downloadProgress, setDownloadProgress] = useState(null)
   const [isDownloading, setIsDownloading] = useState(false)
@@ -398,15 +329,6 @@ function TaskCard({ task, vfs }) {
   )
 }
 
-// --- 统计卡片组件 ---
-function StatCard({ label, value, colorClass }) {
-  return (
-    <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col items-center justify-center">
-      <p className="text-xs text-slate-500 font-medium">{label}</p>
-      <p className={`text-2xl font-black mt-1 ${colorClass}`}>{value}</p>
-    </div>
-  )
-}
 
 // 文件选择器标签提示
 const getLabelTip = (label) => {

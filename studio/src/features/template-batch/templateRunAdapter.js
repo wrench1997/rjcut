@@ -175,6 +175,8 @@ export async function generateSceneScript(draft, scene) {
   // 调用模板的 scriptFactory
   const script = template.scriptFactory(draft.avatarVideo.name, selectedBindings)
 
+  console.log('[templateRunAdapter] 生成的 script.json:', JSON.stringify(script, null, 2))
+
   return script
 }
 

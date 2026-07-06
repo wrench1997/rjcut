@@ -234,13 +234,15 @@ await vfs.init()
       // ==========================================
       updateTask(taskId, { stage: 'composing', progress: 70 })
       
-      // 使用全局参数配置（如果提供），否则使用默认值
-      // 🎨 关键：必须使用用户在 GlobalParamsVisualEditor.jsx 中调整的实际参数
-      console.log('[BatchProcess] globalParams:', JSON.stringify(globalParams, null, 2))
+      // 🎨 关键：优先使用任务自己的 globalParams（模板混剪场景），否则使用传入的全局参数
+      // 模板混剪的每个任务有自己的 globalParams（存储在 task.globalParams 中）
+      // 普通批量处理使用传入的 globalParams 参数（来自 localStorage）
+      const taskGlobalParams = task.globalParams || globalParams
+      console.log('[BatchProcess] 使用 globalParams:', JSON.stringify(taskGlobalParams, null, 2))
       
       const composeReq = {
         draft_task_id: draftTaskId,
-        pipeline: globalParams?.pipeline || {
+        pipeline: taskGlobalParams?.pipeline || {
           use_transitions: false,
           transition_type: "fade",
           transition_duration: 0.8,
@@ -248,36 +250,36 @@ await vfs.init()
         },
         subtitle: {
           // 🎨 使用用户在 GlobalParamsVisualEditor 中配置的实际参数
-          effect: globalParams?.subtitle?.effect || "ad",
-          font_size: globalParams?.subtitle?.font_size || 72,
-          position: globalParams?.subtitle?.position || "bottom",
-          x_offset: globalParams?.subtitle?.x_offset || 0,
-          y_offset: globalParams?.subtitle?.y_offset || -80,
-          position_x: globalParams?.subtitle?.position_x ?? null,
-          position_y: globalParams?.subtitle?.position_y ?? null,
-          use_relative_pos: globalParams?.subtitle?.use_relative_pos ?? false,
-          color: globalParams?.subtitle?.color || "#FFFF00",
-          stroke_color: globalParams?.subtitle?.stroke_color || "#000000",
-          stroke_width: globalParams?.subtitle?.stroke_width || 3,
-          background_color: globalParams?.subtitle?.background_color || "rgba(0, 0, 0, 0.4)",
-          background_padding: globalParams?.subtitle?.background_padding || 8,
-          background_radius: globalParams?.subtitle?.background_radius || 8,
-          line_spacing: globalParams?.subtitle?.line_spacing || 1.3,
-          max_width: globalParams?.subtitle?.max_width || 95,
-          max_chars_per_line: globalParams?.subtitle?.max_chars_per_line || 18,  // 🎨 每行最大字符数（自动换行）
-          word_by_word_highlight: globalParams?.subtitle?.word_by_word_highlight ?? true,  // 🎨 逐字高亮显示开关
-          font_url: fontOssKey || globalParams?.subtitle?.font_url || null,  // 🎨 自定义字体文件上传
+          effect: taskGlobalParams?.subtitle?.effect || "ad",
+          font_size: taskGlobalParams?.subtitle?.font_size || 72,
+          position: taskGlobalParams?.subtitle?.position || "bottom",
+          x_offset: taskGlobalParams?.subtitle?.x_offset || 0,
+          y_offset: taskGlobalParams?.subtitle?.y_offset || -80,
+          position_x: taskGlobalParams?.subtitle?.position_x ?? null,
+          position_y: taskGlobalParams?.subtitle?.position_y ?? null,
+          use_relative_pos: taskGlobalParams?.subtitle?.use_relative_pos ?? false,
+          color: taskGlobalParams?.subtitle?.color || "#FFFF00",
+          stroke_color: taskGlobalParams?.subtitle?.stroke_color || "#000000",
+          stroke_width: taskGlobalParams?.subtitle?.stroke_width || 3,
+          background_color: taskGlobalParams?.subtitle?.background_color || "rgba(0, 0, 0, 0.4)",
+          background_padding: taskGlobalParams?.subtitle?.background_padding || 8,
+          background_radius: taskGlobalParams?.subtitle?.background_radius || 8,
+          line_spacing: taskGlobalParams?.subtitle?.line_spacing || 1.3,
+          max_width: taskGlobalParams?.subtitle?.max_width || 95,
+          max_chars_per_line: taskGlobalParams?.subtitle?.max_chars_per_line || 18,  // 🎨 每行最大字符数（自动换行）
+          word_by_word_highlight: taskGlobalParams?.subtitle?.word_by_word_highlight ?? true,  // 🎨 逐字高亮显示开关
+          font_url: fontOssKey || taskGlobalParams?.subtitle?.font_url || null,  // 🎨 自定义字体文件上传
         },
         audio: {
-          bgm_url: bgmOssKey || globalParams?.audio?.bgm_url || null,
-          bgm_volume: globalParams?.audio?.bgm_volume ?? 0.3,
-          original_volume: globalParams?.audio?.original_volume ?? 1.0,
-          bgm_start_time: globalParams?.audio?.bgm_start_time ?? 0.0,
-          bgm_loop: globalParams?.audio?.bgm_loop ?? true,
-          fade_in_duration: globalParams?.audio?.fade_in_duration ?? 0.5,
-          fade_out_duration: globalParams?.audio?.fade_out_duration ?? 0.5,
+          bgm_url: bgmOssKey || taskGlobalParams?.audio?.bgm_url || null,
+          bgm_volume: taskGlobalParams?.audio?.bgm_volume ?? 0.3,
+          original_volume: taskGlobalParams?.audio?.original_volume ?? 1.0,
+          bgm_start_time: taskGlobalParams?.audio?.bgm_start_time ?? 0.0,
+          bgm_loop: taskGlobalParams?.audio?.bgm_loop ?? true,
+          fade_in_duration: taskGlobalParams?.audio?.fade_in_duration ?? 0.5,
+          fade_out_duration: taskGlobalParams?.audio?.fade_out_duration ?? 0.5,
         },
-        output: globalParams?.output || { need_ass: true },
+        output: taskGlobalParams?.output || { need_ass: true },
         timeout_seconds: 1800
       }
       

@@ -1,9 +1,9 @@
 /**
  * 模板混剪 - 主页面
- * 4 步流程：选模板 → 选数字人视频 → 添加场景版本 → 全局成片设置
+ * 5 步流程：选模板 → 选数字人视频 → 添加场景版本 → 全局成片设置 → 任务进度与下载
  */
 import { useEffect, useRef, useState } from 'react'
-import { ArrowLeft, ArrowRight, Check, Loader2, Settings, Film } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, Loader2, Settings, Film, Inbox, X } from 'lucide-react'
 
 import {
   createTemplateRunDraft,
@@ -20,13 +20,17 @@ import SelectTemplateStep from './steps/SelectTemplateStep.jsx'
 import SelectAvatarVideoStep from './steps/SelectAvatarVideoStep.jsx'
 import AddSceneVariantsStep from './steps/AddSceneVariantsStep.jsx'
 import GlobalRenderSettingsStep from './steps/GlobalRenderSettingsStep.jsx'
+import TaskProgressStep from './steps/TaskProgressStep.jsx'
 import { getTemplateById } from './templateRegistry.js'
+import useBatchStore from '../../api/useBatchProcessStore'
+import { TaskCard, StatCard, MinimizedProgress } from '../../components/BatchProgress.jsx'
 
 const STEPS = [
   { id: 'select_template', label: '选择模板', shortLabel: '模板' },
   { id: 'select_avatar_video', label: '选择数字人视频', shortLabel: '数字人' },
   { id: 'add_scenes', label: '添加场景版本', shortLabel: '场景' },
   { id: 'global_settings', label: '全局成片设置', shortLabel: '设置' },
+  { id: 'task_progress', label: '任务进度与下载', shortLabel: '进度' },
 ]
 
 export default function TemplateBatchPage({
@@ -44,6 +48,11 @@ export default function TemplateBatchPage({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
+  const [showMinimizedProgress, setShowMinimizedProgress] = useState(false)
+
+  // 获取批量任务状态
+  const { tasks, getTaskStats, reset, startBatch } = useBatchStore()
+  const stats = getTaskStats()
 
   const saveTimerRef = useRef(null)
   const activeStep = STEPS[activeStepIndex]
@@ -109,15 +118,32 @@ export default function TemplateBatchPage({
         return
       }
 
-      // 调用 BatchProcessor 的 startBatch
-      if (onStartBatch) {
-        await onStartBatch(taskItems)
+      // ✅ 直接调用 useBatchStore 的 startBatch 方法，真正开始执行任务
+      // 从 localStorage 获取全局参数配置
+      let globalParams = null
+      try {
+        const saved = localStorage.getItem('rjcut_global_params_v1')
+        globalParams = saved ? JSON.parse(saved) : null
+      } catch (e) {
+        console.error('[TemplateBatchPage] 加载全局参数失败:', e)
       }
 
-      // 成功后跳转到任务中心
-      if (onOpenBatchCenter) {
-        onOpenBatchCenter()
-      }
+      // 使用 draft 中的执行配置（并发数）
+      const concurrency = draft.execution?.concurrency || 3
+
+      // ✅ 启动任务（不等待完成，让任务在后台运行）
+      // 使用 Promise 包裹，启动后立即 resolve，不等待任务完成
+      const startPromise = startBatch(taskItems, concurrency, globalParams)
+      
+      // 启动任务后立即进入第五步（任务进度与下载）
+      console.log('[TemplateBatchPage] 任务已启动，共', taskItems.length, '个任务')
+      setActiveStepIndex(STEPS.length - 1) // 进入第五步
+      
+      // 在后台等待任务完成（不阻塞 UI）
+      startPromise.catch(err => {
+        console.error('[TemplateBatchPage] 后台任务执行错误:', err)
+      })
+      
     } catch (e) {
       console.error('[TemplateBatchPage] 生成任务失败:', e)
       setError('生成任务失败：' + e.message)
@@ -153,6 +179,9 @@ export default function TemplateBatchPage({
             isGenerating={isGenerating}
           />
         )
+
+      case 'task_progress':
+        return <TaskProgressStep {...commonProps} />
 
       default:
         return null
@@ -238,7 +267,7 @@ export default function TemplateBatchPage({
                     <span className="text-sm font-medium">{step.shortLabel}</span>
                   </button>
 
-                  {index < STEPS.length - 1 && (
+                  {index < STEPS.length - 1 && activeStepIndex !== STEPS.length - 1 && (
                     <div className="w-8 h-[2px] bg-slate-200 mx-1" />
                   )}
                 </div>
@@ -246,6 +275,38 @@ export default function TemplateBatchPage({
             })}
           </div>
         </header>
+
+        {/* 进度显示区域（前四步显示简化进度，第五步不显示） */}
+        {tasks.length > 0 && activeStepIndex < STEPS.length - 1 && (
+          <div className="mx-auto max-w-7xl px-6 py-6">
+            {/* 数据看板 */}
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+              <StatCard label="总任务" value={stats.total} colorClass="text-slate-800" />
+              <StatCard label="处理中" value={stats.running} colorClass="text-blue-600" />
+              <StatCard label="成功" value={stats.succeeded} colorClass="text-green-600" />
+              <StatCard label="失败" value={stats.failed} colorClass="text-red-600" />
+              <StatCard label="取消" value={stats.cancelled} colorClass="text-slate-400" />
+            </div>
+
+            {/* 任务卡片网格 */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 mb-6">
+              {tasks.map(task => (
+                <TaskCard key={task.id} task={task} vfs={vfs} />
+              ))}
+            </div>
+
+            {/* 最小化按钮 */}
+            <div className="flex justify-center mt-6">
+              <button
+                onClick={() => setShowMinimizedProgress(true)}
+                className="px-6 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-lg transition-colors flex items-center gap-2"
+              >
+                <Inbox size={16} />
+                最小化进度窗口
+              </button>
+            </div>
+          </div>
+        )}
 
         <main className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           {renderStep()}
@@ -256,7 +317,7 @@ export default function TemplateBatchPage({
             </div>
           ) : null}
 
-          {activeStepIndex < STEPS.length - 1 && (
+          {activeStepIndex < STEPS.length - 2 && (
             <footer className="mt-8 flex items-center justify-between border-t border-slate-100 pt-5">
               <button
                 type="button"
@@ -279,8 +340,8 @@ export default function TemplateBatchPage({
             </footer>
           )}
 
-          {/* 最后一步：全局设置 + 生成按钮 */}
-          {activeStepIndex === STEPS.length - 1 && (
+          {/* 第四步：全局设置 + 生成按钮 */}
+          {activeStepIndex === STEPS.length - 2 && (
             <footer className="mt-8 flex items-center justify-between border-t border-slate-100 pt-5">
               <button
                 type="button"
@@ -328,8 +389,35 @@ export default function TemplateBatchPage({
               </div>
             </footer>
           )}
+
+          {/* 第五步：任务进度（无底部按钮） */}
+          {activeStepIndex === STEPS.length - 1 && (
+            <footer className="mt-8 flex items-center justify-between border-t border-slate-100 pt-5">
+              <button
+                type="button"
+                onClick={goPrevious}
+                className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100"
+              >
+                <ArrowLeft size={16} />
+                返回设置
+              </button>
+
+              <div className="text-sm text-slate-500">
+                任务正在后台运行，您可以等待完成或关闭页面
+              </div>
+            </footer>
+          )}
         </main>
       </div>
+
+      {/* 最小化进度悬浮窗 */}
+      {showMinimizedProgress && (
+        <MinimizedProgress
+          tasks={tasks}
+          onExpand={() => setShowMinimizedProgress(false)}
+          onClose={() => setShowMinimizedProgress(false)}
+        />
+      )}
     </div>
   )
 }

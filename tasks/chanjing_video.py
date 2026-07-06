@@ -17,7 +17,7 @@ from database import get_db_session
 from models import Task, TaskStatus, DhCustomPerson
 from quota import confirm_quota, refund_quota
 from oss import download_file_from_oss, is_oss_key, upload_file_to_oss
-from chanjing_api import ChanjingAPI, ChanjingStatusCode
+from chanjing_api_v2 import create_chanjing_api_v2, ChanjingAPI, ChanjingStatusCode
 from tasks import register_task
 from tasks.components import TaskContext, FileManagerComponent
 
@@ -61,7 +61,16 @@ AUDIO_STATUS_FAILED = 40        # 失败
 
 @register_task("dh_generate_video")
 def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merchant_id: str):
-    api = ChanjingAPI(settings.CHANJING_APP_ID, settings.CHANJING_SECRET_KEY)
+    # 使用 V2 API 客户端，增强稳定性和重试机制（🆕 自动认证模式）
+    api = create_chanjing_api_v2(
+        config={
+            "timeout": 120,  # 视频生成耗时较长
+            "max_retries": 5,
+            "enable_cache": False,  # 视频状态不缓存，保证实时性
+            "enable_stats": True,
+            "auto_auth": True,  # 🆕 自动从本地 API 服务获取认证信息
+        }
+    )
 
     task_dir = os.path.join(settings.BASE_TASK_DIR, task_id)
     os.makedirs(task_dir, exist_ok=True)
@@ -263,7 +272,16 @@ def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merch
 
 @register_task("dh_create_person")
 def run_dh_create_person_task(task_id: str, payload: dict, trace_id: str, merchant_id: str):
-    api = ChanjingAPI(settings.CHANJING_APP_ID, settings.CHANJING_SECRET_KEY)
+    # 使用 V2 API 客户端，增强稳定性和重试机制（🆕 自动认证模式）
+    api = create_chanjing_api_v2(
+        config={
+            "timeout": 300,  # 数字人训练耗时很长（5-10 分钟）
+            "max_retries": 5,
+            "enable_cache": False,  # 数字人状态不缓存
+            "enable_stats": True,
+            "auto_auth": True,  # 🆕 自动从本地 API 服务获取认证信息
+        }
+    )
 
     task_dir = os.path.join(settings.BASE_TASK_DIR, task_id)
     os.makedirs(task_dir, exist_ok=True)

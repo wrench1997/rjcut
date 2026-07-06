@@ -13,6 +13,9 @@ import { DEFAULT_TEMPLATES } from './aiAssistant.js'
  */
 function createGenericScriptFactory(template) {
   return function generateScript(sourceVideoName, slotBindings) {
+    console.log('[scriptFactory] 输入 slotBindings:', JSON.stringify(slotBindings, null, 2))
+    console.log('[scriptFactory] 模板 segments:', JSON.stringify(template.segments, null, 2))
+    
     // 按 slot 的 order 排序
     const sortedSlots = Object.entries(slotBindings)
       .sort(([, a], [, b]) => a.order - b.order)
@@ -20,7 +23,7 @@ function createGenericScriptFactory(template) {
     const segments = []
 
     // 遍历模板的 segments，生成对应的脚本
-    template.segments.forEach((segment) => {
+    template.segments.forEach((segment, segIndex) => {
       if (segment.flag === 'hook' || segment.flag === 'human') {
         // 开场段落：使用模板的 style.hook 或默认文案
         const text = template.style?.hook || segment.note || ''
@@ -31,14 +34,32 @@ function createGenericScriptFactory(template) {
         })
       } else if (segment.flag === 'transition' || segment.flag === 'scene') {
         // 转场段落：从 slotBindings 中查找对应的素材
-        const slotEntry = sortedSlots.find(([, slotData]) => 
-          slotData.title === segment.note.split('-')[1]?.trim() ||
-          slotData.sourceSegment === segment
-        )
+        // 优先使用 slotId 匹配（最可靠）
+        const slotKey = `slot_${segIndex + 1}`
+        let slotEntry = sortedSlots.find(([key]) => key === slotKey)
+        
+        // 如果找不到，尝试用 title 匹配
+        if (!slotEntry) {
+          const titleFromNote = segment.note.split('-')[1]?.trim()
+          console.log('[scriptFactory] 尝试匹配 title:', titleFromNote)
+          slotEntry = sortedSlots.find(([, slotData]) => 
+            slotData.title === titleFromNote
+          )
+        }
+        
+        // 最后尝试用 sourceSegment 匹配
+        if (!slotEntry) {
+          slotEntry = sortedSlots.find(([, slotData]) => 
+            slotData.sourceSegment === segment
+          )
+        }
+
+        console.log('[scriptFactory] segment', segIndex, segment.flag, segment.note, '-> 找到 slot:', slotEntry ? slotEntry[0] : '未找到')
 
         if (slotEntry) {
           const [, slotData] = slotEntry
           const files = slotData.files || []
+          console.log('[scriptFactory] slot files:', files)
           
           files.forEach((file, index) => {
             segments.push({
@@ -49,6 +70,8 @@ function createGenericScriptFactory(template) {
               templateSlotId: slotEntry[0],
             })
           })
+        } else {
+          console.warn('[scriptFactory] 未找到匹配的 slot for segment:', segment)
         }
       } else if (segment.flag === 'ending') {
         // 结尾段落：使用模板的 style.ending 或默认文案
@@ -61,12 +84,15 @@ function createGenericScriptFactory(template) {
       }
     })
 
-    return {
+    const result = {
       description: `${template.name} - 视频脚本`,
       templateId: template.id,
       sourceVideo: sourceVideoName,
       segments,
     }
+    
+    console.log('[scriptFactory] 最终生成的 script:', JSON.stringify(result, null, 2))
+    return result
   }
 }
 

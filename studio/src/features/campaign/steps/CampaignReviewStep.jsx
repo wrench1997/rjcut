@@ -39,8 +39,9 @@ export default function CampaignReviewStep({
       const maxConcurrent = draft.advanced.maxConcurrent || 3
       startBatch(tasks, maxConcurrent, draft.advanced.globalParams || null)
 
+      // ✅ 不跳转，留在当前页面（任务已在后台执行）
       // 通知父组件切换到执行中心
-      onCreated?.()
+      // onCreated?.()
     } catch (error) {
       console.error('创建任务失败:', error)
       alert('创建任务失败：' + error.message)

@@ -10,7 +10,7 @@ from models import Merchant, Task, TaskStatus
 from auth import verify_api_key
 from quota import check_quota, check_concurrent_limit, reserve_quota
 from config import get_settings
-from chanjing_api import ChanjingAPI, ChanjingStatusCode
+from chanjing_api_v2 import create_chanjing_api_v2, ChanjingAPI, ChanjingStatusCode
 from schemas import DhGenerateVideoRequest
 from schemas import DhCreateCustomPersonRequest
 from models import DhCustomPerson # 引入模型
@@ -20,8 +20,18 @@ from oss import get_minio_client, get_settings as get_oss_settings
 router = APIRouter(prefix="/v1/dh", tags=["Digital Human"])
 
 def get_chanjing_api():
+    """获取蝉镜 API 客户端（使用 V2 增强版，支持自动认证）"""
     settings = get_settings()
-    return ChanjingAPI(settings.CHANJING_APP_ID, settings.CHANJING_SECRET_KEY)
+    return create_chanjing_api_v2(
+        config={
+            "timeout": 60,
+            "max_retries": 3,
+            "enable_cache": True,
+            "enable_stats": True,
+            # 🆕 自动模式：从本地 API 服务获取认证信息
+            "auto_auth": True,
+        }
+    )
 
 def ok(data=None): return {"code": 0, "message": "ok", "data": data}
 def fail(code, msg, status_code=400): return {"code": code, "message": msg}
