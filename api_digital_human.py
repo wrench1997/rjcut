@@ -19,23 +19,31 @@ from oss import get_minio_client, get_settings as get_oss_settings
 
 router = APIRouter(prefix="/v1/dh", tags=["Digital Human"])
 
+# 🔴 单例模式：缓存 API 客户端，避免重复获取 access_token
+_chanjing_api_instance = None
+
 def get_chanjing_api():
-    """获取蝉镜 API 客户端（使用 V2 增强版，传统模式）"""
-    settings = get_settings()  # 🔴 修复：获取 settings 对象
-    return create_chanjing_api_v2(
-        app_id=settings.CHANJING_APP_ID,
-        secret_key=settings.CHANJING_SECRET_KEY,
-        config={
-            "timeout": 60,
-            "max_retries": 3,
-            "enable_cache": True,
-            "enable_stats": True,
-            "auto_auth": False,
-            # 🔴 修复：使用 host.docker.internal 访问宿主机 8080 端口
-            # docker-compose.yml 已配置 extra_hosts: "host.docker.internal:host-gateway"
-            "base_url": "http://host.docker.internal:8080",
-        }
-    )
+    """获取蝉镜 API 客户端（使用 V2 增强版，传统模式）- 单例模式"""
+    global _chanjing_api_instance
+    
+    if _chanjing_api_instance is None:
+        settings = get_settings()
+        _chanjing_api_instance = create_chanjing_api_v2(
+            app_id=settings.CHANJING_APP_ID,
+            secret_key=settings.CHANJING_SECRET_KEY,
+            config={
+                "timeout": 60,
+                "max_retries": 3,
+                "enable_cache": True,
+                "enable_stats": True,
+                "auto_auth": False,
+                "base_url": "http://host.docker.internal:8080",
+            }
+        )
+        logger = logging.getLogger("chanjing")
+        logger.info("✅ 蝉镜 API 客户端已初始化（单例）")
+    
+    return _chanjing_api_instance
 
 def ok(data=None): return {"code": 0, "message": "ok", "data": data}
 def fail(code, msg, status_code=400): return {"code": code, "message": msg}
