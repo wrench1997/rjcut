@@ -61,14 +61,14 @@ AUDIO_STATUS_FAILED = 40        # 失败
 
 @register_task("dh_generate_video")
 def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merchant_id: str):
-    # 使用 V2 API 客户端，增强稳定性和重试机制（🆕 自动认证模式）
+    # 使用 V2 API 客户端，增强稳定性和重试机制（🆕 传统模式）
     api = create_chanjing_api_v2(
         config={
             "timeout": 120,  # 视频生成耗时较长
             "max_retries": 5,
             "enable_cache": False,  # 视频状态不缓存，保证实时性
             "enable_stats": True,
-            "auto_auth": True,  # 🆕 自动从本地 API 服务获取认证信息
+            "auto_auth": False,  # 🆕 从环境变量读取认证信息（更稳定）
         }
     )
 
@@ -272,14 +272,14 @@ def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merch
 
 @register_task("dh_create_person")
 def run_dh_create_person_task(task_id: str, payload: dict, trace_id: str, merchant_id: str):
-    # 使用 V2 API 客户端，增强稳定性和重试机制（🆕 自动认证模式）
+    # 使用 V2 API 客户端，增强稳定性和重试机制（🆕 传统模式）
     api = create_chanjing_api_v2(
         config={
             "timeout": 300,  # 数字人训练耗时很长（5-10 分钟）
             "max_retries": 5,
             "enable_cache": False,  # 数字人状态不缓存
             "enable_stats": True,
-            "auto_auth": True,  # 🆕 自动从本地 API 服务获取认证信息
+            "auto_auth": False,  # 🆕 从环境变量读取认证信息（更稳定）
         }
     )
 

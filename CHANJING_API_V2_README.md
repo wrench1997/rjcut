@@ -167,12 +167,15 @@ for video_id, status in results.items():
 
 ### 1. 基础使用（三种模式）
 
-#### 模式 1：自动认证（🆕 推荐）
+#### 模式 1：自动认证（🆕 推荐 - 优先从 Docker 环境变量读取）
 
 ```python
 from chanjing_api_v2 import create_chanjing_api_v2
 
-# 自动从本地 API 服务获取认证信息（无需手动配置 app_id 和 secret_key）
+# 自动获取认证信息，优先级：
+# 1. Docker 环境变量：CHANJING_APP_ID 和 CHANJING_SECRET_KEY（推荐）
+# 2. 本地 API 服务：/api/auth/chanjing 接口
+# 3. 配置文件：.env 中的 CHANJING_APP_ID 和 CHANJING_SECRET_KEY
 api = create_chanjing_api_v2()
 
 # 自定义配置
@@ -183,6 +186,18 @@ api = create_chanjing_api_v2(
         "max_retries": 5,
     }
 )
+```
+
+**Docker 环境变量设置：**
+```bash
+# 在 Docker 容器或宿主机环境变量中设置
+export CHANJING_APP_ID="your_app_id"
+export CHANJING_SECRET_KEY="your_secret_key"
+
+# 或在 docker-compose.yml 中
+environment:
+  - CHANJING_APP_ID=your_app_id
+  - CHANJING_SECRET_KEY=your_secret_key
 ```
 
 #### 模式 2：传统模式（兼容 V1）

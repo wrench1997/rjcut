@@ -20,16 +20,17 @@ from oss import get_minio_client, get_settings as get_oss_settings
 router = APIRouter(prefix="/v1/dh", tags=["Digital Human"])
 
 def get_chanjing_api():
-    """获取蝉镜 API 客户端（使用 V2 增强版，支持自动认证）"""
-    settings = get_settings()
+    """获取蝉镜 API 客户端（使用 V2 增强版，传统模式）"""
     return create_chanjing_api_v2(
+        app_id=settings.CHANJING_APP_ID,
+        secret_key=settings.CHANJING_SECRET_KEY,
         config={
             "timeout": 60,
             "max_retries": 3,
             "enable_cache": True,
             "enable_stats": True,
-            # 🆕 自动模式：从本地 API 服务获取认证信息
-            "auto_auth": True,
+            # 🆕 传统模式：从环境变量读取认证信息（更稳定）
+            "auto_auth": False,
         }
     )
 
