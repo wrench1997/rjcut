@@ -320,9 +320,17 @@ class ChanjingAPIV2(ChanjingAPI):
             - 如果提供 app_id 和 secret_key：使用传统模式（兼容 V1）
             - 如果不提供：自动从本地 API 服务获取（新模式）
         """
+        # 🆕 先初始化基础配置（在自动认证之前）
+        self.base_url = base_url if base_url else "http://192.168.166.151:8080"
+        self.timeout = timeout
+        self.auto_auth = auto_auth
+        
+        # 🆕 先初始化 logger（在自动认证之前使用）
+        self._request_logger = logging.getLogger("chanjing_v2.requests")
+        
         # 🆕 兼容层：自动获取认证信息
         if auto_auth and (not app_id or not secret_key):
-            app_id, secret_key = self._auto_get_auth_info(base_url, timeout)
+            app_id, secret_key = self._auto_get_auth_info(self.base_url, timeout)
         
         # 确保有 app_id 和 secret_key
         if not app_id or not secret_key:
@@ -331,23 +339,17 @@ class ChanjingAPIV2(ChanjingAPI):
         # 调用 V1 初始化
         super().__init__(app_id, secret_key)
         
-        # V2 新增配置：默认指向本地 API 服务
-        self.base_url = base_url if base_url else "http://192.168.166.151:8080"
-        self.timeout = timeout
+        # V2 新增配置
         self.max_retries = max_retries
         self.enable_stats = enable_stats
         self.fallback_enabled = fallback_enabled
         self.fallback_func = fallback_func
-        self.auto_auth = auto_auth  # 🆕 保存自动认证标志
         
         # V2 新增：智能缓存
         self._cache_v2 = SmartCache(max_size=cache_max_size) if enable_cache else None
         
         # V2 新增：请求统计
         self._stats = RequestStats() if enable_stats else None
-        
-        # V2 新增：请求日志
-        self._request_logger = logging.getLogger("chanjing_v2.requests")
         
         # V2 新增：降级开关
         self._circuit_breaker_open = False

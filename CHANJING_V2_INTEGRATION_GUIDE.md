@@ -216,38 +216,59 @@ def chanjing_health_check(_: Merchant = Depends(verify_api_key)):
 
 ## 配置说明
 
-### 环境变量配置
+### 🆕 自动认证模式配置（推荐）
 
-在 `.env` 或配置文件中添加：
+V2 默认启用自动认证，无需配置 app_id 和 secret_key：
 
 ```bash
-# 蝉镜 API V2 配置
-CHANJING_USE_V2=true
+# .env
+# 本地 API 服务地址（V2 会自动从此服务获取认证信息）
 CHANJING_V2_BASE_URL=http://192.168.166.151:8080
+
+# V2 其他配置
 CHANJING_V2_TIMEOUT=60
 CHANJING_V2_MAX_RETRIES=3
 CHANJING_V2_ENABLE_CACHE=true
 CHANJING_V2_ENABLE_STATS=true
+CHANJING_V2_AUTO_AUTH=true  # 🆕 启用自动认证（默认）
 ```
 
-### 配置文件示例
+**本地 API 服务需要提供接口：**
 
 ```python
-# config.py
-class Settings(BaseSettings):
-    # ... 现有配置 ...
-    
-    # 蝉镜 API V2 配置
-    CHANJING_USE_V2: bool = True
-    CHANJING_V2_BASE_URL: str = "http://192.168.166.151:8080"
-    CHANJING_V2_TIMEOUT: int = 60
-    CHANJING_V2_MAX_RETRIES: int = 3
-    CHANJING_V2_ENABLE_CACHE: bool = True
-    CHANJING_V2_ENABLE_STATS: bool = True
-    
-    class Config:
-        env_file = ".env"
+# 本地 API 服务需要实现此接口
+@router.get("/api/auth/chanjing")
+def get_chanjing_auth():
+    """返回蝉镜认证信息"""
+    return {
+        "app_id": settings.CHANJING_APP_ID,
+        "secret_key": settings.CHANJING_SECRET_KEY
+    }
 ```
+
+### 传统模式配置（兼容 V1）
+
+如果需要使用传统模式（手动提供认证信息）：
+
+```bash
+# .env
+CHANJING_APP_ID=your_app_id
+CHANJING_SECRET_KEY=your_secret_key
+CHANJING_V2_AUTO_AUTH=false  # 关闭自动认证
+```
+
+### 完整配置选项
+
+| 配置项 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| `base_url` | str | `http://192.168.166.151:8080` | API 服务地址 |
+| `timeout` | int | 30 | 请求超时时间（秒） |
+| `max_retries` | int | 3 | 最大重试次数 |
+| `enable_cache` | bool | True | 是否启用缓存 |
+| `cache_max_size` | int | 1000 | 缓存最大条目数 |
+| `enable_stats` | bool | True | 是否启用统计 |
+| `fallback_enabled` | bool | False | 是否启用降级 |
+| `auto_auth` | bool | True | 🆕 是否自动获取认证信息 |
 
 ## 迁移检查清单
 
