@@ -276,37 +276,8 @@ export default function TemplateBatchPage({
           </div>
         </header>
 
-        {/* 进度显示区域（前四步显示简化进度，第五步不显示） */}
-        {tasks.length > 0 && activeStepIndex < STEPS.length - 1 && (
-          <div className="mx-auto max-w-7xl px-6 py-6">
-            {/* 数据看板 */}
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
-              <StatCard label="总任务" value={stats.total} colorClass="text-slate-800" />
-              <StatCard label="处理中" value={stats.running} colorClass="text-blue-600" />
-              <StatCard label="成功" value={stats.succeeded} colorClass="text-green-600" />
-              <StatCard label="失败" value={stats.failed} colorClass="text-red-600" />
-              <StatCard label="取消" value={stats.cancelled} colorClass="text-slate-400" />
-            </div>
-
-            {/* 任务卡片网格 */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 mb-6">
-              {tasks.map(task => (
-                <TaskCard key={task.id} task={task} vfs={vfs} />
-              ))}
-            </div>
-
-            {/* 最小化按钮 */}
-            <div className="flex justify-center mt-6">
-              <button
-                onClick={() => setShowMinimizedProgress(true)}
-                className="px-6 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-lg transition-colors flex items-center gap-2"
-              >
-                <Inbox size={16} />
-                最小化进度窗口
-              </button>
-            </div>
-          </div>
-        )}
+        {/* 进度显示区域（只在第五步显示，由 TaskProgressStep 组件内部渲染） */}
+        {/* 前四步不显示进度，保持界面简洁 */}
 
         <main className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           {renderStep()}
