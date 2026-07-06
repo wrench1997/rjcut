@@ -2,6 +2,7 @@ from typing import Dict, List, Any
 from datetime import datetime
 import os
 import httpx
+import json
 
 # Gateway 地址（从环境变量读取，默认本地 Docker 网络）
 GATEWAY_BASE_URL = os.getenv("GATEWAY_BASE_URL", "http://gateway:8888")
