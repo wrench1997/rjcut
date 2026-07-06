@@ -370,8 +370,9 @@ class ChanjingAPIV2(ChanjingAPI):
         
         # 🔴 修复：V1 的 __init__ 会覆盖 base_url，需要重新设置
         # V1 硬编码了 base_url="https://www.chanjing.cc/api/open/v1"
-        # 但我们需要使用本地 API 服务地址或自定义地址
-        self.base_url = base_url if base_url else "http://192.168.166.151:8080"
+        # 如果未指定 base_url，默认使用蝉镜官方 API 地址（而不是本地代理服务）
+        # 因为 Docker 容器内无法访问宿主机的 8080 端口
+        self.base_url = base_url if base_url else "https://www.chanjing.cc/api/open/v1"
         self._request_logger.info(f"✅ base_url 已设置为：{self.base_url}")
         
         # V2 新增配置

@@ -30,8 +30,10 @@ def get_chanjing_api():
             "max_retries": 3,
             "enable_cache": True,
             "enable_stats": True,
-            # 🆕 传统模式：从环境变量读取认证信息（更稳定）
             "auto_auth": False,
+            # 🔴 修复：使用 host.docker.internal 访问宿主机 8080 端口
+            # 需要在 docker-compose.yml 中配置 extra_hosts: "host.docker.internal:host-gateway"
+            "base_url": "http://host.docker.internal:8080",
         }
     )
 

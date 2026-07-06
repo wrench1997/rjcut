@@ -160,6 +160,8 @@ services:
     environment:
       <<: *common-env
       GATEWAY_BASE_URL: http://gateway:8888
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # 🔴 允许容器访问宿主机
     volumes:
       - ./:/app          # 开发时建议加 :ro（只读），避免意外修改；生产去掉 ro
       - /opt/rjcut/service_data:/app/service_data   # 这个持久化目录保持 rw
