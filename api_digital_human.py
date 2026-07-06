@@ -31,8 +31,9 @@ def get_chanjing_api():
             "enable_cache": True,
             "enable_stats": True,
             "auto_auth": False,
-            # 🔴 修复：Linux host 网络模式下，容器与宿主机共享网络，直接用 127.0.0.1
-            "base_url": "http://127.0.0.1:8080",
+            # 🔴 修复：使用 host.docker.internal 访问宿主机 8080 端口
+            # docker-compose.yml 已配置 extra_hosts: "host.docker.internal:host-gateway"
+            "base_url": "http://host.docker.internal:8080",
         }
     )
 
