@@ -21,6 +21,7 @@ router = APIRouter(prefix="/v1/dh", tags=["Digital Human"])
 
 def get_chanjing_api():
     """获取蝉镜 API 客户端（使用 V2 增强版，传统模式）"""
+    settings = get_settings()  # 🔴 修复：获取 settings 对象
     return create_chanjing_api_v2(
         app_id=settings.CHANJING_APP_ID,
         secret_key=settings.CHANJING_SECRET_KEY,
