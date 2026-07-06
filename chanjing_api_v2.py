@@ -332,9 +332,33 @@ class ChanjingAPIV2(ChanjingAPI):
         if auto_auth and (not app_id or not secret_key):
             app_id, secret_key = self._auto_get_auth_info(self.base_url, timeout)
         
+        # 🆕 如果自动认证失败，尝试从环境变量获取（回退到传统模式）
+        if (not app_id or not secret_key):
+            try:
+                # 先尝试直接从环境变量读取
+                app_id = app_id or os.getenv("CHANJING_APP_ID")
+                secret_key = secret_key or os.getenv("CHANJING_SECRET_KEY")
+                
+                # 如果环境变量也没有，尝试从配置文件读取
+                if not app_id or not secret_key:
+                    from config import get_settings
+                    settings = get_settings()
+                    app_id = app_id or settings.CHANJING_APP_ID
+                    secret_key = secret_key or settings.CHANJING_SECRET_KEY
+                
+                if app_id and secret_key:
+                    self._request_logger.info("✅ 从环境变量/配置文件获取蝉镜认证信息（传统模式）")
+            except Exception as e:
+                self._request_logger.warning(f"⚠️ 无法从环境变量/配置文件获取认证信息：{e}")
+        
         # 确保有 app_id 和 secret_key
         if not app_id or not secret_key:
-            raise ValueError("必须提供 app_id 和 secret_key，或启用 auto_auth 并配置本地 API 服务")
+            raise ValueError(
+                "必须提供 app_id 和 secret_key，可通过以下方式之一：\n"
+                "1. 启用 auto_auth 并确保本地 API 服务提供 /api/auth/chanjing 接口\n"
+                "2. 在配置文件 (.env) 中设置 CHANJING_APP_ID 和 CHANJING_SECRET_KEY\n"
+                "3. 直接在代码中传入 app_id 和 secret_key 参数"
+            )
         
         # 调用 V1 初始化
         super().__init__(app_id, secret_key)
