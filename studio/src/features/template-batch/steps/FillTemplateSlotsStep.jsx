@@ -56,7 +56,7 @@ export default function FillTemplateSlotsStep({ draft, updateDraft, vfs }) {
       }
 
       // 2. 调用 AI 推荐
-      const suggestions = await aiSuggestSlotFiles(allFiles, sortedSlots)
+      const suggestions = await aiSuggestSlotFiles(allFiles, sortedSlots, vfs)
       console.log('[AI 素材助手] 推荐结果:', suggestions)
 
       // 3. 自动填充素材位

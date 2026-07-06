@@ -7,7 +7,7 @@
  * 3. 完全脱离浏览器沙盒限制
  */
 
-const { app, BrowserWindow, ipcMain, dialog, shell, protocol, net } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, shell, protocol, net, Menu } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const { spawn } = require('child_process')
@@ -42,6 +42,7 @@ function createWindow() {
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
       webSecurity: false, // 生产环境中加载本地 file:// 可能遇到跨域问题，建议关闭 webSecurity
+      devTools: true, // 明确启用开发者工具
     },
     icon: path.join(__dirname, '../public/icon.png'),
     titleBarStyle: 'hiddenInset',
@@ -60,6 +61,8 @@ function createWindow() {
   } else {
     // 生产模式（exe）：使用我们自定义的 app:// 协议加载
     mainWindow.loadURL('app://localhost/index.html')
+    // 生产模式也打开开发者工具（方便调试）
+    mainWindow.webContents.openDevTools()
   }
 
   // 窗口准备好后再显示

@@ -317,12 +317,47 @@ export async function aiGenerateTemplate({
 }
 
 /**
+ * 获取视频文件时长（通过创建 video 元素）
+ * @param {Object} file - 文件对象 {name, path, ...}
+ * @param {Object} vfs - VFS 实例
+ * @returns {Promise<number>} 视频时长（秒）
+ */
+async function getVideoDuration(file, vfs) {
+  try {
+    // 从 VFS 读取文件为 Blob
+    const blob = await vfs.readFileAsBlob(file.path)
+    const url = URL.createObjectURL(blob)
+    
+    return new Promise((resolve) => {
+      const video = document.createElement('video')
+      video.preload = 'metadata'
+      
+      video.onloadedmetadata = () => {
+        URL.revokeObjectURL(url)
+        resolve(video.duration)
+      }
+      
+      video.onerror = () => {
+        URL.revokeObjectURL(url)
+        resolve(null)
+      }
+      
+      video.src = url
+    })
+  } catch (e) {
+    console.error('[getVideoDuration] 获取时长失败:', file.name, e)
+    return null
+  }
+}
+
+/**
  * AI 素材建议 - 调用后端 AI 网关分析视频素材，推荐到素材位
  * @param {Array} files - 素材文件列表 [{name, path, duration}]
  * @param {Array} slots - 模板素材位定义 [{id, title, prompt, order, maxFiles}]
+ * @param {Object} vfs - VFS 实例（用于获取视频时长）
  * @returns {Promise<{ slotId: string, slotTitle: string, order: number, files: Array, confidence: number }[]>}
  */
-export async function aiSuggestSlotFiles(files, slots) {
+export async function aiSuggestSlotFiles(files, slots, vfs = null) {
   // 调用后端 AI 接口分析视频内容
   const apiBaseUrl = typeof localStorage !== 'undefined' 
     ? localStorage.getItem('rjcut_api_base_url') || 'http://192.168.166.151:8000'
@@ -332,11 +367,20 @@ export async function aiSuggestSlotFiles(files, slots) {
     ? localStorage.getItem('rjcut_api_key') || 'rjk_oG3u1bRu10myprstb5o2AYVW6v9HipNT33ALuJTmFxaqemUC'
     : 'rjk_oG3u1bRu10myprstb5o2AYVW6v9HipNT33ALuJTmFxaqemUC'
   
-  // 准备请求数据
-  const videoFiles = files.map(f => ({
-    name: f.name,
-    path: f.path,
-    duration: f.durationSeconds || null,
+  // 准备请求数据 - 获取视频时长
+  const videoFiles = await Promise.all(files.map(async (f) => {
+    let duration = f.durationSeconds || null
+    
+    // 如果没有时长信息且有 VFS 实例，尝试获取视频时长
+    if (duration === null && vfs && f.path) {
+      duration = await getVideoDuration(f, vfs)
+    }
+    
+    return {
+      name: f.name,
+      path: f.path,
+      duration: duration,
+    }
   }))
   
   const templateSlots = slots.map(s => ({
@@ -452,10 +496,11 @@ function extractKeywords(title, prompt) {
  * 自动生成场景版本 - 基于 AI 推荐
  * @param {Object} template - 模板定义
  * @param {Array} availableFiles - 可用素材文件列表
+ * @param {Object} vfs - VFS 实例（用于获取视频时长）
  * @returns {Promise<{ name: string, bindings: Object }>}
  */
-export async function aiAutoCreateScene(template, availableFiles) {
-  const suggestions = await aiSuggestSlotFiles(availableFiles, template.slots)
+export async function aiAutoCreateScene(template, availableFiles, vfs = null) {
+  const suggestions = await aiSuggestSlotFiles(availableFiles, template.slots, vfs)
 
   const bindings = {}
   let hasMatchedFiles = false

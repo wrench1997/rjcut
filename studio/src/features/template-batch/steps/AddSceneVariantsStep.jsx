@@ -57,7 +57,7 @@ export default function AddSceneVariantsStep({ draft, updateDraft, vfs, apiKey }
         return
       }
 
-      const suggestions = await aiSuggestSlotFiles(videoFiles, template.slots)
+      const suggestions = await aiSuggestSlotFiles(videoFiles, template.slots, vfs)
       setAiSuggestion(suggestions)
       alert(`AI 分析完成，已生成 ${suggestions.length} 个素材位推荐`)
     } catch (error) {
@@ -88,7 +88,7 @@ export default function AddSceneVariantsStep({ draft, updateDraft, vfs, apiKey }
         return
       }
 
-      const newScene = await aiAutoCreateScene(template, videoFiles)
+      const newScene = await aiAutoCreateScene(template, videoFiles, vfs)
       if (!newScene) {
         alert('未能自动匹配到合适的素材，请手动添加')
         return

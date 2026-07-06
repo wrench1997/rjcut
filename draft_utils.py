@@ -788,24 +788,37 @@ async def ai_analyze_videos_via_gateway(
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ],
-        "temperature": 0.3,
-        "max_tokens": 10000,
+        "temperature": 0.7,  # 调高温度，减少思考时间
+        "max_tokens": 5000,  # 减少 max_tokens，加快响应
         "stream": False,
         "response_format": {"type": "json_object"},
+        # 关闭思考模式，加快响应速度
+        "extra_body": {
+            "enable_thinking": False,
+            "thinking_enabled": False,
+        },
     }
 
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            print(f"[AI 素材分析] 请求 Gateway: {GATEWAY_BASE_URL}/v1/chat/completions")
+            print(f"[AI 素材分析] 请求 payload: {json.dumps(payload, ensure_ascii=False)[:500]}...")
+            
             response = await client.post(
                 f"{GATEWAY_BASE_URL}/v1/chat/completions",
                 json=payload
             )
+            print(f"[AI 素材分析] Gateway 响应状态码：{response.status_code}")
             response.raise_for_status()
             result = response.json()
+            print(f"[AI 素材分析] Gateway 响应数据：{json.dumps(result, ensure_ascii=False)[:1000]}...")
 
             # 解析 AI 返回的 JSON（使用正则提取，兼容思考过程）
             message = result["choices"][0]["message"]
-            ai_content = message.get("content") or message.get("reasoning", "")
+            # 兼容不同模型的返回字段：content > reasoning > reasoning_content
+            ai_content = message.get("content") or message.get("reasoning", "") or message.get("reasoning_content", "")
+            
+            print(f"[AI 素材分析] AI 返回内容：{ai_content[:500] if ai_content else 'None'}...")
             
             if not ai_content:
                 raise ValueError("AI 返回内容为空")
@@ -813,6 +826,7 @@ async def ai_analyze_videos_via_gateway(
             # 使用正则提取 suggestions 字段
             suggestions = extract_json_field(ai_content, "suggestions")
             if not suggestions:
+                print(f"[AI 素材分析] 提取 suggestions 失败，完整内容：{ai_content[:2000]}")
                 raise ValueError("无法提取 suggestions 字段")
 
             return {
@@ -821,12 +835,16 @@ async def ai_analyze_videos_via_gateway(
                 "usage": result.get("usage", {}),
             }
     except httpx.HTTPError as e:
+        print(f"[AI 素材分析] Gateway 调用失败：{e}")
         return {
             "success": False,
             "suggestions": [],
             "error": f"Gateway 调用失败：{str(e)}",
         }
     except Exception as e:
+        print(f"[AI 素材分析] AI 分析失败：{e}")
+        import traceback
+        traceback.print_exc()
         return {
             "success": False,
             "suggestions": [],
