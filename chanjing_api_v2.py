@@ -536,6 +536,11 @@ class ChanjingAPIV2(ChanjingAPI):
             # 调用 V1 的 _request 方法
             result = super()._request(method, endpoint, params, data, headers, retry)
             
+            # 🔴 添加详细日志，诊断返回结果
+            self._request_logger.info(
+                f"API 调用结果：{method} {endpoint} - code={result.get('code') if isinstance(result, dict) else 'N/A'}, msg={result.get('msg') if isinstance(result, dict) else 'N/A'}"
+            )
+            
             # 记录成功
             latency = time.time() - start_time
             if self._stats:

@@ -1,5 +1,6 @@
 # api_digital_human.py
 import uuid
+import logging
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
