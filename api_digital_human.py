@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from rq import Queue
 
 from database import get_db
-from models import Merchant, Task, TaskStatus
+from models import Merchant, Task, TaskStatus, ApiKey
 from auth import verify_api_key
 from quota import check_quota, check_concurrent_limit, reserve_quota
 from config import get_settings
@@ -52,9 +52,12 @@ def fail(code, msg, status_code=400): return {"code": code, "message": msg}
 # ----- 1. 获取基础资源接口 (透传蝉镜API) -----
 
 @router.get("/persons/common")
-def list_common_persons(_: Merchant = Depends(verify_api_key)):
+def list_common_persons(merchant: Merchant = Depends(verify_api_key)):
     """获取公共数字人列表（包含所有可选形象类型）"""
     import logging
+    from fastapi import Request
+    from urllib.parse import urlencode
+    
     logger = logging.getLogger("uvicorn.error")
     try:
         api = get_chanjing_api()
@@ -71,6 +74,18 @@ def list_common_persons(_: Merchant = Depends(verify_api_key)):
     
     persons = res.get("data", {}).get("list", [])
     
+    # 获取商户的 API Key（用于生成代理 URL）
+    api_key_raw = None
+    try:
+        db = next(get_db())
+        user_api_key = db.query(ApiKey).filter(ApiKey.merchant_id == merchant.id, ApiKey.is_active == True).first()
+        if user_api_key:
+            # 从原始 key_hash 反向查找不太可能，这里使用商户信息中的 key
+            # 实际上我们需要从 request header 获取原始 API Key
+            pass
+    except:
+        pass
+    
     # 返回完整的数字人信息，包含所有可选的 figures
     result_list = []
     for person in persons:
@@ -80,18 +95,15 @@ def list_common_persons(_: Merchant = Depends(verify_api_key)):
         figures = person.get("figures", [])
         
         # 🔍 调试日志
-        import logging
         logger = logging.getLogger("uvicorn.error")
-        # logger.info(f"数字人：{person_name}, figures 数量：{len(figures)}")
         if figures:
             pass
-            #logger.info(f"  第一个 figure: {figures[0]}")
         
         # 提取所有可选的 figure_type 列表
         available_figure_types = [fig.get("type", "") for fig in figures if fig.get("type")]
         
         # 🎭 从 figures 中获取第一个有 cover 的 figure
-        cover_url = ""
+        original_cover_url = ""
         preview_video_url = ""
         figure_type = "whole_body"
         
@@ -99,20 +111,27 @@ def list_common_persons(_: Merchant = Depends(verify_api_key)):
             # 找第一个有 cover 的 figure
             for fig in figures:
                 if fig.get("cover"):
-                    cover_url = fig.get("cover", "")
+                    original_cover_url = fig.get("cover", "")
                     preview_video_url = fig.get("preview_video_url", "")
                     figure_type = fig.get("type", "whole_body")
                     break
             # 如果都没有 cover，使用第一个 figure
-            if not cover_url and figures[0]:
-                cover_url = figures[0].get("cover", "")
+            if not original_cover_url and figures[0]:
+                original_cover_url = figures[0].get("cover", "")
                 preview_video_url = figures[0].get("preview_video_url", "")
                 figure_type = figures[0].get("type", "whole_body")
         
         # 如果 figures 为空，尝试从 person 直接获取封面（兼容旧数据）
-        if not cover_url:
-            cover_url = person.get("cover_url", "")
+        if not original_cover_url:
+            original_cover_url = person.get("cover_url", "")
             preview_video_url = person.get("preview_video_url", "")
+        
+        # 🔗 将本地路径转换为代理 URL（如果 cover_url 是本地路径）
+        cover_url = original_cover_url
+        if original_cover_url and (original_cover_url.startswith('/root/') or original_cover_url.startswith('/data/') or original_cover_url.startswith('/app/')):
+            # 使用固定 API Key（从环境变量或配置获取）
+            proxy_api_key = get_settings().SECRET_KEY  # 或者使用固定的内部 API Key
+            cover_url = f"/v1/dh/proxy-image?path={original_cover_url}&api_key={proxy_api_key}"
         
         result_list.append({
             "id": person_id,

@@ -36,12 +36,12 @@ function AvatarPicker({ persons, voices, selectedPerson, onSelectPerson, selecte
             >
               {person.cover_url ? (
                 <img 
-                  src={getImageProxyUrl(person.cover_url) || person.cover_url} 
+                  src={person.cover_url.startsWith('/v1/dh/proxy-image') ? person.cover_url : (getImageProxyUrl(person.cover_url) || person.cover_url)} 
                   alt={person.name} 
                   className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110" 
                   onError={(e) => {
-                    // 如果代理失败，尝试直接使用原 URL
-                    if (e.target.src !== person.cover_url) {
+                    // 如果代理失败，尝试使用原始 URL 作为远程 HTTP 地址（如果有）
+                    if (person.cover_url.startsWith('http://') || person.cover_url.startsWith('https://')) {
                       e.target.src = person.cover_url;
                     }
                   }}
