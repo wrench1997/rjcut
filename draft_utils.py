@@ -137,16 +137,17 @@ async def ai_generate_script_via_gateway(
 4. 有感染力和号召力，能激发购买欲望
 5. 符合短视频节奏，每句话简短有力
 6. hook 开场要抓人眼球，ending 结尾要促单
-7. 文案要连贯流畅，段落之间自然衔接
+7. 文案要连贯流畅，段落之间自然衔接，形成完整的解说稿
 
 【输出格式】
 请按行输出，每一行对应一个段落的口播词。
-注意：只需要为 hook、human、ending 这三种段落生成文案，scene 段落不需要生成。
+注意：模板中的每个段落都需要生成口播文案，包括 scene 段落。
+scene 段落的文案必须以"转场"开头，但要优雅自然，用意境烘托氛围，不要直白描述画面（如"转场，深山里的梅花鹿自由生长..."、"转场，每一滴都是自然的馈赠..."等）。
 不要输出任何解释、段落标识，只输出纯文案内容。
 """
 
-    # 统计需要生成文案的段落数量（排除 scene，因为 scene 只是转场画面，不需要口播）
-    text_segment_count = sum(1 for s in template_structure if s.get("flag") in ("hook", "human", "ending"))
+    # 统计所有段落数量（包括 scene，因为每个段落都需要口播文案来保持连贯）
+    text_segment_count = len(template_structure)
     
     user_prompt = f"""请为以下产品创作面向大众消费者的口播带货文案：
 
@@ -160,23 +161,21 @@ async def ai_generate_script_via_gateway(
 {template_structure}
 
 【任务】
-模板结构中有 {text_segment_count} 个段落需要口播文案（hook、human、ending）。
-scene 段落是转场画面，不需要口播文案。
-请按顺序输出 {text_segment_count} 行文案，每行对应一个需要口播的段落。
+模板结构中共有 {text_segment_count} 个段落，每个段落都需要生成口播文案。
+请按顺序输出 {text_segment_count} 行文案，每行对应一个段落。
 
 【重要说明】
-- 只需要为 hook、human、ending 段落生成口播文案
-- scene 段落是纯画面转场，不需要口播
-- hook 负责开场吸引注意力
-- human 段落是主体内容，详细介绍产品
-- ending 负责结尾促单，引导购买
+- hook 段落：开场吸引注意力，抓住观众眼球
+- scene 段落：必须以"转场"开头，但要优雅自然，用意境烘托氛围，不要直白描述画面（如"转场，深山里的梅花鹿自由生长..."、"转场，每一滴都是自然的馈赠..."等）
+- human 段落：主体内容，详细介绍产品功效和好处
+- ending 段落：结尾促单，引导点击购买
 
 【文案要求】
 - 用老百姓听得懂的大白话
 - 突出产品实际功效和好处
 - 有感染力，能打动普通人
 - 适合直播带货场景
-- 文案要连贯流畅，形成完整的口播稿
+- 文案要连贯流畅，段落之间自然衔接，形成完整的解说稿
 """
 
     payload = {
@@ -489,27 +488,18 @@ def parse_ai_script_to_segments(ai_text: str, template_structure: List[Dict]) ->
     for segment in template_structure:
         flag = segment.get("flag")
         
-        # 需要填充文案的段落类型：hook、human、ending
-        if flag in ("hook", "human", "ending"):
-            # 从 AI 文案中取一行作为该段落的文案
-            if ai_index < len(cleaned_lines):
-                text = cleaned_lines[ai_index]
-                ai_index += 1
-            else:
-                text = segment.get("text", "")
-
-            generated_segments.append({
-                **segment,
-                "text": text,
-                "note": segment.get("note") or "",  # 直接使用原有 note，不添加后缀
-            })
+        # 所有段落都需要填充文案（包括 scene，因为 AI 会为每个段落生成口播词）
+        if ai_index < len(cleaned_lines):
+            text = cleaned_lines[ai_index]
+            ai_index += 1
         else:
-            # transition、scene 等段落保持原样（作为转场提示）
-            generated_segments.append({
-                **segment,
-                "text": "",  # 转场段落不需要文案
-                "note": segment.get("note") or "",  # 直接使用原有 note，不添加后缀
-            })
+            text = segment.get("text", "")
+
+        generated_segments.append({
+            **segment,
+            "text": text,
+            "note": segment.get("note") or "",  # 直接使用原有 note，不添加后缀
+        })
 
     return generated_segments
 
