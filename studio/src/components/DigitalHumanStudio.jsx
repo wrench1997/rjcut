@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { getCommonPersons, getCustomPersons, getCommonPersonDetail, getCustomPersonDetail, getVoices, createDhGenerateTask, getDhTaskDetail, getDhVideoUrl } from '../api/api'
+import { getCommonPersons, getCustomPersons, getCommonPersonDetail, getCustomPersonDetail, getVoices, createDhGenerateTask, getDhTaskDetail, getDhVideoUrl, getImageProxyUrl } from '../api/api'
 import { getVFS } from '../utils/vfsClient'
 import { PROJECT_FOLDERS, buildVFSPath } from '../utils/project-structure'
 import { User, Mic, Check, X, Film, Download, AlertCircle, Loader2, Book, Inbox, Folder, AlertTriangle, Rocket, Settings, Sliders, Volume2, Type, Image, ChevronDown, ChevronUp, Palette, Maximize, Sparkles, Wand2 } from 'lucide-react'
@@ -36,9 +36,15 @@ function AvatarPicker({ persons, voices, selectedPerson, onSelectPerson, selecte
             >
               {person.cover_url ? (
                 <img 
-                  src={person.cover_url} 
+                  src={getImageProxyUrl(person.cover_url) || person.cover_url} 
                   alt={person.name} 
                   className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110" 
+                  onError={(e) => {
+                    // 如果代理失败，尝试直接使用原 URL
+                    if (e.target.src !== person.cover_url) {
+                      e.target.src = person.cover_url;
+                    }
+                  }}
                 />
               ) : (
                 <div className="w-full h-full bg-gradient-to-br from-slate-200 to-slate-300 flex items-center justify-center text-slate-400">

@@ -787,3 +787,103 @@ def delete_file(
         )
     
     return ok({"file_id": file_id})
+# ============================================================
+# 图片代理接口 - 解决前端跨域访问图片问题
+# ============================================================
+
+@router.get("/proxy-image")
+def proxy_image(
+    url: str,
+    _: Merchant = Depends(verify_api_key)
+):
+    """图片代理接口
+    
+    前端通过此接口获取远程图片，避免跨域问题。
+    后端会下载图片并返回给前端。
+    
+    参数:
+        url: 原始图片 URL（需要 URL 编码）
+    
+    返回:
+        图片二进制数据
+    """
+    import logging
+    import requests
+    from fastapi import HTTPException
+    from fastapi.responses import StreamingResponse
+    from io import BytesIO
+    
+    logger = logging.getLogger("uvicorn.error")
+    
+    if not url:
+        raise HTTPException(status_code=400, detail="缺少 url 参数")
+    
+    try:
+        # 验证 URL 格式
+        if not url.startswith(("http://", "https://")):
+            raise HTTPException(status_code=400, detail="无效的 URL 格式")
+        
+        # 限制只能访问允许的域名（防止 SSRF 攻击）
+        allowed_hosts = [
+            "host.docker.internal",
+            "localhost",
+            "127.0.0.1",
+            "192.168.",
+            "10.",
+            "172.16.",
+            "172.17.",
+            "172.18.",
+            "172.19.",
+            "172.20.",
+            "172.21.",
+            "172.22.",
+            "172.23.",
+            "172.24.",
+            "172.25.",
+            "172.26.",
+            "172.27.",
+            "172.28.",
+            "172.29.",
+            "172.30.",
+            "172.31.",
+        ]
+        
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        host = parsed.netloc.lower()
+        
+        # 检查是否在允许列表中
+        is_allowed = any(host.startswith(allowed) or host == allowed for allowed in allowed_hosts)
+        if not is_allowed:
+            logger.warning(f"拒绝访问外部域名：{host}")
+            raise HTTPException(status_code=403, detail="不允许访问此域名")
+        
+        # 下载图片
+        logger.info(f"代理图片请求：{url[:100]}...")
+        response = requests.get(url, timeout=30, stream=True)
+        response.raise_for_status()
+        
+        # 获取内容类型
+        content_type = response.headers.get('Content-Type', 'image/png')
+        
+        # 返回图片
+        def generate():
+            for chunk in response.iter_content(chunk_size=8192):
+                yield chunk
+        
+        return StreamingResponse(
+            generate(),
+            media_type=content_type,
+            headers={
+                "Cache-Control": "public, max-age=3600",  # 缓存 1 小时
+            }
+        )
+        
+    except HTTPException:
+        raise
+    except requests.exceptions.RequestException as e:
+        logger.error(f"下载图片失败：{e}")
+        raise HTTPException(status_code=502, detail=f"获取图片失败：{str(e)}")
+    except Exception as e:
+        logger.error(f"图片代理异常：{e}")
+        raise HTTPException(status_code=500, detail=f"服务器错误：{str(e)}")

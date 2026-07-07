@@ -228,3 +228,13 @@ export const getPersonSampleVideos = (person_id, limit = 10) => {
   if (person_id) params.append('person_id', person_id);
   return apiClient.get(`/v1/tasks?${params.toString()}&type=dh_generate`);
 };
+// =====================================================
+// 图片代理
+// =====================================================
+// 获取图片代理 URL（用于解决跨域问题）
+export const getImageProxyUrl = (imageUrl) => {
+  if (!imageUrl) return null;
+  const baseUrl = getBaseUrl();
+  // 使用 URL 编码传递原始图片地址
+  return `${baseUrl}/v1/dh/proxy-image?url=${encodeURIComponent(imageUrl)}`;
+};
