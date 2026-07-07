@@ -978,7 +978,7 @@ ending: "老妹家自家鹿场养了 1000 头梅花鹿，无论是鹿茸血还�
     }
 
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=160.0) as client:
             response = await client.post(
                 f"{GATEWAY_BASE_URL}/v1/chat/completions",
                 json=payload
