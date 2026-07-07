@@ -908,14 +908,18 @@ JSON 必须包含以下字段：
 - name: 模板名称（格式：{产品类型}·{风格简称}）
 - description: 模板描述（一句话说明适用场景）
 - category: 分类（根据产品类型选择：滋补保健/数码科技/时尚穿搭/美食推荐/美妆护肤/通用）
-- segments: 段落结构数组，每个段落包含 flag（hook/scene/ending）和 note（说明）
+- segments: 段落结构数组，每个段落必须包含：
+  - flag: 段落类型（hook/scene/ending）
+  - note: 场景说明（描述画面内容）
+  - text: 该段落对应的口播文案（必须为每个 segment 生成连贯的口播文案）
 - style: 文案风格配置，包含 hook（开场文案模板）和 ending（结尾文案模板），支持{product}变量
 
 要求：
 1. 必须包含 1 个 hook 开场段落和 1 个 ending 结尾段落
-2. 中间包含指定数量的 scene/transition 段落，用于展示产品细节
-3. 开场和结尾文案要符合指定风格，口语化，适合短视频节奏
-4. 如果提供了素材文件名，请根据文件名中的关键词设计对应的场景段落"""
+2. 中间包含指定数量的 scene 段落，用于展示产品细节
+3. 每个 segment 的 text 字段必须填写，形成完整连贯的口播脚本
+4. 开场和结尾文案要符合指定风格，口语化，适合短视频节奏
+5. 如果提供了素材文件名，请根据文件名中的关键词设计对应的场景段落和文案"""
 
     # 构建文件名参考文本
     file_names_text = ""
@@ -934,7 +938,13 @@ JSON 必须包含以下字段：
 【文案风格】{style_descriptions.get(style, style)}
 【转场数量】{transition_count} 个{file_names_text}
 
-请根据以上产品信息，生成包含开场、{transition_count}个转场/场景、结尾的完整模板结构。开场和结尾文案要体现产品卖点和目标人群特点。"""
+请根据以上产品信息，生成包含开场、{transition_count}个转场/场景、结尾的完整模板结构。
+
+【重要要求】
+1. 每个 segment 必须包含 text 字段，填写对应的口播文案
+2. 所有 segment 的 text 连起来应该是一篇完整、连贯的口播稿
+3. scene 段落不要留空 text，要根据画面内容写对应的解说词
+4. 开场和结尾文案要体现产品卖点和目标人群特点"""
 
     payload = {
         "model": model_name or os.getenv("MODEL_NAME", "Qwen/Qwen3.5-397B-A17B-FP8"),
