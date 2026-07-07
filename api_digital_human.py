@@ -94,12 +94,6 @@ def list_common_persons(merchant: Merchant = Depends(verify_api_key)):
         audio_man_id = person.get("audio_man_id", "")
         figures = person.get("figures", [])
         
-        # 🔍 调试日志
-        logger = logging.getLogger("uvicorn.error")
-        logger.info(f"数字人：{person_name}, cover_url={original_cover_url}")
-        if figures:
-            logger.info(f"  figures[0]: {figures[0] if len(figures) > 0 else 'empty'}")
-        
         # 提取所有可选的 figure_type 列表
         available_figure_types = [fig.get("type", "") for fig in figures if fig.get("type")]
         
@@ -107,6 +101,12 @@ def list_common_persons(merchant: Merchant = Depends(verify_api_key)):
         original_cover_url = ""
         preview_video_url = ""
         figure_type = "whole_body"
+        
+        # 🔍 调试日志
+        logger = logging.getLogger("uvicorn.error")
+        if figures:
+            logger.info(f"数字人：{person_name}, figures count={len(figures)}")
+            logger.info(f"  figures[0]: {figures[0] if len(figures) > 0 else 'empty'}")
         
         if figures and len(figures) > 0:
             # 找第一个有 cover 的 figure
