@@ -96,8 +96,9 @@ def list_common_persons(merchant: Merchant = Depends(verify_api_key)):
         
         # 🔍 调试日志
         logger = logging.getLogger("uvicorn.error")
+        logger.info(f"数字人：{person_name}, cover_url={original_cover_url}")
         if figures:
-            pass
+            logger.info(f"  figures[0]: {figures[0] if len(figures) > 0 else 'empty'}")
         
         # 提取所有可选的 figure_type 列表
         available_figure_types = [fig.get("type", "") for fig in figures if fig.get("type")]
@@ -126,12 +127,13 @@ def list_common_persons(merchant: Merchant = Depends(verify_api_key)):
             original_cover_url = person.get("cover_url", "")
             preview_video_url = person.get("preview_video_url", "")
         
-        # 🔗 将本地路径转换为代理 URL（如果 cover_url 是本地路径）
-        cover_url = original_cover_url
+        # 🔗 蝉镜返回的 cover 是本地路径，需要转换为代理 URL
         if original_cover_url and (original_cover_url.startswith('/root/') or original_cover_url.startswith('/data/') or original_cover_url.startswith('/app/')):
-            # 使用固定的内部 API Key（用于内部图片代理服务）
-            INTERNAL_PROXY_KEY = "internal_proxy_key_2024"
-            cover_url = f"/v1/dh/proxy-image?path={original_cover_url}&api_key={INTERNAL_PROXY_KEY}"
+            # 转换为代理 URL，让前端能通过 /v1/dh/proxy-image 接口访问
+            cover_url = f"/v1/dh/proxy-image?path={original_cover_url}"
+            logger.info(f"本地封面路径转换为代理 URL: {cover_url}")
+        else:
+            cover_url = original_cover_url
         
         result_list.append({
             "id": person_id,
@@ -154,6 +156,8 @@ def get_common_person_detail(
     _: Merchant = Depends(verify_api_key)
 ):
     """获取单个公共数字人的详细信息（包含可用动作/形象）"""
+    import logging
+    logger = logging.getLogger("uvicorn.error")
     api = get_chanjing_api()
     
     # 蝉镜 API 没有直接的公共数字人详情接口，需要从列表中筛选
@@ -198,6 +202,11 @@ def get_common_person_detail(
     if not cover_url:
         cover_url = target_person.get("cover_url", "")
         preview_video_url = target_person.get("preview_video_url", "")
+    
+    # 🔗 将本地路径转换为代理 URL
+    if cover_url and (cover_url.startswith('/root/') or cover_url.startswith('/data/') or cover_url.startswith('/app/')):
+        cover_url = f"/v1/dh/proxy-image?path={cover_url}"
+        logger.info(f"详情页本地封面路径转换为代理 URL: {cover_url}")
     
     result = {
         "id": person_id,
@@ -290,21 +299,27 @@ def list_custom_persons(
                  logger.error(f"  *** ❌ 调用蝉镜 API 失败：{e}")
         
         if p.cover_url and not p.cover_url.startswith("http"):
-            # 🎬 为私有 MinIO 文件生成预签名 URL（有效期 7 天）
-            try:
-                from minio.error import S3Error
-                cover_url = minio_client.presigned_get_object(
-                    bucket_name=bucket,
-                    object_name=p.cover_url,
-                    expires=timedelta(days=7)
-                )
-                logger.info(f"  ✅ 生成预签名 URL: {cover_url[:100]}...")
-            except S3Error as e:
-                logger.warning(f"  ❌ 生成封面图预签名 URL 失败：{p.cover_url}, 错误：{e}")
-                # 如果生成失败，尝试使用公开 URL
-                minio_external = oss_settings.MINIO_EXTERNAL_ENDPOINT.rstrip("/")
-                cover_url = f"{minio_external}/{bucket}/{p.cover_url}"
-                logger.info(f"  🔄 使用公开 URL: {cover_url}")
+            # 🔗 检查是否是本地路径（蝉镜 API 返回的）
+            if p.cover_url.startswith('/root/') or p.cover_url.startswith('/data/') or p.cover_url.startswith('/app/'):
+                # 转换为代理 URL
+                cover_url = f"/v1/dh/proxy-image?path={p.cover_url}"
+                logger.info(f"  🔄 本地路径转换为代理 URL: {cover_url}")
+            else:
+                # 🎬 为私有 MinIO 文件生成预签名 URL（有效期 7 天）
+                try:
+                    from minio.error import S3Error
+                    cover_url = minio_client.presigned_get_object(
+                        bucket_name=bucket,
+                        object_name=p.cover_url,
+                        expires=timedelta(days=7)
+                    )
+                    logger.info(f"  ✅ 生成预签名 URL: {cover_url[:100]}...")
+                except S3Error as e:
+                    logger.warning(f"  ❌ 生成封面图预签名 URL 失败：{p.cover_url}, 错误：{e}")
+                    # 如果生成失败，尝试使用公开 URL
+                    minio_external = oss_settings.MINIO_EXTERNAL_ENDPOINT.rstrip("/")
+                    cover_url = f"{minio_external}/{bucket}/{p.cover_url}"
+                    logger.info(f"  🔄 使用公开 URL: {cover_url}")
         elif p.cover_url:
             logger.info(f"  ✅ 使用外部 URL: {p.cover_url[:100]}...")
         else:
@@ -332,6 +347,8 @@ def get_custom_person_detail(
     db: Session = Depends(get_db)
 ):
     """从蝉镜 API 拉取单个自定义数字人的详细信息"""
+    import logging
+    logger = logging.getLogger("uvicorn.error")
     api = get_chanjing_api()
     
     # 先从蝉镜 API 获取最新状态（使用缓存降低并发）
@@ -368,6 +385,11 @@ def get_custom_person_detail(
         
     # 🎬 蝉镜 API 返回的是 pic_url / preview_url，不是 cover_url
     cover_url = data.get('pic_url') or data.get('preview_url') or data.get('cover_url')
+    
+    # 🔗 将本地路径转换为代理 URL
+    if cover_url and (cover_url.startswith('/root/') or cover_url.startswith('/data/') or cover_url.startswith('/app/')):
+        cover_url = f"/v1/dh/proxy-image?path={cover_url}"
+        logger.info(f"详情页本地封面路径转换为代理 URL: {cover_url}")
     
     # 返回详细信息
     result = {
@@ -507,6 +529,12 @@ def sync_custom_persons(
             cover_url = person_data.get('cover_url', '')
             figure_type = person_data.get('figure_type', '')
         
+        # 🔗 将本地路径转换为代理 URL（不保存到数据库，只在返回时转换）
+        display_cover_url = cover_url
+        if cover_url and (cover_url.startswith('/root/') or cover_url.startswith('/data/') or cover_url.startswith('/app/')):
+            display_cover_url = f"/v1/dh/proxy-image?path={cover_url}"
+            logger.info(f"  🔄 同步时本地路径转换为代理 URL: {display_cover_url}")
+        
         audio_man_id = person_data.get('audio_man_id')  # 🆕 获取声音 ID
         
         # 映射蝉镜状态到本地状态 (根据 chanjing_api.py：1=制作中，2=成功，4=失败)
@@ -527,7 +555,7 @@ def sync_custom_persons(
             existing.status = local_status
             # 🎬 保留本地封面！如果本地已有从源视频第一帧提取的封面，不要覆盖
             if not existing.cover_url:
-                existing.cover_url = cover_url
+                existing.cover_url = cover_url  # 保存原始路径
             existing.audio_man_id = audio_man_id  # 🆕 同步声音 ID
             existing.figure_type = figure_type  # 🆕 同步形象类型
             existing.updated_at = datetime.now(timezone.utc)
@@ -539,7 +567,7 @@ def sync_custom_persons(
                 chanjing_person_id=person_id,
                 name=name,
                 status=local_status,
-                cover_url=cover_url,
+                cover_url=cover_url,  # 保存原始路径
                 audio_man_id=audio_man_id,  # 🆕 保存声音 ID
                 figure_type=figure_type  # 🆕 保存形象类型
             )
