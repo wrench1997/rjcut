@@ -166,6 +166,7 @@ services:
       - ./:/app          # 开发时建议加 :ro（只读），避免意外修改；生产去掉 ro
       - /opt/rjcut/service_data:/app/service_data   # 这个持久化目录保持 rw
       - ./fonts:/app/fonts:ro    # ← 新增：显式只读挂载 fonts 目录
+      - /root/MuseTalk/data/video:/root/MuseTalk/data/video:ro    # 蝉镜数字人封面图目录
     working_dir: /app       # 强制工作目录为 /app
     depends_on:
       postgres:
