@@ -241,18 +241,8 @@ export const getImageProxyUrl = (imageUrl) => {
     ? localStorage.getItem('rjcut_api_key') || DEFAULT_API_KEY
     : DEFAULT_API_KEY;
   
-  // 提取路径部分（去掉 http://host:port 前缀）
-  let path = imageUrl;
-  try {
-    // 如果是完整 URL，提取路径部分
-    if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
-      const urlObj = new URL(imageUrl);
-      path = urlObj.pathname;
-    }
-  } catch (e) {
-    // 解析失败，直接使用原路径
-    console.warn('URL 解析失败，使用原路径:', e);
-  }
+  // 直接使用完整 URL 作为 path 参数（后端支持远程 URL 代理）
+  const path = imageUrl;
   
   // 使用 URL 编码传递图片路径和 API Key（通过 URL 参数传递，因为<img>标签无法携带 header）
   return `${baseUrl}/v1/dh/proxy-image?path=${encodeURIComponent(path)}&api_key=${encodeURIComponent(apiKey)}`;
