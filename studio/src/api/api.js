@@ -254,6 +254,6 @@ export const getImageProxyUrl = (imageUrl) => {
     console.warn('URL 解析失败，使用原路径:', e);
   }
   
-  // 使用 URL 编码传递图片路径和 API Key
-  return `${baseUrl}/v1/dh/proxy-image?path=${encodeURIComponent(path)}&api_key=${encodeURIComponent('Bearer ' + apiKey)}`;
+  // 使用 URL 编码传递图片路径和 API Key（通过 URL 参数传递，因为<img>标签无法携带 header）
+  return `${baseUrl}/v1/dh/proxy-image?path=${encodeURIComponent(path)}&api_key=${encodeURIComponent(apiKey)}`;
 };

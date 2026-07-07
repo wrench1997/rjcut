@@ -794,7 +794,7 @@ def delete_file(
 @router.get("/proxy-image")
 async def proxy_image(
     path: str,
-    api_key: str = None,
+    merchant: Merchant = Depends(verify_api_key),
 ):
     """图片代理接口
     
@@ -803,45 +803,20 @@ async def proxy_image(
     
     参数:
         path: 图片文件路径（需要 URL 编码），如 /root/MuseTalk/data/video/xxx.png
-        api_key: API Key（通过 URL 参数传递，因为<img>标签无法携带 header）
     
     返回:
         图片二进制数据
     """
     import logging
     from pathlib import Path
-    from fastapi import HTTPException, Depends
+    from fastapi import HTTPException
     from fastapi.responses import Response
     import mimetypes
-    from auth import verify_api_key
-    from models import Merchant
     
     logger = logging.getLogger("uvicorn.error")
     
     if not path:
         raise HTTPException(status_code=400, detail="缺少 path 参数")
-    
-    # 验证 API Key（支持 URL 参数传递）
-    try:
-        if api_key:
-            # 从 URL 参数验证
-            from auth import API_KEY_HEADER
-            import re
-            # 简单的 Bearer token 验证
-            if api_key.startswith("Bearer "):
-                api_key = api_key[7:]
-            # 调用验证函数
-            merchant = verify_api_key(api_key)
-            if not merchant:
-                raise HTTPException(status_code=401, detail="无效的 API Key")
-        else:
-            # 没有 API Key，拒绝访问
-            raise HTTPException(status_code=401, detail="缺少 API Key")
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"API Key 验证失败：{e}")
-        raise HTTPException(status_code=401, detail="认证失败")
     
     try:
         # 安全检查：限制只能访问特定目录

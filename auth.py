@@ -22,13 +22,19 @@ def generate_api_key():
 def verify_api_key(
     authorization: str = Header(None),
     db: Session = Depends(get_db),
+    api_key_param: str = None,  # 支持从 URL 参数传递 API Key
 ) -> Merchant:
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="missing bearer token")
-
-    token = authorization[7:].strip()
+    # 优先从 Header 获取，如果没有则尝试从 URL 参数获取
+    token = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization[7:].strip()
+    elif api_key_param and api_key_param.startswith("Bearer "):
+        token = api_key_param[7:].strip()
+    elif api_key_param:
+        token = api_key_param.strip()
+    
     if not token:
-        raise HTTPException(status_code=401, detail="empty token")
+        raise HTTPException(status_code=401, detail="missing bearer token")
 
     token_hash = hash_api_key(token)
 
