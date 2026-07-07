@@ -2,7 +2,7 @@ import hashlib
 import secrets
 from datetime import datetime, timezone
 
-from fastapi import Header, HTTPException, Depends
+from fastapi import Header, HTTPException, Depends, Query
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -22,16 +22,16 @@ def generate_api_key():
 def verify_api_key(
     authorization: str = Header(None),
     db: Session = Depends(get_db),
-    api_key_param: str = None,  # 支持从 URL 参数传递 API Key
+    api_key: str = Query(None, alias="api_key"),  # 从 URL 参数获取 API Key
 ) -> Merchant:
     # 优先从 Header 获取，如果没有则尝试从 URL 参数获取
     token = None
     if authorization and authorization.startswith("Bearer "):
         token = authorization[7:].strip()
-    elif api_key_param and api_key_param.startswith("Bearer "):
-        token = api_key_param[7:].strip()
-    elif api_key_param:
-        token = api_key_param.strip()
+    elif api_key and api_key.startswith("Bearer "):
+        token = api_key[7:].strip()
+    elif api_key:
+        token = api_key.strip()
     
     if not token:
         raise HTTPException(status_code=401, detail="missing bearer token")

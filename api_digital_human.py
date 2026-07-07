@@ -794,6 +794,7 @@ def delete_file(
 @router.get("/proxy-image")
 async def proxy_image(
     path: str,
+    api_key: str = None,  # 从 URL 参数获取 API Key（用于<img>标签访问）
     merchant: Merchant = Depends(verify_api_key),
 ):
     """图片代理接口
