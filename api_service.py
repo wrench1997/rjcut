@@ -79,6 +79,10 @@ app.add_middleware(
 app.include_router(admin_router)
 app.include_router(dh_router)
 
+# 🖼️ 单独注册不需要认证的代理图片接口（在 router 之后注册，覆盖需要认证版本）
+from api_digital_human import proxy_image_no_auth
+app.get("/v1/dh/proxy-image", include_in_schema=False)(proxy_image_no_auth)
+
 
 @app.exception_handler(UnicodeDecodeError)
 async def unicode_decode_exception_handler(request: Request, exc: UnicodeDecodeError):

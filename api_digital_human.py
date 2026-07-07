@@ -936,3 +936,101 @@ async def proxy_image(
     except Exception as e:
         logger.error(f"读取图片异常：{e}")
         raise HTTPException(status_code=500, detail=f"服务器错误：{str(e)}")
+
+
+# 🖼️ 不需要认证的代理图片接口（供前端<img>标签直接访问）
+async def proxy_image_no_auth(
+    path: str,
+):
+    """图片代理接口（无认证版本）
+    
+    前端通过此接口获取服务器本地图片文件，避免跨域问题。
+    此接口不需要 API Key 认证，专门用于<img>标签直接访问。
+    
+    参数:
+        path: 图片文件路径（需要 URL 编码），如 /root/MuseTalk/data/video/xxx.png
+        或者完整的 http/https URL
+    
+    返回:
+        图片二进制数据
+    """
+    import logging
+    from pathlib import Path
+    from fastapi import HTTPException
+    from fastapi.responses import Response
+    import mimetypes
+    import httpx
+    
+    logger = logging.getLogger("uvicorn.error")
+    
+    if not path:
+        raise HTTPException(status_code=400, detail="缺少 path 参数")
+    
+    try:
+        # 判断是本地路径还是远程 URL
+        if path.startswith('http://') or path.startswith('https://'):
+            # 远程 URL：下载并转发
+            logger.info(f"代理远程图片：{path}")
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.get(path)
+                if resp.status_code == 404:
+                    logger.warning(f"远程图片不存在：{path}")
+                    raise HTTPException(status_code=404, detail="远程图片不存在")
+                elif resp.status_code != 200:
+                    logger.error(f"下载远程图片失败：{path}, status={resp.status_code}")
+                    raise HTTPException(status_code=502, detail=f"下载远程图片失败：{resp.status_code}")
+                
+                # 获取内容类型
+                content_type = resp.headers.get('content-type', 'image/png')
+                
+                # 返回图片
+                return Response(
+                    content=resp.content,
+                    media_type=content_type,
+                    headers={
+                        "Cache-Control": "public, max-age=3600",  # 缓存 1 小时
+                    }
+                )
+        else:
+            # 本地文件路径：安全检查后读取
+            allowed_dirs = [
+                "/root/MuseTalk/data/video",
+                "/data/video",
+                "/app/data",
+            ]
+            
+            # 检查路径是否在允许的目录中
+            is_allowed = any(path.startswith(allowed) for allowed in allowed_dirs)
+            if not is_allowed:
+                logger.warning(f"拒绝访问路径：{path}")
+                raise HTTPException(status_code=403, detail="不允许访问此路径")
+            
+            # 检查文件是否存在
+            file_path = Path(path)
+            if not file_path.exists():
+                logger.warning(f"文件不存在：{path}")
+                raise HTTPException(status_code=404, detail="文件不存在")
+            
+            # 读取文件
+            logger.info(f"读取本地图片：{path}")
+            with open(file_path, 'rb') as f:
+                content = f.read()
+            
+            # 获取内容类型
+            content_type, _ = mimetypes.guess_type(path)
+            content_type = content_type or 'image/png'
+            
+            # 返回图片
+            return Response(
+                content=content,
+                media_type=content_type,
+                headers={
+                    "Cache-Control": "public, max-age=3600",  # 缓存 1 小时
+                }
+            )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"读取图片异常：{e}")
+        raise HTTPException(status_code=500, detail=f"服务器错误：{str(e)}")
