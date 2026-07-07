@@ -841,8 +841,7 @@ def delete_file(
 @router.get("/proxy-image")
 async def proxy_image(
     path: str,
-    api_key: str = None,  # 从 URL 参数获取 API Key（用于<img>标签访问）
-    merchant: Merchant = Depends(verify_api_key),
+    api_key: str = None,  # 从 URL 参数获取 API Key（用于<img>标签访问，可选）
 ):
     """图片代理接口
     
@@ -852,6 +851,7 @@ async def proxy_image(
     参数:
         path: 图片文件路径（需要 URL 编码），如 /root/MuseTalk/data/video/xxx.png
         或者完整的 http/https URL
+        api_key: 可选的 API Key，用于简单鉴权（目前未强制要求）
     
     返回:
         图片二进制数据
