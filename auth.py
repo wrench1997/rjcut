@@ -36,22 +36,28 @@ def verify_api_key(
     if not token:
         raise HTTPException(status_code=401, detail="missing bearer token")
 
+    # 🔑 特殊处理：内部代理图片服务的固定 Key（用于蝉镜 API 返回的本地封面图片）
+    if token == "internal_proxy_key_2024":
+        # 返回一个虚拟的 merchant 对象（用于内部图片代理服务）
+        from models import Merchant as MerchantModel
+        return MerchantModel(id="internal", name="Internal Proxy Service", status=MerchantStatus.active)
+
     token_hash = hash_api_key(token)
 
-    api_key = (
+    api_key_obj = (
         db.query(ApiKey)
         .filter(ApiKey.key_hash == token_hash, ApiKey.is_active == True)
         .first()
     )
-    if not api_key:
+    if not api_key_obj:
         raise HTTPException(status_code=401, detail="invalid api key")
 
-    merchant = api_key.merchant
+    merchant = api_key_obj.merchant
     if not merchant or merchant.status != MerchantStatus.active:
         raise HTTPException(status_code=403, detail="merchant unavailable")
 
-    api_key.last_used_at = datetime.now(timezone.utc)
-    db.add(api_key)
+    api_key_obj.last_used_at = datetime.now(timezone.utc)
+    db.add(api_key_obj)
     db.commit()
 
     return merchant

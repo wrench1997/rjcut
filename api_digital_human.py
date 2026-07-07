@@ -129,9 +129,9 @@ def list_common_persons(merchant: Merchant = Depends(verify_api_key)):
         # 🔗 将本地路径转换为代理 URL（如果 cover_url 是本地路径）
         cover_url = original_cover_url
         if original_cover_url and (original_cover_url.startswith('/root/') or original_cover_url.startswith('/data/') or original_cover_url.startswith('/app/')):
-            # 使用固定 API Key（从环境变量或配置获取）
-            proxy_api_key = get_settings().SECRET_KEY  # 或者使用固定的内部 API Key
-            cover_url = f"/v1/dh/proxy-image?path={original_cover_url}&api_key={proxy_api_key}"
+            # 使用固定的内部 API Key（用于内部图片代理服务）
+            INTERNAL_PROXY_KEY = "internal_proxy_key_2024"
+            cover_url = f"/v1/dh/proxy-image?path={original_cover_url}&api_key={INTERNAL_PROXY_KEY}"
         
         result_list.append({
             "id": person_id,

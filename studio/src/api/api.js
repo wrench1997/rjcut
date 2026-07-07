@@ -7,7 +7,7 @@ const DEFAULT_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localho
 const DEFAULT_API_KEY = 'rjk_oG3u1bRu10myprstb5o2AYVW6v9HipNT33ALuJTmFxaqemUC';
 
 // 获取 API 地址（支持从 localStorage 读取用户配置）
-const getBaseUrl = () => {
+export const getBaseUrl = () => {
   if (typeof localStorage !== 'undefined') {
     return localStorage.getItem('rjcut_api_base_url') || DEFAULT_BASE_URL;
   }
