@@ -1241,8 +1241,14 @@ async def generate_template(
     )
 
     if result["success"]:
+        # 🔧 硬替换：将所有 scene 段落的 text 替换为"转场"
+        template = result["template"]
+        if template and "segments" in template:
+            for seg in template["segments"]:
+                if seg.get("flag") == "scene":
+                    seg["text"] = "转场"
         return ok({
-            "template": result["template"],
+            "template": template,
             "usage": result.get("usage", {}),
         })
     else:
