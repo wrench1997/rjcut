@@ -235,6 +235,25 @@ export const getPersonSampleVideos = (person_id, limit = 10) => {
 export const getImageProxyUrl = (imageUrl) => {
   if (!imageUrl) return null;
   const baseUrl = getBaseUrl();
-  // 使用 URL 编码传递原始图片地址
-  return `${baseUrl}/v1/dh/proxy-image?url=${encodeURIComponent(imageUrl)}`;
+  
+  // 获取 API Key
+  const apiKey = typeof localStorage !== 'undefined'
+    ? localStorage.getItem('rjcut_api_key') || DEFAULT_API_KEY
+    : DEFAULT_API_KEY;
+  
+  // 提取路径部分（去掉 http://host:port 前缀）
+  let path = imageUrl;
+  try {
+    // 如果是完整 URL，提取路径部分
+    if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
+      const urlObj = new URL(imageUrl);
+      path = urlObj.pathname;
+    }
+  } catch (e) {
+    // 解析失败，直接使用原路径
+    console.warn('URL 解析失败，使用原路径:', e);
+  }
+  
+  // 使用 URL 编码传递图片路径和 API Key
+  return `${baseUrl}/v1/dh/proxy-image?path=${encodeURIComponent(path)}&api_key=${encodeURIComponent('Bearer ' + apiKey)}`;
 };

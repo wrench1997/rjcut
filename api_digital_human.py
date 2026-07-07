@@ -792,87 +792,89 @@ def delete_file(
 # ============================================================
 
 @router.get("/proxy-image")
-def proxy_image(
-    url: str,
-    _: Merchant = Depends(verify_api_key)
+async def proxy_image(
+    path: str,
+    api_key: str = None,
 ):
     """图片代理接口
     
-    前端通过此接口获取远程图片，避免跨域问题。
-    后端会下载图片并返回给前端。
+    前端通过此接口获取服务器本地图片文件，避免跨域问题。
+    后端读取本地文件并返回给前端。
     
     参数:
-        url: 原始图片 URL（需要 URL 编码）
+        path: 图片文件路径（需要 URL 编码），如 /root/MuseTalk/data/video/xxx.png
+        api_key: API Key（通过 URL 参数传递，因为<img>标签无法携带 header）
     
     返回:
         图片二进制数据
     """
     import logging
-    import requests
-    from fastapi import HTTPException
-    from fastapi.responses import StreamingResponse
-    from io import BytesIO
+    from pathlib import Path
+    from fastapi import HTTPException, Depends
+    from fastapi.responses import Response
+    import mimetypes
+    from auth import verify_api_key
+    from models import Merchant
     
     logger = logging.getLogger("uvicorn.error")
     
-    if not url:
-        raise HTTPException(status_code=400, detail="缺少 url 参数")
+    if not path:
+        raise HTTPException(status_code=400, detail="缺少 path 参数")
+    
+    # 验证 API Key（支持 URL 参数传递）
+    try:
+        if api_key:
+            # 从 URL 参数验证
+            from auth import API_KEY_HEADER
+            import re
+            # 简单的 Bearer token 验证
+            if api_key.startswith("Bearer "):
+                api_key = api_key[7:]
+            # 调用验证函数
+            merchant = verify_api_key(api_key)
+            if not merchant:
+                raise HTTPException(status_code=401, detail="无效的 API Key")
+        else:
+            # 没有 API Key，拒绝访问
+            raise HTTPException(status_code=401, detail="缺少 API Key")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"API Key 验证失败：{e}")
+        raise HTTPException(status_code=401, detail="认证失败")
     
     try:
-        # 验证 URL 格式
-        if not url.startswith(("http://", "https://")):
-            raise HTTPException(status_code=400, detail="无效的 URL 格式")
-        
-        # 限制只能访问允许的域名（防止 SSRF 攻击）
-        allowed_hosts = [
-            "host.docker.internal",
-            "localhost",
-            "127.0.0.1",
-            "192.168.",
-            "10.",
-            "172.16.",
-            "172.17.",
-            "172.18.",
-            "172.19.",
-            "172.20.",
-            "172.21.",
-            "172.22.",
-            "172.23.",
-            "172.24.",
-            "172.25.",
-            "172.26.",
-            "172.27.",
-            "172.28.",
-            "172.29.",
-            "172.30.",
-            "172.31.",
+        # 安全检查：限制只能访问特定目录
+        allowed_dirs = [
+            "/root/MuseTalk/data/video",
+            "/data/video",
+            "/app/data",
         ]
         
-        from urllib.parse import urlparse
-        parsed = urlparse(url)
-        host = parsed.netloc.lower()
-        
-        # 检查是否在允许列表中
-        is_allowed = any(host.startswith(allowed) or host == allowed for allowed in allowed_hosts)
+        # 检查路径是否在允许的目录中
+        is_allowed = any(path.startswith(allowed) for allowed in allowed_dirs)
         if not is_allowed:
-            logger.warning(f"拒绝访问外部域名：{host}")
-            raise HTTPException(status_code=403, detail="不允许访问此域名")
+            logger.warning(f"拒绝访问路径：{path}")
+            raise HTTPException(status_code=403, detail="不允许访问此路径")
         
-        # 下载图片
-        logger.info(f"代理图片请求：{url[:100]}...")
-        response = requests.get(url, timeout=30, stream=True)
-        response.raise_for_status()
+        # 检查文件是否存在
+        file_path = Path(path)
+        if not file_path.exists():
+            logger.warning(f"文件不存在：{path}")
+            raise HTTPException(status_code=404, detail="文件不存在")
+        
+        # 读取文件
+        logger.info(f"读取图片：{path}")
+        with open(file_path, 'rb') as f:
+            content = f.read()
         
         # 获取内容类型
-        content_type = response.headers.get('Content-Type', 'image/png')
+        content_type, _ = mimetypes.guess_type(path)
+        content_type = content_type or 'image/png'
         
         # 返回图片
-        def generate():
-            for chunk in response.iter_content(chunk_size=8192):
-                yield chunk
-        
-        return StreamingResponse(
-            generate(),
+        return Response(
+            content=content,
             media_type=content_type,
             headers={
                 "Cache-Control": "public, max-age=3600",  # 缓存 1 小时
@@ -881,9 +883,6 @@ def proxy_image(
         
     except HTTPException:
         raise
-    except requests.exceptions.RequestException as e:
-        logger.error(f"下载图片失败：{e}")
-        raise HTTPException(status_code=502, detail=f"获取图片失败：{str(e)}")
     except Exception as e:
-        logger.error(f"图片代理异常：{e}")
+        logger.error(f"读取图片异常：{e}")
         raise HTTPException(status_code=500, detail=f"服务器错误：{str(e)}")
