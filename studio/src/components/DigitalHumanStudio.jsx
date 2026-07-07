@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { getCommonPersons, getCustomPersons, getCommonPersonDetail, getCustomPersonDetail, getVoices, createDhGenerateTask, getDhTaskDetail, getDhVideoUrl, getImageProxyUrl, getBaseUrl } from '../api/api'
 import { getVFS } from '../utils/vfsClient'
 import { PROJECT_FOLDERS, buildVFSPath } from '../utils/project-structure'
-import { User, Mic, Check, X, Film, Download, AlertCircle, Loader2, Book, Inbox, Folder, AlertTriangle, Rocket, Settings, Sliders, Volume2, Type, Image, ChevronDown, ChevronUp, Palette, Maximize, Sparkles, Wand2 } from 'lucide-react'
+import { User, Mic, Check, X, Film, Download, AlertCircle, Loader2, Book, Inbox, Folder, AlertTriangle, Rocket, Settings, Sliders, Volume2, Type, Image, ChevronDown, ChevronUp, Maximize, Sparkles, Wand2, Store, FileText, Lightbulb } from 'lucide-react'
 import Tooltip from './Tooltip'
 import TemplateManager from './TemplateManager'
 import { aiGenerateScript, DEFAULT_TEMPLATES } from '../features/template-batch/aiAssistant.js'
@@ -808,163 +808,203 @@ function MinimizedProgress({ tasks, onExpand, onClose }) {
   )
 }
 // =====================================================
-// AI 文案生成表单弹窗
+// AI 文案生成表单弹窗（鹿场直销专用版）
 // =====================================================
 function AIScriptForm({ template, productInfo, setProductInfo, onSubmit, onCancel, isGenerating }) {
-  console.log('[AIScriptForm] template prop:', template)
+  // 鹿场直销风格提示词模板
+  const FARM_DIRECT_PROMPT = `你是一名抖音/快手农产品口播带货脚本专家。
+
+请围绕【产品名称】生成一条"知识科普型 + 强对比 + 防踩坑 + 鹿场老板直销"的口播带货文案。
+
+整体风格必须像真实东北鹿场老板/老妹在镜头前讲话：直接、接地气、有节奏、有情绪起伏，不要写成品牌广告，不要写得文绉绉，也不要出现"尊贵、臻选、匠心、品质生活"这类空话。
+
+## 核心写法
+
+文案必须严格按照下面的成交逻辑：
+
+1. **开场制造焦虑和反差**
+   - 用"想买 XX 的家人们，这条视频你必须看完，不然很容易买错/上当"开头。
+   - 第一秒就点出消费者最关心的区别。
+   - 要有明显的"一个字不同，东西差很多"的反差感。
+
+2. **解释产品来源**
+   - 用通俗、口语化方式讲清楚产品到底从哪里来。
+   - 不要像百科解释，要像老板在现场给顾客讲。
+   - 加入"每年什么时候""哪个环节""为什么难得"等信息，强化稀缺感。
+
+3. **对比另一种容易混淆的产品**
+   - 必须明确讲出两者来源、颜色、状态、工艺、价格或市场乱象的差别。
+   - 对比要强，让观众自然觉得"懂行的人会选前者"。
+   - 不要出现医疗、治病等违规功效承诺。
+
+4. **加入市场造假提醒**
+   - 必须有一段"市面上很多人拿 XX 冒充 XX"的提醒。
+   - 语气要像提醒自家人，不要像恶意攻击同行。
+
+5. **给出简单辨别方法**
+   - 至少给 2 个观众能听懂的辨别点。
+   - 可从颜色、摇晃状态、沉淀、挂杯、包装标签、批次信息等角度写。
+   - 语气要像："你记住这两点，基本就不容易买错。"
+
+6. **鹿场实力背书**
+   - 加入"自家鹿场""养了多少头梅花鹿""从养殖到灌装自己做"等信息。
+   - 让观众感觉是源头老板在卖，不是中间商。
+
+7. **结尾成交引导**
+   - 用"粉丝价""地板价""库存有限""想要的点链接"等方式收口。
+   - 结尾要带一点人情味。
+
+## 输出格式要求
+
+请直接输出完整口播文案。
+每一段之间都用"转场"两个字隔开。
+不要写镜头说明、不要写标题、不要写分段名称、不要解释创作思路。
+全文控制在 450～650 字。
+语言必须口语化，像真人一镜到底口播，节奏要快，句子不要太长。
+
+## 产品信息
+产品名称：【填写产品名称】
+核心对比对象：【填写容易混淆的产品】
+鹿场规模：【例如：自家鹿场养了 1000 头梅花鹿】
+主要卖点：【例如：源头养殖、原料可追溯、规范灌装、粉丝价】
+想强调的辨别点：【例如：颜色、摇晃状态、批次信息、鹿场溯源】
+成交方式：【例如：点击下方链接、评论区扣"鹿"、直播间领取福利】
+目标人群：【例如：送礼、爱喝酒的中年男性、东北特产爱好者】
+
+请生成一条具有"鹿茸血和鹿血区别"这种强反差、强科普、强防坑、强成交风格的口播文案。`
+
+  // 获取当前选中的风格信息
+  const currentStyle = { label: '鹿场直销', icon: Store }
+  
+  // 应用模板到自定义提示词
+  const applyTemplate = () => {
+    setProductInfo({ ...productInfo, customPrompt: FARM_DIRECT_PROMPT })
+  }
+
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col">
-        {/* 头部 */}
-        <div className="p-4 border-b border-slate-200 bg-gradient-to-r from-purple-50 to-pink-50">
-          <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
-            <Sparkles size={18} className="text-purple-600" />
-            AI 文案生成
-          </h3>
-          <p className="text-xs text-slate-500 mt-1">
-            已选择模板：<span className="font-medium text-purple-600">{template?.name || '未选择'}</span>
-            （{template?.segments?.length || 0} 段落，含{template?.segments?.filter(s => s.flag === 'transition').length || 0}个转场）
-          </p>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col max-h-[90vh]">
+        {/* 头部 - 展示选中的模板 */}
+        <div className="p-6 border-b border-slate-100 bg-gradient-to-r from-violet-50 via-purple-50 to-fuchsia-50">
+          <div className="flex items-start justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-gradient-to-br from-violet-500 to-purple-600 rounded-xl shadow-lg">
+                <Sparkles size={22} className="text-white" strokeWidth={2.5} />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-slate-800">AI 文案生成</h3>
+                <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-1.5">
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-white/70 rounded-full">
+                    <FileText size={11} className="text-violet-600" />
+                    <span className="font-medium text-violet-700">{template?.name || '未选择模板'}</span>
+                  </span>
+                  <span className="text-slate-400">•</span>
+                  <span>{template?.segments?.length || 0} 个段落</span>
+                </p>
+              </div>
+            </div>
+            <button 
+              onClick={onCancel} 
+              className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-all"
+            >
+              <X size={20} />
+            </button>
+          </div>
         </div>
 
         {/* 表单内容 */}
-        <div className="p-4 space-y-4 max-h-[70vh] overflow-y-auto custom-scrollbar">
-          {/* 产品名称 */}
-          <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">
-              产品名称 *
-            </label>
-            <input
-              type="text"
-              value={productInfo.productName}
-              onChange={(e) => setProductInfo({ ...productInfo, productName: e.target.value })}
-              placeholder="例如：鹿茸血口服液"
-              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-purple-400"
-              required
-            />
-          </div>
-
-          {/* 产品卖点 */}
-          <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">
-              产品卖点
-            </label>
-            <textarea
-              value={productInfo.sellingPoints}
-              onChange={(e) => setProductInfo({ ...productInfo, sellingPoints: e.target.value })}
-              placeholder="例如：补血养颜、增强免疫力、改善睡眠（用逗号分隔）"
-              rows={3}
-              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-purple-400 resize-none"
-            />
-          </div>
-
-          {/* 目标人群 */}
-          <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">
-              目标人群
-            </label>
-            <input
-              type="text"
-              value={productInfo.targetAudience}
-              onChange={(e) => setProductInfo({ ...productInfo, targetAudience: e.target.value })}
-              placeholder="例如：气血不足的女性、经常熬夜的上班族"
-              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-purple-400"
-            />
-          </div>
-
-          {/* 文案风格 */}
-          <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">
-              文案风格
-            </label>
-            <div className="grid grid-cols-2 gap-2">
+        <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+          {/* 提示词编辑区 */}
+          <div className="mb-6">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Store size={18} className="text-amber-600" />
+                <label className="text-sm font-semibold text-slate-700">鹿场直销文案提示词</label>
+              </div>
               <button
-                type="button"
-                onClick={() => setProductInfo({ ...productInfo, tone: 'direct_sale' })}
-                className={`px-3 py-2 text-xs rounded-lg border transition-all ${
-                  productInfo.tone === 'direct_sale'
-                    ? 'bg-purple-600 text-white border-purple-600'
-                    : 'bg-white text-slate-600 border-slate-200 hover:border-purple-300'
-                }`}
+                onClick={applyTemplate}
+                className="text-xs text-amber-600 hover:text-amber-800 flex items-center gap-1 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 rounded-lg transition-all"
+                title="重新填充默认提示词模板"
               >
-                🔥 直接促销型
+                <Wand2 size={12} />
+                重置提示词模板
               </button>
-              <button
-                type="button"
-                onClick={() => setProductInfo({ ...productInfo, tone: 'premium' })}
-                className={`px-3 py-2 text-xs rounded-lg border transition-all ${
-                  productInfo.tone === 'premium'
-                    ? 'bg-purple-600 text-white border-purple-600'
-                    : 'bg-white text-slate-600 border-slate-200 hover:border-purple-300'
-                }`}
-              >
-                💎 高端品质型
-              </button>
-              <button
-                type="button"
-                onClick={() => setProductInfo({ ...productInfo, tone: 'social_review' })}
-                className={`px-3 py-2 text-xs rounded-lg border transition-all ${
-                  productInfo.tone === 'social_review'
-                    ? 'bg-purple-600 text-white border-purple-600'
-                    : 'bg-white text-slate-600 border-slate-200 hover:border-purple-300'
-                }`}
-              >
-                📝 种草推荐型
-              </button>
-              <button
-                type="button"
-                onClick={() => setProductInfo({ ...productInfo, tone: 'explainer' })}
-                className={`px-3 py-2 text-xs rounded-lg border transition-all ${
-                  productInfo.tone === 'explainer'
-                    ? 'bg-purple-600 text-white border-purple-600'
-                    : 'bg-white text-slate-600 border-slate-200 hover:border-purple-300'
-                }`}
-              >
-                📖 讲解说明型
-              </button>
+            </div>
+            <div className="relative">
+              <textarea
+                value={productInfo.customPrompt || ''}
+                onChange={(e) => setProductInfo({ ...productInfo, customPrompt: e.target.value })}
+                rows={16}
+                className="w-full px-4 py-3 text-sm border-2 border-amber-200 rounded-xl outline-none focus:border-amber-400 focus:ring-4 focus:ring-amber-100 transition-all resize-none font-mono text-slate-700 placeholder:text-slate-400 leading-relaxed"
+              />
+              <div className="absolute bottom-3 right-3 flex items-center gap-2">
+                <span className="text-[10px] text-slate-500 flex items-center gap-1">
+                  <Lightbulb size={10} />
+                  AI 将严格按照提示词要求创作文案
+                </span>
+              </div>
+            </div>
+            <div className="mt-3 p-3 bg-amber-50 rounded-lg border border-amber-100">
+              <p className="text-xs text-amber-800 font-medium mb-1">💡 使用说明</p>
+              <ul className="text-[11px] text-amber-700 space-y-1 list-disc list-inside">
+                <li>提示词已预设为"鹿场直销型"文案模板，适合鹿茸血、鹿血等农产品带货</li>
+                <li>你可以直接编辑提示词，定制你的专属文案要求</li>
+                <li>点击"重置提示词模板"可恢复默认模板</li>
+                <li>文案会自动按照模板要求的结构生成（开场反差 → 产品来源 → 对比 → 防坑 → 辨别 → 背书 → 成交）</li>
+              </ul>
             </div>
           </div>
 
-          {/* 生成预览 */}
-          <div className="bg-purple-50 p-3 rounded-lg border border-purple-100">
-            <p className="text-xs text-purple-700">
-              <strong>生成预览：</strong>
-            </p>
-            <ul className="text-[10px] text-purple-600 space-y-1 mt-2">
-              <li>• 模板：{template?.name}</li>
-              <li>• 段落结构：
-                {template?.segments?.map((s, i) => (
-                  <span key={i}>
-                    {i > 0 ? ' → ' : ''}
-                    <span className={s.flag === 'transition' ? 'text-amber-600' : ''}>
-                      {s.flag === 'transition' ? '🔄' : s.flag === 'hook' ? '🎬' : '🏁'}{s.note.split(' - ')[0]}
-                    </span>
-                  </span>
-                ))}
-              </li>
-              <li>• AI 将根据模板段落数量生成对应文案和转场提示</li>
-            </ul>
+          {/* 生成预览卡片 */}
+          <div className="bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-50 p-4 rounded-xl border border-amber-100">
+            <div className="flex items-center gap-2 mb-3">
+              <FileText size={15} className="text-amber-600" />
+              <p className="text-xs font-semibold text-amber-800">生成配置</p>
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-[11px] text-amber-700">
+                <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                <span>模板：<span className="font-medium">{template?.name || '-'}</span></span>
+              </div>
+              <div className="flex items-center gap-2 text-[11px] text-amber-700">
+                <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                <span>段落结构：<span className="font-medium">{template?.segments?.length || 0} 段</span></span>
+              </div>
+              <div className="flex items-center gap-2 text-[11px] text-amber-700">
+                <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                <span>文案类型：<span className="font-medium">鹿场直销型（知识科普 + 强对比 + 防踩坑）</span></span>
+              </div>
+            </div>
           </div>
         </div>
 
         {/* 底部按钮 */}
-        <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-2">
+        <div className="p-5 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
           <button
             type="button"
             onClick={onCancel}
             disabled={isGenerating}
-            className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-200 rounded-lg disabled:opacity-50"
+            className="px-5 py-2.5 text-sm font-medium text-slate-600 bg-white hover:bg-slate-100 border border-slate-200 rounded-xl transition-all disabled:opacity-50"
           >
             取消
           </button>
           <button
             type="button"
             onClick={onSubmit}
-            disabled={isGenerating || !productInfo.productName}
-            className="px-4 py-2 text-sm bg-purple-600 text-white hover:bg-purple-700 rounded-lg disabled:opacity-50 flex items-center gap-2"
+            disabled={isGenerating}
+            className="px-6 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 rounded-xl disabled:opacity-50 flex items-center gap-2 shadow-lg shadow-violet-200 transition-all"
           >
-            {isGenerating ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-            {isGenerating ? '生成中...' : '立即生成'}
+            {isGenerating ? (
+              <>
+                <Loader2 size={16} className="animate-spin" />
+                <span>生成中...</span>
+              </>
+            ) : (
+              <>
+                <Sparkles size={16} />
+                <span>立即生成</span>
+              </>
+            )}
           </button>
         </div>
       </div>
@@ -988,12 +1028,9 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
   const [selectedTemplate, setSelectedTemplate] = useState(null)
   const [isGeneratingScript, setIsGeneratingScript] = useState(false)
 
-  // AI 生成文案的产品信息
+  // AI 生成文案的产品信息（鹿场直销专用）
   const [productInfo, setProductInfo] = useState({
-    productName: '',
-    sellingPoints: '',
-    targetAudience: '',
-    tone: 'direct_sale',
+    customPrompt: '',
   })
   
   // AI 文案生成表单弹窗状态
@@ -1061,30 +1098,22 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
     console.log('[handleSubmitScriptForm] tempSelectedTemplate:', tempSelectedTemplate)
     console.log('[handleSubmitScriptForm] productInfo:', productInfo)
     
-    if (!productInfo.productName) {
-      alert('请输入产品名称')
-      return
-    }
-    
     if (!tempSelectedTemplate) {
       alert('请先选择一个模板')
       return
     }
     
-    // 调用 AI 生成文案
+    // 调用 AI 生成文案（鹿场直销专用）
     generateScriptFromTemplate(
       tempSelectedTemplate,
-      productInfo.productName,
-      productInfo.sellingPoints,
-      productInfo.targetAudience || '大家',
-      productInfo.tone || 'direct_sale'
+      productInfo.customPrompt || ''
     )
     
     setShowScriptForm(false)
     setTempSelectedTemplate(null)
   }
 
-  const generateScriptFromTemplate = async (template, productName, sellingPoints, targetAudience, tone) => {
+  const generateScriptFromTemplate = async (template, customPrompt) => {
     setIsGeneratingScript(true)
     try {
       if (!template) {
@@ -1092,10 +1121,7 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
       }
       const segments = template.segments || []
       const generatedSegments = await aiGenerateScript({
-        productName,
-        sellingPoints,
-        targetAudience,
-        tone,
+        customPrompt,
         templateId: template.id,
         segments,
       })

@@ -164,21 +164,15 @@ export async function aiRecommendTemplates(productKeyword, category = '', templa
 }
 
 /**
- * AI 生成口播文案 - 根据产品信息和模板结构生成文案
+ * AI 生成口播文案 - 根据自定义提示词生成文案（鹿场直销专用）
  * @param {Object} params - 参数
- * @param {string} params.productName - 产品名称
- * @param {string} params.sellingPoints - 卖点
- * @param {string} params.targetAudience - 目标人群
- * @param {string} params.tone - 风格
+ * @param {string} params.customPrompt - 自定义提示词（必填）
  * @param {string} params.templateId - 模板 ID
  * @param {Array} params.segments - 模板段落结构
  * @returns {Promise<{ text: string, flag: string, note: string }[]>}
  */
 export async function aiGenerateScript({
-  productName,
-  sellingPoints,
-  targetAudience,
-  tone,
+  customPrompt,
   templateId,
   segments,
 }) {
@@ -188,16 +182,13 @@ export async function aiGenerateScript({
     : 'http://192.168.166.151:8000'
   
   // 验证必填参数
-  if (!productName || !productName.trim()) {
-    throw new Error('产品名称不能为空')
+  if (!customPrompt || !customPrompt.trim()) {
+    throw new Error('提示词不能为空')
   }
   
   try {
     const requestBody = {
-      product_name: productName,
-      selling_points: sellingPoints || '',
-      target_audience: targetAudience || '',
-      tone: tone,
+      custom_prompt: customPrompt,
       template_structure: segments,
     }
     

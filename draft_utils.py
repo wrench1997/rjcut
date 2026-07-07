@@ -100,6 +100,7 @@ async def ai_generate_script_via_gateway(
     tone: str,
     template_structure: List[Dict],
     model_name: str = None,
+    custom_prompt: str = "",
 ) -> Dict[str, Any]:
     """
     通过 Gateway 调用 vLLM AI 生成口播文案
@@ -108,9 +109,10 @@ async def ai_generate_script_via_gateway(
         product_name: 产品名称
         selling_points: 产品卖点
         target_audience: 目标人群
-        tone: 文案风格 (direct_sale/premium/social_review/explainer)
+        tone: 文案风格 (direct_sale/premium/social_review/explainer/shakespeare/...)
         template_structure: 模板结构（包含 segments 定义）
         model_name: 模型名称（可选，默认使用 Gateway 配置的模型）
+        custom_prompt: 创作者自定义的文案提示词（可选，如果提供则优先使用）
 
     Returns:
         {
@@ -120,12 +122,21 @@ async def ai_generate_script_via_gateway(
             "error": str        # 错误信息（如果有）
         }
     """
-    # 构建 Prompt
+    # 文案风格描述（供前端参考）
     tone_descriptions = {
-        "direct_sale": "直接带货风格，热情洋溢，强调优惠和购买冲动",
-        "premium": "高端品质风格，优雅有格调，强调生活品味",
-        "social_review": "社交种草风格，真实分享感受，像朋友推荐",
-        "explainer": "科普讲解风格，专业详细，解答用户疑问",
+        "direct_sale": "🔥 直接促销型 - 热情洋溢，强调优惠和购买冲动，适合直播带货",
+        "premium": "💎 高端品质型 - 优雅有格调，强调生活品味，适合奢侈品/高端产品",
+        "social_review": "📝 种草推荐型 - 真实分享感受，像朋友推荐，适合小红书/抖音",
+        "explainer": "📖 讲解说明型 - 专业详细，解答用户疑问，适合科普/功能型产品",
+        "shakespeare": "🎭 文艺诗意型 - 文艺优雅，富有诗意和哲理，适合品牌故事",
+        "humorous": "😄 幽默风趣型 - 轻松搞笑，让人会心一笑，适合年轻群体",
+        "emotional": "💕 情感共鸣型 - 温暖走心，触动内心柔软处，适合情感营销",
+        "story": "📚 故事叙述型 - 用故事串联产品，引人入胜，适合品牌宣传",
+        "comparison": "⚖️ 对比评测型 - 前后对比/竞品对比，突出优势，适合功能性产品",
+        "urgent": "⏰ 限时抢购型 - 强调时间紧迫/库存有限，制造稀缺感，适合促销活动",
+        "expert": "👨‍⚕️ 专家背书型 - 专业权威口吻，增强信任感，适合保健/科技产品",
+        "user_voice": "🗣️ 用户心声型 - 模拟真实用户反馈，增强可信度，适合口碑营销",
+        "farm_direct": "🦌 鹿场直销型 - 东北鹿场老板口吻，强对比 + 防踩坑 + 科普，适合农产品/滋补品",
     }
 
     system_prompt = """你是一位专业的短视频口播文案创作专家，擅长创作面向大众消费者的带货文案。
@@ -149,7 +160,25 @@ scene 段落的文案必须以"转场"开头，但要优雅自然，用意境烘
     # 统计所有段落数量（包括 scene，因为每个段落都需要口播文案来保持连贯）
     text_segment_count = len(template_structure)
     
-    user_prompt = f"""请为以下产品创作面向大众消费者的口播带货文案：
+    # 使用创作者自定义提示词（前端负责构建完整的提示词模板）
+    if custom_prompt:
+        user_prompt = f"""{custom_prompt}
+
+【模板结构】
+{template_structure}
+
+【任务】
+模板结构中共有 {text_segment_count} 个段落，每个段落都需要生成口播文案。
+请按顺序输出 {text_segment_count} 行文案，每行对应一个段落。
+
+【重要说明】
+- 每一行文案对应一个段落
+- scene 段落必须以"转场"开头，但要优雅自然，用意境烘托氛围
+- 文案要连贯流畅，段落之间自然衔接
+"""
+    else:
+        # 默认风格：使用 tone 参数
+        user_prompt = f"""请为以下产品创作文案。
 
 【产品信息】
 - 产品名称：{product_name}
@@ -165,17 +194,14 @@ scene 段落的文案必须以"转场"开头，但要优雅自然，用意境烘
 请按顺序输出 {text_segment_count} 行文案，每行对应一个段落。
 
 【重要说明】
-- hook 段落：开场吸引注意力，抓住观众眼球
-- scene 段落：必须以"转场"开头，但要优雅自然，用意境烘托氛围，不要直白描述画面（如"转场，深山里的梅花鹿自由生长..."、"转场，每一滴都是自然的馈赠..."等）
-- human 段落：主体内容，详细介绍产品功效和好处
-- ending 段落：结尾促单，引导点击购买
+- hook 段落：开场吸引注意力
+- scene 段落：必须以"转场"开头，优雅自然地烘托氛围
+- human 段落：主体内容，介绍产品
+- ending 段落：结尾促单
 
 【文案要求】
-- 用老百姓听得懂的大白话
-- 突出产品实际功效和好处
-- 有感染力，能打动普通人
-- 适合直播带货场景
-- 文案要连贯流畅，段落之间自然衔接，形成完整的解说稿
+- 口语化、接地气
+- 文案连贯流畅，段落之间自然衔接
 """
 
     payload = {

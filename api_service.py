@@ -1082,7 +1082,8 @@ async def generate_script(
         "product_name": "产品名称",
         "selling_points": "核心卖点",
         "target_audience": "目标人群",
-        "tone": "文案风格 (direct_sale/premium/social_review/explainer)",
+        "tone": "文案风格 (direct_sale/premium/social_review/explainer/shakespeare/...)",
+        "custom_prompt": "创作者自定义的文案提示词（可选，如果提供则优先使用）",
         "template_structure": [...]  # 模板的 segments 结构
     }
     """
@@ -1097,6 +1098,7 @@ async def generate_script(
     selling_points = body.get("selling_points", "")
     target_audience = body.get("target_audience", "")
     tone = body.get("tone", "direct_sale")
+    custom_prompt = body.get("custom_prompt", "")
     template_structure = body.get("template_structure", [])
 
     result = await ai_generate_script_via_gateway(
@@ -1105,6 +1107,7 @@ async def generate_script(
         target_audience=target_audience,
         tone=tone,
         template_structure=template_structure,
+        custom_prompt=custom_prompt,
     )
 
     if result["success"]:
