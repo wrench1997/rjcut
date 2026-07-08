@@ -1,6 +1,11 @@
 /**
  * 视频导出 Worker
  * 在后台线程处理 FFmpeg 导出任务，避免阻塞 UI
+ * 
+ * 支持两种模式：
+ * 1. export: 标准导出模式，使用时间轴和媒体 Blob
+ * 2. composeFromTimeline: 数字人视频合成模式（对应 lip_sync.py）
+ * 3. cutSegments: 视频分割模式（对应 cut_transition.py）
  */
 
 import { videoEditorEngine } from '../utils/videoEditorEngine.js'
@@ -24,17 +29,25 @@ self.onmessage = async (e) => {
     else if (type === 'export') {
       await handleExport(e.data)
     }
+    
+    else if (type === 'composeFromTimeline') {
+      await handleComposeFromTimeline(e.data)
+    }
+    
+    else if (type === 'cutSegments') {
+      await handleCutSegments(e.data)
+    }
   } catch (err) {
     console.error('[ExportWorker] Error:', err)
     self.postMessage({ 
       type: 'error', 
-      payload: { message: err.message } 
+      payload: { message: err.message, stack: err.stack } 
     })
   }
 }
 
 /**
- * 处理导出任务
+ * 处理标准导出任务
  */
 async function handleExport(data) {
   const { timeline, exportConfig, mediaBlobs, ffmpegArgs } = data
@@ -79,6 +92,104 @@ async function handleExport(data) {
     payload: { 
       data: await placeholderBlob.arrayBuffer(),
       message: '导出完成（占位符 - 需要完整 FFmpeg WASM 集成）'
+    } 
+  })
+}
+
+/**
+ * 处理数字人视频合成任务（对应 lip_sync.py 的 compose_from_timeline）
+ */
+async function handleComposeFromTimeline(data) {
+  const { timeline, partFiles, sceneFiles, options } = data
+  
+  console.log('[ExportWorker] 开始处理 timeline 合成', {
+    segmentCount: timeline.segments?.length || 0,
+    partFileCount: partFiles?.length || 0,
+    sceneFileCount: Object.keys(sceneFiles || {}).length
+  })
+  
+  // 设置进度回调
+  videoEditorEngine.setProgressCallback((progress) => {
+    self.postMessage({ 
+      type: 'progress', 
+      payload: { 
+        percent: progress.percent || 0,
+        time_sec: progress.time_sec,
+        fps: progress.fps,
+        bitrate_kbps: progress.bitrate_kbps
+      } 
+    })
+  })
+  
+  // 调用视频引擎的合成方法
+  const resultBlob = await videoEditorEngine.composeFromTimeline(
+    timeline,
+    partFiles,
+    sceneFiles || {},
+    options || {}
+  )
+  
+  self.postMessage({ 
+    type: 'complete', 
+    payload: { 
+      data: await resultBlob.arrayBuffer(),
+      message: '视频合成完成',
+      duration: resultBlob.size / 1024 / 1024 // 文件大小（MB）
+    } 
+  })
+}
+
+/**
+ * 处理视频分割任务（对应 cut_transition.py 的切割功能）
+ */
+async function handleCutSegments(data) {
+  const { videoFile, segments, width, height, fps } = data
+  
+  console.log('[ExportWorker] 开始处理视频分割', {
+    segmentCount: segments?.length || 0,
+    videoSize: videoFile?.size || 0
+  })
+  
+  // 设置进度回调
+  videoEditorEngine.setProgressCallback((progress) => {
+    self.postMessage({ 
+      type: 'progress', 
+      payload: { 
+        percent: progress.percent || 0,
+        time_sec: progress.time_sec,
+        fps: progress.fps,
+        bitrate_kbps: progress.bitrate_kbps
+      } 
+    })
+  })
+  
+  // 调用视频引擎的分割方法
+  const results = await videoEditorEngine.cutVideoSegments(
+    videoFile,
+    segments,
+    width || 1920,
+    height || 1080,
+    fps || 30
+  )
+  
+  // 将所有片段打包发送回主线程
+  const packedResults = []
+  for (const result of results) {
+    packedResults.push({
+      index: result.index,
+      label: result.label,
+      start: result.start,
+      end: result.end,
+      duration: result.duration,
+      data: await result.blob.arrayBuffer()
+    })
+  }
+  
+  self.postMessage({ 
+    type: 'complete', 
+    payload: { 
+      segments: packedResults,
+      message: `视频分割完成，共 ${results.length} 个片段`
     } 
   })
 }

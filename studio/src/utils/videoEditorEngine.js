@@ -126,6 +126,275 @@ class VideoEditorEngine {
     return result
   }
 
+  // =====================================================
+  // 数字人视频分割与合成功能 (对应 cut_transition.py 和 lip_sync.py)
+  // =====================================================
+
+  /**
+   * 切割视频片段（对应 cut_transition 的切割功能）
+   * @param {File|Blob} videoFile - 输入视频
+   * @param {Array<{start: number, end: number, label?: string}>} segments - 要保留的时间段（秒）
+   * @param {number} width - 输出宽度
+   * @param {number} height - 输出高度
+   * @param {number} fps - 输出帧率
+   * @returns {Promise<Array<Blob>>} - 切割后的视频片段数组
+   */
+  async cutVideoSegments(videoFile, segments, width = 1920, height = 1080, fps = 30) {
+    const results = []
+    const fileData = await this._readFileAsUint8Array(videoFile)
+
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i]
+      const startTime = seg.start
+      const duration = seg.end - seg.start
+      
+      const task = new Ffmpeg.FfmpegTask(`cut_${i}_${Date.now()}`, 0)
+      task.add_input_file('input.mp4', fileData)
+
+      const cmd = Ffmpeg.build_trim_command(
+        'input.mp4',
+        `output_${i}.mp4`,
+        startTime,
+        duration,
+        false
+      )
+      const args = JSON.parse(cmd).args
+      task.set_args_json(JSON.stringify(args))
+      task.set_output_file(`output_${i}.mp4`)
+
+      const result = await this._runTask(task)
+      results.push({
+        index: i,
+        label: seg.label || `segment_${i}`,
+        start: startTime,
+        end: seg.end,
+        duration: duration,
+        blob: result
+      })
+    }
+
+    return results
+  }
+
+  /**
+   * 从 timeline.json 合成视频（对应 lip_sync.py 的 compose_from_timeline）
+   * @param {Object} timeline - timeline.json 内容
+   * @param {Array<File|Blob>} partFiles - 切割后的视频片段
+   * @param {Object<string, File|Blob>} sceneFiles - 场景文件映射 {scene_file: File}
+   * @param {Object} options - 选项
+   * @returns {Promise<Blob>} - 合成后的视频
+   */
+  async composeFromTimeline(timeline, partFiles, sceneFiles = {}, options = {}) {
+    const {
+      useTransitions = false,
+      transitionType = 'fade',
+      transitionDuration = 0.5,
+      resyncSubtitle = true,
+      bgmFile = null,
+      bgmVolume = 0.3,
+      originalVolume = 1.0
+    } = options
+
+    const segments = timeline.segments || []
+    const videoInfo = timeline.video_info || {}
+    const width = videoInfo.width || 1920
+    const height = videoInfo.height || 1080
+    const fps = videoInfo.fps || 30
+
+    console.log('[VideoEditorEngine] 开始从 timeline 合成视频', {
+      segmentCount: segments.length,
+      partFileCount: partFiles.length,
+      sceneFileCount: Object.keys(sceneFiles).length
+    })
+
+    // 1. 准备每个 segment 的视频片段
+    const renderClips = []
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i]
+      const partFile = partFiles[i]
+      
+      if (!partFile) {
+        throw new Error(`缺少第 ${i + 1} 个视频片段`)
+      }
+
+      if (seg.type === 'human') {
+        // human 类型：直接使用 part 文件
+        renderClips.push(partFile)
+      } else if (seg.type === 'scene') {
+        // scene 类型：用 scene_file 替换画面，保留 part 音频
+        const sceneFile = sceneFiles[seg.scene_file]
+        if (!sceneFile) {
+          throw new Error(`缺少场景文件：${seg.scene_file}`)
+        }
+        
+        // 将 scene 视频与 part 音频合成
+        const sceneClip = await this._composeSceneWithAudio(
+          sceneFile,
+          partFile,
+          seg.duration,
+          width,
+          height,
+          fps
+        )
+        renderClips.push(sceneClip)
+      } else {
+        throw new Error(`不支持的 segment 类型：${seg.type}`)
+      }
+    }
+
+    // 2. 合并所有片段
+    let mergedVideo
+    if (useTransitions && renderClips.length > 1) {
+      mergedVideo = await this._mergeWithTransitions(
+        renderClips,
+        transitionType,
+        transitionDuration,
+        width,
+        height,
+        fps
+      )
+    } else {
+      mergedVideo = await this.mergeVideos(renderClips)
+    }
+
+    // 3. 添加背景音乐（如果提供）
+    if (bgmFile) {
+      return await this._addBackgroundMusic(
+        mergedVideo,
+        bgmFile,
+        bgmVolume,
+        originalVolume
+      )
+    }
+
+    return mergedVideo
+  }
+
+  /**
+   * 将场景视频与音频合成（用于 scene 类型 segment）
+   */
+  async _composeSceneWithAudio(sceneFile, audioPartFile, duration, width, height, fps) {
+    const task = new Ffmpeg.FfmpegTask('scene_compose_' + Date.now(), 0)
+    
+    const sceneData = await this._readFileAsUint8Array(sceneFile)
+    const audioData = await this._readFileAsUint8Array(audioPartFile)
+    
+    task.add_input_file('scene.mp4', sceneData)
+    task.add_input_file('audio.mp4', audioData)
+
+    // 构建命令：循环场景视频，替换音频
+    const args = [
+      '-stream_loop', '-1',
+      '-i', 'scene.mp4',
+      '-i', 'audio.mp4',
+      '-t', duration.toFixed(4),
+      '-vf', `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black,fps=${fps},format=yuv420p`,
+      '-map', '0:v',
+      '-map', '1:a',
+      '-c:v', 'libx264',
+      '-preset', 'fast',
+      '-crf', '18',
+      '-c:a', 'aac',
+      '-b:a', '192k',
+      '-ar', '44100',
+      '-ac', '2',
+      '-shortest',
+      '-movflags', '+faststart',
+      'output.mp4'
+    ]
+
+    task.set_args_json(JSON.stringify({ args }))
+    task.set_output_file('output.mp4')
+
+    return await this._runTask(task)
+  }
+
+  /**
+   * 带转场效果合并视频
+   */
+  async _mergeWithTransitions(videoClips, transitionType, transitionDuration, width, height, fps) {
+    const task = new Ffmpeg.FfmpegTask('merge_xfade_' + Date.now(), 0)
+    
+    // 添加所有输入文件
+    for (let i = 0; i < videoClips.length; i++) {
+      const fileData = await this._readFileAsUint8Array(videoClips[i])
+      task.add_input_file(`clip_${i}.mp4`, fileData)
+    }
+
+    // 构建 xfades 命令
+    const args = this._buildXfadeArgs(
+      videoClips.length,
+      transitionType,
+      transitionDuration,
+      width,
+      height,
+      fps
+    )
+
+    task.set_args_json(JSON.stringify({ args }))
+    task.set_output_file('output.mp4')
+
+    return await this._runTask(task)
+  }
+
+  /**
+   * 构建 xfades 转场命令参数
+   */
+  _buildXfadeArgs(clipCount, transitionType, td, width, height, fps) {
+    // 简化处理：使用 concat 代替复杂 xfades
+    // 完整的 xfades 实现需要根据 clipCount 动态构建 filter_complex
+    const args = ['-i', 'clip_0.mp4']
+    for (let i = 1; i < clipCount; i++) {
+      args.push('-i', `clip_${i}.mp4`)
+    }
+    
+    // 使用 concat 滤镜（简单方案）
+    args.push('-filter_complex', `[0:v][0:a][1:v][1:a]concat=n=2:v=1:a=1[outv][outa]`)
+    args.push('-map', '[outv]')
+    args.push('-map', '[outa]')
+    args.push('-c:v', 'libx264')
+    args.push('-preset', 'fast')
+    args.push('-crf', '18')
+    args.push('-c:a', 'aac')
+    args.push('-b:a', '192k')
+    args.push('-movflags', '+faststart')
+    args.push('output.mp4')
+    
+    return args
+  }
+
+  /**
+   * 添加背景音乐
+   */
+  async _addBackgroundMusic(videoFile, bgmFile, bgmVolume = 0.3, originalVolume = 1.0) {
+    const task = new Ffmpeg.FfmpegTask('add_bgm_' + Date.now(), 0)
+    
+    const videoData = await this._readFileAsUint8Array(videoFile)
+    const bgmData = await this._readFileAsUint8Array(bgmFile)
+    
+    task.add_input_file('video.mp4', videoData)
+    task.add_input_file('bgm.mp3', bgmData)
+
+    // 构建混音命令
+    const args = [
+      '-i', 'video.mp4',
+      '-i', 'bgm.mp3',
+      '-filter_complex', `[0:a]volume=${originalVolume}[orig];[1:a]volume=${bgmVolume}[bgm];[orig][bgm]amix=inputs=2:duration=first:dropout_transition=3[outa]`,
+      '-map', '0:v',
+      '-map', '[outa]',
+      '-c:v', 'copy',
+      '-c:a', 'aac',
+      '-b:a', '192k',
+      '-movflags', '+faststart',
+      'output.mp4'
+    ]
+
+    task.set_args_json(JSON.stringify({ args }))
+    task.set_output_file('output.mp4')
+
+    return await this._runTask(task)
+  }
+
   /**
    * 转换视频格式
    * @param {File|Blob} videoFile - 输入文件
@@ -479,4 +748,49 @@ export const videoEditorEngine = new VideoEditorEngine()
 // 导出 FFmpeg 和 VideoEngine 命名空间供高级使用
 export { Ffmpeg, VideoEngine }
 
-export default videoEditorEngine
+export default videoEditorEngine// =====================================================
+// 后端 API 辅助函数（字幕识别等）
+// =====================================================
+
+/**
+ * 调用后端字幕识别 API
+ * @param {string} videoUrl - 视频 URL
+ * @param {Object} options - 选项
+ * @returns {Promise<Object>} - 识别结果 { segments, text, language, duration }
+ */
+export async function transcribeVideo(videoUrl, options = {}) {
+  const {
+    modelSize = 'medium',
+    language = 'zh',
+    device = 'cuda',
+    apiKey = '',
+    baseUrl = 'http://localhost:8000'
+  } = options
+  
+  const response = await fetch(`${baseUrl}/v1/dh/transcribe`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(apiKey ? { 'X-API-Key': apiKey } : {})
+    },
+    body: JSON.stringify({
+      video_url: videoUrl,
+      model_size: modelSize,
+      language: language,
+      device: device
+    })
+  })
+  
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ message: '识别失败' }))
+    throw new Error(error.message || error.detail || '字幕识别失败')
+  }
+  
+  const result = await response.json()
+  
+  if (result.code !== 0) {
+    throw new Error(result.message || '字幕识别失败')
+  }
+  
+  return result.data
+}

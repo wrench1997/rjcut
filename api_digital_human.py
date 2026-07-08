@@ -1034,3 +1034,116 @@ async def proxy_image_no_auth(
     except Exception as e:
         logger.error(f"读取图片异常：{e}")
         raise HTTPException(status_code=500, detail=f"服务器错误：{str(e)}")
+# ============================================================
+# 字幕识别 API - 为前端提供 Whisper 语音识别能力
+# ============================================================
+
+@router.post("/transcribe")
+async def transcribe_video(
+    video_url: str,
+    model_size: str = "medium",
+    language: str = "zh",
+    device: str = "cuda",
+    _: Merchant = Depends(verify_api_key)
+):
+    """语音识别接口
+    
+    使用 whisper_timestamped 对视频进行语音识别，返回带时间戳的字幕数据。
+    前端可使用此接口获取字幕数据，然后在前端进行视频剪辑和合成。
+    
+    参数:
+        video_url: 视频文件 URL（支持 http/https 或本地路径）
+        model_size: Whisper 模型大小 (medium, large-v3 等)
+        language: 识别语言 (默认 zh 中文)
+        device: 推理设备 (cuda 或 cpu)
+    
+    返回:
+        包含字幕 segments 的 JSON 数据，格式与 whisper_timestamped 一致
+    """
+    import tempfile
+    import os
+    import whisper_timestamped as whisper
+    import requests
+    import gc
+    import torch
+    from fastapi import HTTPException
+    from pathlib import Path
+    
+    logger = logging.getLogger("uvicorn.error")
+    
+    try:
+        # 1. 准备视频文件
+        video_path = None
+        
+        if video_url.startswith('http://') or video_url.startswith('https://'):
+            # 下载远程视频
+            logger.info(f"下载视频进行识别：{video_url}")
+            with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp:
+                video_path = tmp.name
+                resp = requests.get(video_url, timeout=300, stream=True)
+                if resp.status_code != 200:
+                    raise HTTPException(status_code=400, detail=f"视频下载失败：{resp.status_code}")
+                
+                for chunk in resp.iter_content(chunk_size=1024*1024):
+                    if chunk:
+                        tmp.write(chunk)
+        else:
+            # 本地路径
+            video_path = video_url
+            if not os.path.isfile(video_path):
+                raise HTTPException(status_code=404, detail=f"视频文件不存在：{video_path}")
+        
+        # 2. 加载模型并识别
+        logger.info(f"开始语音识别：model={model_size}, device={device}, language={language}")
+        
+        # 强制使用 cuda 防止内存溢出
+        if device != "cuda":
+            logger.warning(f"已禁止使用 {device} 进行推理，自动切换为 cuda 防止内存溢出！")
+            device = "cuda"
+        
+        model = whisper.load_model(
+            model_size, 
+            device=device, 
+            download_root="./model"
+        )
+        
+        audio = whisper.load_audio(video_path)
+        result = whisper.transcribe(
+            model, 
+            audio,
+            language=language,
+            detect_disfluencies=False,
+            vad=True,
+        )
+        
+        # 3. 清理资源
+        del model
+        gc.collect()
+        if device == "cuda":
+            torch.cuda.empty_cache()
+        
+        # 4. 清理临时文件
+        if video_url.startswith('http') and video_path:
+            try:
+                os.unlink(video_path)
+            except:
+                pass
+        
+        # 5. 返回结果
+        seg_count = len(result.get("segments", []))
+        word_count = sum(len(seg.get("words", [])) for seg in result.get("segments", []))
+        
+        logger.info(f"识别完成：{seg_count} 个语句段，{word_count} 个字")
+        
+        return ok({
+            "segments": result.get("segments", []),
+            "text": result.get("text", ""),
+            "language": result.get("language", language),
+            "duration": result["segments"][-1].get("end", 0) if result.get("segments") else 0,
+        })
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"语音识别异常：{e}")
+        raise HTTPException(status_code=500, detail=f"识别失败：{str(e)}")

@@ -8,7 +8,18 @@ import FadeControl from './FadeControl'
 /**
  * 导出面板 - 将剪辑完成的视频导出并保存到 VFS
  */
-export default function ExportPanelVFS({ vfs }) {
+/**
+ * 导出面板 - 将剪辑完成的视频导出并保存到 VFS
+ * 
+ * @param {Object} vfs - VFS 客户端实例
+ * @param {Object} props.sceneFilesMap - 场景文件映射 { scene_file_name: Blob }
+ * @param {Function} props.onTranscribeRequest - 请求后端字幕识别的回调
+ */
+export default function ExportPanelVFS({ 
+  vfs, 
+  sceneFilesMap = {},
+  onTranscribeRequest = null 
+}) {
   const { clips, mediaFiles, totalDuration_ms, fps, width, height } = useTimelineStore()
   const [status, setStatus] = useState('idle') // idle, processing, complete, error
   const [progress, setProgress] = useState(0)
@@ -19,6 +30,11 @@ export default function ExportPanelVFS({ vfs }) {
   })
   const [errorMessage, setErrorMessage] = useState('')
   const workerRef = useRef(null)
+  
+  // 🚨 大视频检测：超过 100MB 建议降级到后端处理
+  const MAX_WASM_VIDEO_SIZE_MB = 100
+  const totalVideoSizeMB = Object.values(mediaFiles).reduce((sum, f) => sum + (f.size || 0), 0) / 1024 / 1024
+  const isLargeVideo = totalVideoSizeMB > MAX_WASM_VIDEO_SIZE_MB
 
   // 预估文件大小
   const estimateFileSize = useCallback(() => {
@@ -147,14 +163,54 @@ export default function ExportPanelVFS({ vfs }) {
         setErrorMessage(`Worker 错误：${e.message}`)
       }
 
-      // 发送数据到 Worker
-      worker.postMessage({
-        type: 'export',
-        timeline: timeline,
-        exportConfig: exportConfig,
-        mediaBlobs: mediaBlobs,
-        ffmpegArgs: ffmpegArgs,
-      })
+      // 🚀 核心改造：使用 composeFromTimeline 模式进行数字人视频合成
+      // 检测是否包含 human/scene 类型的 clips（数字人模式）
+      const hasHumanOrSceneClips = clips.some(c => c.type === 'human' || c.type === 'scene')
+      
+      // 🚨 大视频检测：如果视频太大，建议降级到后端处理
+      if (isLargeVideo) {
+        const confirmBackend = window.confirm(
+          `⚠️ 警告：视频文件较大 (${totalVideoSizeMB.toFixed(1)}MB)，可能超出浏览器处理能力。\n\n` +
+          `建议：使用后端进行处理（需要服务器支持）\n\n` +
+          `点击"确定"继续尝试前端处理，点击"取消"中止导出。`
+        )
+        
+        if (!confirmBackend) {
+          setStatus('error')
+          setErrorMessage('用户取消导出 - 视频文件过大')
+          return
+        }
+      }
+      
+      if (hasHumanOrSceneClips) {
+        // 数字人视频合成模式（对应 lip_sync.py）
+        console.log('[ExportPanelVFS] 使用 composeFromTimeline 模式', {
+          segmentCount: clips.length,
+          sceneFilesCount: Object.keys(sceneFilesMap).length
+        })
+        
+        worker.postMessage({
+          type: 'composeFromTimeline',
+          timeline: timeline,
+          partFiles: Object.values(mediaBlobs),
+          sceneFiles: sceneFilesMap, // 🎬 使用父组件传入的场景文件
+          options: {
+            useTransitions: false,
+            transitionType: 'fade',
+            transitionDuration: 0.5,
+            resyncSubtitle: true,
+          }
+        })
+      } else {
+        // 标准导出模式
+        worker.postMessage({
+          type: 'export',
+          timeline: timeline,
+          exportConfig: exportConfig,
+          mediaBlobs: mediaBlobs,
+          ffmpegArgs: ffmpegArgs,
+        })
+      }
 
     } catch (err) {
       console.error('[ExportPanelVFS] 导出失败:', err)

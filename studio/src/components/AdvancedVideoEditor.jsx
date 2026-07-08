@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react'
-import { useTimelineStore } from '../stores/timelineStore'
+import React, { useEffect, useState, useCallback } from 'react'
+import { useTimelineStore, mediaFileRegistry } from '../stores/timelineStore'
 import { Film, Zap } from 'lucide-react'
 
 // 导入子组件
@@ -16,22 +16,40 @@ import Timeline from './VideoEditor/Timeline'
  * 使用局部暗黑模式主题隔离
  */
 export default function AdvancedVideoEditor({ vfs }) {
-  const { isWasmReady, initWasm } = useTimelineStore()
+  const { isWasmReady, initWasm, clips } = useTimelineStore()
   const [isBooting, setIsBooting] = useState(true)
-
+  const [sceneFilesMap, setSceneFilesMap] = useState({})
+  
+  // 🎬 监听 scene 类型 clips，自动加载场景文件
   useEffect(() => {
-    // 初始化 WASM 引擎
-    const init = async () => {
-      try {
-        await initWasm()
-      } catch (err) {
-        console.error('[AdvancedVideoEditor] WASM 初始化失败:', err)
-      } finally {
-        setIsBooting(false)
+    const loadSceneFiles = async () => {
+      const sceneClips = clips.filter(c => c.type === 'scene')
+      if (sceneClips.length === 0) {
+        setSceneFilesMap({})
+        return
       }
+      
+      console.log('[AdvancedVideoEditor] 检测到 scene 类型片段:', sceneClips.length)
+      
+      // 从 mediaFileRegistry 中获取场景文件
+      const sceneMap = {}
+      for (const clip of sceneClips) {
+        const file = await mediaFileRegistry.get(clip.mediaId)
+        if (file) {
+          // 使用媒体文件名作为 key
+          const media = useTimelineStore.getState().mediaFiles[clip.mediaId]
+          if (media && media.name) {
+            sceneMap[media.name] = file
+          }
+        }
+      }
+      
+      console.log('[AdvancedVideoEditor] 场景文件映射:', Object.keys(sceneMap))
+      setSceneFilesMap(sceneMap)
     }
-    init()
-  }, [initWasm])
+    
+    loadSceneFiles()
+  }, [clips])
 
   if (isBooting) {
     return (
@@ -91,7 +109,10 @@ export default function AdvancedVideoEditor({ vfs }) {
 
         {/* 右：导出与属性面板 */}
         <aside className="w-[280px] flex-shrink-0 flex flex-col border-l border-slate-800 bg-[#13131f]">
-          <ExportPanelVFS vfs={vfs} />
+          <ExportPanelVFS 
+            vfs={vfs} 
+            sceneFilesMap={sceneFilesMap}
+          />
         </aside>
       </div>
     </div>
