@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     
     CHANJING_APP_ID: str = ""
     CHANJING_SECRET_KEY: str = ""
+    CHANJING_BASE_URL: str = "http://host.docker.internal:8080"  # Docker 容器内访问宿主机蝉镜 API 的地址
     
     # 文件存储策略配置
     FILE_STORAGE_DAYS: int = 30  # 文件默认保留天数
