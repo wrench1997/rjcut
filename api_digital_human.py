@@ -64,8 +64,14 @@ def list_common_persons(merchant: Merchant = Depends(verify_api_key)):
         api = get_chanjing_api()
         res = api.list_common_digital_persons(page=1, size=100, use_cache=True)
         
+        # 🔍 详细打印蝉镜 API 返回数据
+        logger.info(f"🔍 蝉镜 API 原始返回：{json.dumps(res, ensure_ascii=False)[:500]}")
+        
         # 检查蝉镜 API 返回状态码（兼容 code 为 None 的情况）
         api_code = res.get('code')
+        api_msg = res.get('msg', 'ok')
+        logger.info(f"🔍 蝉镜 API 响应：code={api_code}, msg={api_msg}")
+        
         if api_code is not None and api_code != 0:
             error_msg = res.get('msg', '获取数字人列表失败')
             logger.error(f"蝉镜 API 返回错误：{error_msg} (code: {api_code})")
@@ -77,6 +83,9 @@ def list_common_persons(merchant: Merchant = Depends(verify_api_key)):
         return {"code": 50000, "message": f"服务器错误：{str(e)}", "data": None}
     
     persons = res.get("data", {}).get("list", [])
+    logger.info(f"🔍 提取到公共数字人数量：{len(persons)}")
+    if persons:
+        logger.info(f"🔍 第一个数字人示例：{json.dumps(persons[0], ensure_ascii=False)[:300]}")
     
     # 获取商户的 API Key（用于生成代理 URL）
     api_key_raw = None
@@ -600,13 +609,20 @@ def _get_person_status_text(status: int) -> str:
 @router.get("/voices")
 def list_voices(_: Merchant = Depends(verify_api_key)):
     import logging
+    import json
     logger = logging.getLogger("uvicorn.error")
     try:
         api = get_chanjing_api()
         res = api.list_common_audio_mans(page=1, size=100, use_cache=True)
         
+        # 🔍 详细打印蝉镜 API 返回数据
+        logger.info(f"🔍 蝉镜 API 原始返回 (voices)：{json.dumps(res, ensure_ascii=False)[:500]}")
+        
         # 检查蝉镜 API 返回状态码（兼容 code 为 None 的情况）
         api_code = res.get('code')
+        api_msg = res.get('msg', 'ok')
+        logger.info(f"🔍 蝉镜 API 响应 (voices)：code={api_code}, msg={api_msg}")
+        
         if api_code is not None and api_code != 0:
             error_msg = res.get('msg', '获取声音列表失败')
             logger.error(f"蝉镜 API 返回错误：{error_msg} (code: {api_code})")
@@ -614,7 +630,9 @@ def list_voices(_: Merchant = Depends(verify_api_key)):
         elif api_code is None:
             logger.warning(f"蝉镜 API 返回 code=None，但继续处理（可能是旧版 API）")
         
-        return ok(res.get("data", {}).get("list", []))
+        voices_list = res.get("data", {}).get("list", [])
+        logger.info(f"🔍 提取到声音数量：{len(voices_list)}")
+        return ok(voices_list)
     except Exception as e:
         logger.error(f"获取声音列表异常：{e}")
         return {"code": 50000, "message": f"服务器错误：{str(e)}", "data": None}
