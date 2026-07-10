@@ -180,8 +180,14 @@ class ChanjingAPI:
         if headers is None:
             headers = {}
         
-        if self.access_token and 'access_token' not in headers and endpoint != '/access_token':
-            headers['access_token'] = self.access_token
+        # 🔴 同时支持 header 和 query parameter 传递 access_token（兼容 8080 端口代理）
+        if self.access_token and endpoint != '/access_token':
+            if 'access_token' not in headers:
+                headers['access_token'] = self.access_token
+            # 8080 端口代理需要 query parameter 方式
+            if params is None:
+                params = {}
+            params['access_token'] = self.access_token
         
         json_data = None
         request_data = data

@@ -56,6 +56,7 @@ def fail(code, msg, status_code=400): return {"code": code, "message": msg}
 def list_common_persons(merchant: Merchant = Depends(verify_api_key)):
     """获取公共数字人列表（包含所有可选形象类型）"""
     import logging
+    import json
     from fastapi import Request
     from urllib.parse import urlencode
     
