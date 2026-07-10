@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { getCommonPersons, getCustomPersons, getCommonPersonDetail, getCustomPersonDetail, getVoices, getImageProxyUrl, getBaseUrl } from '../api/api'
 import { getVFS } from '../utils/vfsClient'
@@ -684,23 +683,13 @@ function VideoPreviewModal({ video, onClose, vfs }) {
           return
         }
         
-        // 必须走 VFS 的二进制解码器。readFile(..., 'binary') 在 Electron IPC 下
-        // 可能返回 {type:'Buffer', data:'base64...'}，直接 new Blob([object]) 会损坏 MP4。
-        const sourceBlob = await vfs.readFileAsBlob(video.path)
-        if (!(sourceBlob instanceof Blob) || sourceBlob.size <= 0) {
-          throw new Error('VFS 返回的不是有效视频 Blob')
-        }
-        const mimeType = sourceBlob.type && sourceBlob.type.startsWith('video/')
-          ? sourceBlob.type
-          : 'video/mp4'
-        const blob = sourceBlob.type === mimeType
-          ? sourceBlob
-          : new Blob([await sourceBlob.arrayBuffer()], { type: mimeType })
-        console.log('[VideoPreviewModal] 正确解码后的 Blob:', {
-          size: blob.size,
-          type: blob.type,
-          path: video.path,
-        })
+        // 从 VFS 读取视频文件为 ArrayBuffer
+        const arrayBuffer = await vfs.readFile(video.path, 'binary')
+        console.log('[VideoPreviewModal] 读取到的 ArrayBuffer 大小:', arrayBuffer?.byteLength || arrayBuffer?.length)
+        
+        // 转换为 Blob
+        const blob = new Blob([arrayBuffer], { type: 'video/mp4' })
+        console.log('[VideoPreviewModal] Blob 大小:', blob.size)
         
         blobUrl = URL.createObjectURL(blob)
         console.log('[VideoPreviewModal] Blob URL:', blobUrl.substring(0, 50) + '...')
@@ -753,27 +742,7 @@ function VideoPreviewModal({ video, onClose, vfs }) {
               {error}
             </div>
           ) : (
-            <video
-              controls
-              autoPlay
-              preload="metadata"
-              className="max-h-full max-w-full rounded-lg shadow-2xl"
-              style={{ aspectRatio: '9/16' }}
-              src={videoUrl}
-              onLoadedMetadata={(event) => {
-                console.log('[VideoPreviewModal] 视频元数据加载成功', {
-                  duration: event.currentTarget.duration,
-                  videoWidth: event.currentTarget.videoWidth,
-                  videoHeight: event.currentTarget.videoHeight,
-                })
-              }}
-              onError={(event) => {
-                const mediaError = event.currentTarget?.error
-                const detail = mediaError?.message || `MediaError code=${mediaError?.code || 'unknown'}`
-                console.error('[VideoPreviewModal] 浏览器无法解码视频:', detail)
-                setError(`视频文件已读取，但播放器无法解码：${detail}`)
-              }}
-            >
+            <video controls autoPlay className="max-h-full max-w-full rounded-lg shadow-2xl" style={{ aspectRatio: '9/16' }} src={videoUrl}>
               您的浏览器不支持视频
             </video>
           )}
@@ -905,33 +874,18 @@ function AIScriptForm({ template, productInfo, setProductInfo, onSubmit, onCance
 
 // 获取当前选中的风格信息
   const currentStyle = { label: '鹿场直销', icon: Store }
-
-  const buildRecommendedPrompt = (info) => FARM_DIRECT_PROMPT
-    .replace('【填写产品名称】', info.product_name || '鹿茸血口服液')
-    .replace('【填写容易混淆的产品】', info.comparison_product || '普通鹿血/假冒产品')
-    .replace('【例如：自家鹿场养了 1000 头梅花鹿】', info.farm_scale || '自家鹿场养殖')
-    .replace('【例如：源头养殖、原料可追溯、规范灌装、粉丝价】', info.selling_points || '源头养殖、原料可追溯、规范灌装、粉丝价')
-    .replace('【例如：颜色、摇晃状态、批次信息、鹿场溯源】', info.identification_points || '颜色、摇晃状态、批次信息、鹿场溯源')
-    .replace('【例如：点击下方链接、评论区扣"鹿"、直播间领取福利】', info.call_to_action || '点击下方链接、评论区留言')
-    .replace('【例如：送礼、爱喝酒的中年男性、东北特产爱好者】', info.target_audience || '送礼、爱喝酒的中年男性、东北特产爱好者')
-
-  // 选中模板打开表单时，自动填入平台推荐提示词，不再要求用户手动点“重置”。
-  useEffect(() => {
-    setProductInfo((previous) => {
-      if (previous.customPrompt && previous.customPrompt.trim()) return previous
-      return {
-        ...previous,
-        customPrompt: buildRecommendedPrompt(previous),
-      }
-    })
-  }, [template?.id, setProductInfo])
   
   // 应用模板到自定义提示词（动态填充产品信息）
   const applyTemplate = () => {
-    setProductInfo((previous) => ({
-      ...previous,
-      customPrompt: buildRecommendedPrompt(previous),
-    }))
+    const filledPrompt = FARM_DIRECT_PROMPT
+      .replace('【填写产品名称】', productInfo.product_name || '鹿茸血口服液')
+      .replace('【填写容易混淆的产品】', productInfo.comparison_product || '普通鹿血/假冒产品')
+      .replace('【例如：自家鹿场养了 1000 头梅花鹿】', productInfo.farm_scale || '自家鹿场养了 1000 头梅花鹿')
+      .replace('【例如：源头养殖、原料可追溯、规范灌装、粉丝价】', productInfo.selling_points || '源头养殖、原料可追溯、规范灌装、粉丝价')
+      .replace('【例如：颜色、摇晃状态、批次信息、鹿场溯源】', productInfo.identification_points || '颜色、摇晃状态、批次信息、鹿场溯源')
+      .replace('【例如：点击下方链接、评论区扣"鹿"、直播间领取福利】', productInfo.call_to_action || '点击下方链接、评论区留言')
+      .replace('【例如：送礼、爱喝酒的中年男性、东北特产爱好者】', productInfo.target_audience || '送礼、爱喝酒的中年男性、东北特产爱好者')
+    setProductInfo({ ...productInfo, customPrompt: filledPrompt })
   }
 
   return (
@@ -1230,7 +1184,6 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
     console.log('[DigitalHumanStudio] 选择模板:', template?.id, template?.name)
     // 直接设置所有状态，React 会批量更新
     setTempSelectedTemplate(template)
-    setProductInfo((previous) => ({ ...previous, customPrompt: '' }))
     setShowTemplateManager(false)
     setShowScriptForm(true)
     console.log('[DigitalHumanStudio] 表单已打开，template:', template?.id, template?.name)
@@ -1405,7 +1358,7 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
             const videoResponse = await fetch(toDigitalHumanAssetUrl(status.result.video_url, baseUrl))
             if (!videoResponse.ok) throw new Error(`下载数字人视频失败：HTTP ${videoResponse.status}`)
             const videoBlob = await videoResponse.blob()
-            await vfs.writeFile(videoPath, await videoBlob.arrayBuffer(), { type: videoBlob.type || 'video/mp4' })
+            await vfs.writeFile(videoPath, await videoBlob.arrayBuffer())
 
             const project = buildDigitalHumanProject({
               taskId: task.dhTaskId,
@@ -1778,7 +1731,7 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
           const videoResponse = await fetch(toDigitalHumanAssetUrl(result.video_url, apiBaseUrl))
           if (!videoResponse.ok) throw new Error(`下载数字人视频失败：HTTP ${videoResponse.status}`)
           const videoBlob = await videoResponse.blob()
-          await vfs.writeFile(vfsVideoPath, await videoBlob.arrayBuffer(), { type: videoBlob.type || 'video/mp4' })
+          await vfs.writeFile(vfsVideoPath, await videoBlob.arrayBuffer())
 
           const project = buildDigitalHumanProject({
             taskId: dhTaskId,
@@ -1989,5 +1942,3 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
     </div>
   )
 }
-
-

@@ -1,20 +1,7 @@
 export const DIGITAL_HUMAN_PROJECT_SCHEMA = 'rjcut.digital-human-project/v1'
-export const LOCAL_TIMELINE_SCHEMA = 'rjcut.local-timeline/v2'
+export const LOCAL_TIMELINE_SCHEMA = 'rjcut.local-timeline/v1'
 
 const DIRECTOR_WORD_RE = /(转场|切镜|镜头切到|画面切到|画面给到|这里放素材|插入素材)/gi
-
-function buildTransitionDescriptor(visualMode, slotId = null, source = null) {
-  const enabled = visualMode === 'scene'
-  const provided = source && typeof source === 'object' ? source : {}
-  return {
-    enabled,
-    action: enabled ? 'replace_visual' : 'keep_digital_human',
-    slot_id: enabled ? (slotId || provided.slot_id || null) : null,
-    keep_original_audio: provided.keep_original_audio !== false,
-    entry: String(provided.entry || 'cut'),
-    exit: String(provided.exit || 'cut'),
-  }
-}
 
 export function cleanSpokenText(value) {
   return String(value || '')
@@ -37,9 +24,6 @@ function sentenceSegments(text) {
     visual_mode: index === 0 || index === parts.length - 1 ? 'human' : 'auto',
     visual_tags: [],
     slot_id: null,
-    edit_action: 'keep_digital_human',
-    is_transition_segment: false,
-    transition: buildTransitionDescriptor('human', null),
   }))
 }
 
@@ -64,42 +48,23 @@ export function normalizeCopywritingPlan(raw, fallbackText = '') {
             ? originalFlag
             : 'auto'
       if (visualMode === 'scene') sceneIndex += 1
-      const slotId = segment?.slot_id || (visualMode === 'scene' ? `slot_${sceneIndex}` : null)
-      const transition = buildTransitionDescriptor(visualMode, slotId, segment?.transition)
       return {
         id: String(segment?.id || `s${index + 1}`),
         text,
         purpose: String(segment?.purpose || (index === 0 ? 'hook' : index === rawSegments.length - 1 ? 'close' : 'explain')),
         visual_mode: visualMode,
         visual_tags: Array.isArray(segment?.visual_tags) ? segment.visual_tags.map(String).filter(Boolean) : [],
-        slot_id: slotId,
-        edit_action: transition.action,
-        is_transition_segment: transition.enabled,
-        transition,
+        slot_id: segment?.slot_id || (visualMode === 'scene' ? `slot_${sceneIndex}` : null),
         note: String(segment?.note || ''),
       }
     })
     .filter(Boolean)
 
-  const transitionSegments = segments
-    .filter((item) => item.is_transition_segment)
-    .map((item) => ({
-      segment_id: item.id,
-      slot_id: item.slot_id,
-      action: item.edit_action,
-      visual_tags: item.visual_tags,
-      keep_original_audio: item.transition.keep_original_audio,
-    }))
   return {
-    schema: 'rjcut.copywriting-plan/v2',
+    schema: 'rjcut.copywriting-plan/v1',
     spoken_text: spokenText || segments.map((item) => item.text).join(''),
     segments,
-    transition_segments: transitionSegments,
-    meta: {
-      ...(source.meta && typeof source.meta === 'object' ? source.meta : {}),
-      transition_segment_count: transitionSegments.length,
-      transition_segment_ids: transitionSegments.map((item) => item.segment_id),
-    },
+    meta: source.meta && typeof source.meta === 'object' ? source.meta : {},
   }
 }
 
@@ -199,9 +164,6 @@ export function mapPlanToTimeline(planInput, charTimingsInput) {
       char_end: charRange.end,
       slot_id: segment.slot_id || null,
       visual_tags: segment.visual_tags || [],
-      edit_action: segment.edit_action || (segment.visual_mode === 'scene' ? 'replace_visual' : 'keep_digital_human'),
-      is_transition_segment: Boolean(segment.is_transition_segment || segment.visual_mode === 'scene'),
-      transition: buildTransitionDescriptor(segment.visual_mode, segment.slot_id, segment.transition),
       note: segment.note || '',
     })
   })
@@ -276,7 +238,6 @@ export function buildDigitalHumanProject({
       duration_ms: durationMs,
     },
     copywriting: plan,
-    transition_segments: plan.transition_segments || [],
     text: plan.spoken_text,
     normalized_text: result?.normalized_text || result?.text || plan.spoken_text,
     char_timings: charTimings,
@@ -292,10 +253,6 @@ export function buildDigitalHumanProject({
         end_ms: segment.end_ms,
         slot_id: segment.slot_id,
         visual_tags: segment.visual_tags,
-        edit_action: segment.edit_action,
-        is_transition_segment: segment.is_transition_segment,
-        transition: segment.transition,
-        keep_original_audio: segment.transition?.keep_original_audio !== false,
       })),
     },
   }
@@ -383,19 +340,6 @@ export function buildBoundLocalTimeline(project, template, scene) {
     duration_ms: project.digital_human?.duration_ms || project.timeline?.duration_ms || 0,
     char_timings: project.char_timings,
     spoken_text: project.copywriting?.spoken_text || project.text || '',
-    transition_segments: project.copywriting?.transition_segments || project.transition_segments || [],
     segments: outputSegments,
-    clips: outputSegments.map((segment) => ({
-      id: segment.id,
-      type: segment.type,
-      start_ms: segment.start_ms,
-      end_ms: segment.end_ms,
-      slot_id: segment.slot_id || null,
-      scene_vfs_path: segment.scene_vfs_path || null,
-      edit_action: segment.edit_action || (segment.type === 'scene' ? 'replace_visual' : 'keep_digital_human'),
-      is_transition_segment: Boolean(segment.is_transition_segment || segment.type === 'scene'),
-      transition: segment.transition || buildTransitionDescriptor(segment.type === 'scene' ? 'scene' : 'human', segment.slot_id),
-      keep_original_audio: segment.transition?.keep_original_audio !== false,
-    })),
   }
 }

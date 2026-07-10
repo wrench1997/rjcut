@@ -38,7 +38,6 @@ from oss import (
 
 from admin_api import router as admin_router
 from api_digital_human import router as dh_router
-from api_ai_copywriting import router as ai_copywriting_router
 
 from draft_utils import (
     apply_corrections_to_editable_script,
@@ -81,7 +80,6 @@ app.add_middleware(
 
 app.include_router(admin_router)
 app.include_router(dh_router)
-app.include_router(ai_copywriting_router)
 
 # 🖼️ 单独注册不需要认证的代理图片接口（在 router 之后注册，覆盖需要认证版本）
 from api_digital_human import proxy_image_no_auth
@@ -1131,6 +1129,8 @@ async def generate_script(
 
     if result["success"]:
         return ok({
+            "script": result["script"],
+            "spoken_text": result["spoken_text"],
             "segments": result["segments"],
             "usage": result.get("usage", {}),
         })
@@ -1230,7 +1230,7 @@ async def generate_template(
         "selling_points": "核心卖点（可选）",
         "target_audience": "目标人群（可选）",
         "style": "文案风格（direct_sale/premium/social_review/explainer）",
-        "transition_count": 转场数量（数字，默认 4）,
+        "transition_count": 场景素材段数量（保留旧字段名兼容，默认 4）,
         "file_names": ["文件名 1.mp4", "文件名 2.MOV"]（可选，AI 将根据文件名设计模板结构）
     }
     """
@@ -1263,14 +1263,8 @@ async def generate_template(
     )
 
     if result["success"]:
-        # v0.3：不再把 scene 段落硬替换成“转场”。
-        # scene 现在只表示素材位 / 画面切换意图，数字人口播不应朗读“转场”。
+        # scene 是画面模式，text 保留自然口播；不再写入任何导演口令。
         template = result["template"]
-        if template and "segments" in template:
-            for seg in template["segments"]:
-                if seg.get("flag") == "scene":
-                    seg["transition_after"] = True
-                    seg.setdefault("visual_tags", [seg.get("note", "")])
         return ok({
             "template": template,
             "usage": result.get("usage", {}),

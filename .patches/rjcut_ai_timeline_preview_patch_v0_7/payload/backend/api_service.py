@@ -1,3 +1,4 @@
+
 import uuid
 from datetime import datetime, timezone
 
@@ -1114,26 +1115,39 @@ async def generate_script(
     identification_points = body.get("identification_points", "颜色、状态、溯源信息")
     call_to_action = body.get("call_to_action", "点击下方链接/评论区留言")
 
-    result = await ai_generate_script_via_gateway(
-        product_name=product_name,
-        selling_points=selling_points,
-        target_audience=target_audience,
-        tone=tone,
-        template_structure=template_structure,
-        custom_prompt=custom_prompt,
-        comparison_product=comparison_product,
-        farm_scale=farm_scale,
-        identification_points=identification_points,
-        call_to_action=call_to_action,
-    )
+    try:
+        result = await ai_generate_script_via_gateway(
+            product_name=product_name,
+            selling_points=selling_points,
+            target_audience=target_audience,
+            tone=tone,
+            template_structure=template_structure,
+            custom_prompt=custom_prompt,
+            comparison_product=comparison_product,
+            farm_scale=farm_scale,
+            identification_points=identification_points,
+            call_to_action=call_to_action,
+        )
+    except ValueError as exc:
+        # 参数或提示词问题属于客户端可修复错误，不能冒泡成 ASGI 500。
+        return fail(42201, str(exc), status_code=422)
+    except Exception as exc:
+        print(f"[ERROR] AI 文案生成接口异常：{exc}")
+        return fail(50001, f"AI 文案生成失败：{exc}", status_code=500)
 
-    if result["success"]:
+    if result.get("success"):
         return ok({
+            "script": result["script"],
+            "spoken_text": result["spoken_text"],
             "segments": result["segments"],
+            "transition_segments": result["script"].get("transition_segments", []),
             "usage": result.get("usage", {}),
         })
-    else:
-        return fail(50001, result.get("error", "AI 生成失败"))
+
+    if result.get("error_code") == "PROMPT_VALIDATION_FAILED":
+        return fail(42201, result.get("error", "提示词未通过过滤"), status_code=422)
+
+    return fail(50001, result.get("error", "AI 生成失败"), status_code=502)
 
 
 @app.post("/v1/ai/recommend-templates")
@@ -1228,7 +1242,7 @@ async def generate_template(
         "selling_points": "核心卖点（可选）",
         "target_audience": "目标人群（可选）",
         "style": "文案风格（direct_sale/premium/social_review/explainer）",
-        "transition_count": 转场数量（数字，默认 4）,
+        "transition_count": 场景素材段数量（保留旧字段名兼容，默认 4）,
         "file_names": ["文件名 1.mp4", "文件名 2.MOV"]（可选，AI 将根据文件名设计模板结构）
     }
     """
@@ -1261,12 +1275,8 @@ async def generate_template(
     )
 
     if result["success"]:
-        # 🔧 硬替换：将所有 scene 段落的 text 替换为"转场"
+        # scene 是画面模式，text 保留自然口播；不再写入任何导演口令。
         template = result["template"]
-        if template and "segments" in template:
-            for seg in template["segments"]:
-                if seg.get("flag") == "scene":
-                    seg["text"] = "转场"
         return ok({
             "template": template,
             "usage": result.get("usage", {}),
@@ -1351,3 +1361,5 @@ def create_visual_script_editor_task(
         "trace_id": trace_id,
         "estimated_seconds": 300,  # 预计 5 分钟（视频分析需要时间）
     }, trace_id=trace_id)
+
+
