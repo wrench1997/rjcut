@@ -1,5 +1,5 @@
 API_KEY="rjk_d3-i0KAiox54q57PWmv5qHtCdR5iasvvlw3odTYoXzK7TF3_"
-BASE_URL="http://192.168.166.151:8001"
+BASE_URL="http://127.0.0.1:8001"
 
 # ── 1. 获取公共数字人列表（挑选一个 person_id） ──
 curl -s "$BASE_URL/v1/dh/persons/common" \

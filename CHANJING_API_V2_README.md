@@ -181,7 +181,7 @@ api = create_chanjing_api_v2()
 # 自定义配置
 api = create_chanjing_api_v2(
     config={
-        "base_url": "http://192.168.166.151:8080",
+        "base_url": "http://127.0.0.1:8080",
         "timeout": 60,
         "max_retries": 5,
     }
@@ -214,7 +214,7 @@ api = create_chanjing_api_v2(
     app_id="your_app_id",
     secret_key="your_secret_key",
     config={
-        "base_url": "http://192.168.166.151:8080"  # 本地 API 服务
+        "base_url": "http://127.0.0.1:8080"  # 本地 API 服务
     }
 )
 ```

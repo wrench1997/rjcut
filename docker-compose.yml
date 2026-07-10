@@ -7,7 +7,7 @@ x-common-env: &common-env
   MINIO_SECRET_KEY: minioadmin
   MINIO_BUCKET: rjcut
   MINIO_USE_SSL: "false"
-  MINIO_EXTERNAL_ENDPOINT: http://192.168.166.151:9003
+  MINIO_EXTERNAL_ENDPOINT: http://127.0.0.1:9003
   TASK_TIMEOUT_SECONDS: "360"
   TASK_STALE_CHECK_INTERVAL: "60"
   SECRET_KEY: change_me_in_production_2024
@@ -16,7 +16,7 @@ x-common-env: &common-env
   CHANJING_APP_ID: itop
   CHANJING_SECRET_KEY: rj-itop+0591
   # 🐳 Docker 容器内访问宿主机蝉镜 API 的地址（直接使用宿主机 IP，更稳定）
-  CHANJING_BASE_URL: http://192.168.166.151:8080
+  CHANJING_BASE_URL: http://127.0.0.1:8080
 
 services:
 # --- 新增 Loki 监控组件 ---

@@ -9,7 +9,7 @@
 set -e
 
 # --- 全局配置 ---
-BASE_URL=${BASE_URL:-"http://192.168.166.151:8001"}
+BASE_URL=${BASE_URL:-"http://127.0.0.1:8001"}
 API_KEY=${API_KEY:-"替换成你的_API_KEY"}
 
 # 批处理配置

@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-DEFAULT_BASE_URL = "http://192.168.166.151:8080"
+DEFAULT_BASE_URL = "http://127.0.0.1:8080"
 DEFAULT_TEXT = (
     "你好，欢迎使用数字人服务。"
     "这是一段字级时间轴接口测试文案，用于检查每个字符的开始时间和结束时间。"

@@ -462,7 +462,7 @@ class ChanjingAPIV2:
             (app_id, secret_key) 元组，如果获取失败则返回 (None, None)
         """
         try:
-            url = base_url if base_url else "http://192.168.166.151:8080"
+            url = base_url if base_url else "http://127.0.0.1:8080"
             
             # 尝试从本地 API 服务获取认证信息
             # 假设本地服务提供 /api/auth/chanjing 接口返回认证信息
@@ -1037,7 +1037,7 @@ def create_chanjing_api_v2(
         app_id: 应用 ID（可选，不提供则自动获取）
         secret_key: 密钥（可选，不提供则自动获取）
         config: 配置字典，可包含：
-            - base_url: API 地址（默认：http://192.168.166.151:8080）
+            - base_url: API 地址（默认：http://127.0.0.1:8080）
             - timeout: 超时时间（默认：30）
             - max_retries: 最大重试次数（默认：3）
             - enable_cache: 是否启用缓存（默认：True）
@@ -1060,7 +1060,7 @@ def create_chanjing_api_v2(
         api = create_chanjing_api_v2(config={"timeout": 60, "max_retries": 5})
     """
     default_config = {
-        "base_url": "http://192.168.166.151:8080",  # 默认本地 API 服务
+        "base_url": "http://127.0.0.1:8080",  # 默认本地 API 服务
         "timeout": 30,
         "max_retries": 3,
         "enable_cache": True,

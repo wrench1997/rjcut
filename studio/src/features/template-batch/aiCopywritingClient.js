@@ -4,9 +4,9 @@
  */
 function getApiBaseUrl() {
   if (typeof localStorage !== 'undefined') {
-    return localStorage.getItem('rjcut_api_base_url') || 'http://192.168.166.151:8000'
+    return localStorage.getItem('rjcut_api_base_url') || 'http://127.0.0.1:8000'
   }
-  return 'http://192.168.166.151:8000'
+  return 'http://127.0.0.1:8000'
 }
 
 function getApiKey() {

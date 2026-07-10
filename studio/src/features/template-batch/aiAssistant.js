@@ -105,8 +105,8 @@ export function getTemplateConfig(templateId) {
 export async function aiRecommendTemplates(productKeyword, category = '', templates = null) {
   // 使用 api 客户端调用后端 AI 推荐接口（自动携带 Authorization header）
   const apiBaseUrl = typeof localStorage !== 'undefined' 
-    ? localStorage.getItem('rjcut_api_base_url') || 'http://192.168.166.151:8000'
-    : 'http://192.168.166.151:8000'
+    ? localStorage.getItem('rjcut_api_base_url') || 'http://127.0.0.1:8000'
+    : 'http://127.0.0.1:8000'
   
   const apiKey = typeof localStorage !== 'undefined'
     ? localStorage.getItem('rjcut_api_key') || 'rjk_oG3u1bRu10myprstb5o2AYVW6v9HipNT33ALuJTmFxaqemUC'
@@ -240,8 +240,8 @@ export async function aiGenerateTemplate({
 }) {
   // 调用后端 AI 接口
   const baseUrl = typeof localStorage !== 'undefined' 
-    ? localStorage.getItem('rjcut_api_base_url') || 'http://192.168.166.151:8000'
-    : 'http://192.168.166.151:8000'
+    ? localStorage.getItem('rjcut_api_base_url') || 'http://127.0.0.1:8000'
+    : 'http://127.0.0.1:8000'
   
   // 验证必填参数
   if (!productName || !productName.trim()) {
@@ -340,8 +340,8 @@ async function getVideoDuration(file, vfs) {
 export async function aiSuggestSlotFiles(files, slots, vfs = null) {
   // 调用后端 AI 接口分析视频内容
   const apiBaseUrl = typeof localStorage !== 'undefined' 
-    ? localStorage.getItem('rjcut_api_base_url') || 'http://192.168.166.151:8000'
-    : 'http://192.168.166.151:8000'
+    ? localStorage.getItem('rjcut_api_base_url') || 'http://127.0.0.1:8000'
+    : 'http://127.0.0.1:8000'
   
   const apiKey = typeof localStorage !== 'undefined'
     ? localStorage.getItem('rjcut_api_key') || 'rjk_oG3u1bRu10myprstb5o2AYVW6v9HipNT33ALuJTmFxaqemUC'

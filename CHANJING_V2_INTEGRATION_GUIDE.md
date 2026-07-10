@@ -8,7 +8,7 @@
 
 | 特性 | V1 | V2 |
 |------|----|----|
-| API 地址 | https://www.chanjing.cc/api/open/v1 | http://192.168.166.151:8080 (本地服务) |
+| API 地址 | https://www.chanjing.cc/api/open/v1 | http://127.0.0.1:8080 (本地服务) |
 | 认证方式 | 手动提供 app_id/secret_key | ✅ 自动获取（兼容手动） |
 | 重试机制 | 无 | ✅ 指数退避重试 |
 | 缓存 | 基础 TTL 缓存 | ✅ LRU + TTL 智能缓存 |
@@ -26,7 +26,7 @@ V2 引入智能认证机制，支持两种模式：
 
 ```python
 # 无需提供 app_id 和 secret_key
-# V2 会自动从本地 API 服务 (http://192.168.166.151:8080) 获取
+# V2 会自动从本地 API 服务 (http://127.0.0.1:8080) 获取
 api = create_chanjing_api_v2()
 ```
 
@@ -223,7 +223,7 @@ V2 默认启用自动认证，无需配置 app_id 和 secret_key：
 ```bash
 # .env
 # 本地 API 服务地址（V2 会自动从此服务获取认证信息）
-CHANJING_V2_BASE_URL=http://192.168.166.151:8080
+CHANJING_V2_BASE_URL=http://127.0.0.1:8080
 
 # V2 其他配置
 CHANJING_V2_TIMEOUT=60
@@ -261,7 +261,7 @@ CHANJING_V2_AUTO_AUTH=false  # 关闭自动认证
 
 | 配置项 | 类型 | 默认值 | 说明 |
 |--------|------|--------|------|
-| `base_url` | str | `http://192.168.166.151:8080` | API 服务地址 |
+| `base_url` | str | `http://127.0.0.1:8080` | API 服务地址 |
 | `timeout` | int | 30 | 请求超时时间（秒） |
 | `max_retries` | int | 3 | 最大重试次数 |
 | `enable_cache` | bool | True | 是否启用缓存 |
@@ -274,7 +274,7 @@ CHANJING_V2_AUTO_AUTH=false  # 关闭自动认证
 
 - [ ] 更新导入语句：`from chanjing_api_v2 import ...`
 - [ ] 更新 API 创建：使用 `create_chanjing_api_v2()`
-- [ ] 配置 API 地址：`http://192.168.166.151:8080`
+- [ ] 配置 API 地址：`http://127.0.0.1:8080`
 - [ ] 配置超时时间：根据操作类型设置（查询 30s，生成 120s）
 - [ ] 配置重试次数：建议 3-5 次
 - [ ] 启用缓存：列表类操作启用，状态查询不启用
@@ -413,7 +413,7 @@ if health["checks"]["circuit_breaker"]["status"] == "open":
 
 ## 总结
 
-1. **V2 默认地址**：`http://192.168.166.151:8080`（本地 API 服务）
+1. **V2 默认地址**：`http://127.0.0.1:8080`（本地 API 服务）
 2. **完全兼容 V1**：所有 V1 方法在 V2 中都可以正常使用
 3. **增强功能**：重试、缓存、监控、熔断、降级、批量操作
 4. **渐进式迁移**：可以通过配置开关控制是否使用 V2
