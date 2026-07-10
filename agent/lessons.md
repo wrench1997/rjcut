@@ -11,6 +11,22 @@
 
 
 
+
+
+### 蝉镜 API 应通过本地 8080 端口代理而非直连官方 API
+
+- **出现日期**: 2026-07-10
+- **问题描述**: 蝉镜 API 调用应该通过本地 8080 端口代理服务，而不是直接调用蝉镜官方 API。8080 端口是本地 API 网关，负责转发和认证。
+- **根因**: 1. chanjing_api_v2.py 默认 base_url 设置为 "https://www.chanjing.cc/api/open/v1"（蝉镜官方 API）
+2. 实际项目中，8080 端口是本地 API 代理服务（192.168.166.151:8080）
+3. 直接调用官方 API 会绕过本地认证和代理逻辑，可能导致请求失败
+- **正确规则**: 1. 蝉镜 API V2 客户端默认 base_url 应设置为 "http://192.168.166.151:8080"
+2. 8080 端口是本地 API 网关，负责转发请求到蝉镜官方 API
+3. api_digital_human.py 中创建 ChanjingAPIV2 实例时必须显式传入 base_url 配置
+- **回归检查**:
+  ```bash
+  grep -n "base_url.*chanjing.cc" chanjing_api_v2.py api_digital_human.py
+  ```
 ### Docker 容器访问宿主机应使用实际 IP 而非 host.docker.internal
 
 - **出现日期**: 2026-07-10
