@@ -322,10 +322,10 @@ class ChanjingAPIV2:
     
     # API 端点常量
     ENDPOINT_ACCESS_TOKEN = "/access_token"
-    ENDPOINT_COMMON_PERSONS = "/api/open/v2/digital-human/common-persons"
-    ENDPOINT_COMMON_AUDIO = "/api/open/v2/digital-human/common-audio"
-    ENDPOINT_CUSTOM_PERSON_STATUS = "/api/open/v2/digital-human/custom-person-status"
-    ENDPOINT_VIDEO_STATUS = "/api/open/v2/digital-human/video-status"
+    ENDPOINT_COMMON_PERSONS = "/api/open/v1/digital-human/common-persons"  # 🔄 改为 v1 端点
+    ENDPOINT_COMMON_AUDIO = "/api/open/v1/digital-human/common-audio"      # 🔄 改为 v1 端点
+    ENDPOINT_CUSTOM_PERSON_STATUS = "/api/open/v1/digital-human/custom-person-status"  # 🔄 改为 v1 端点
+    ENDPOINT_VIDEO_STATUS = "/api/open/v1/digital-human/video-status"      # 🔄 改为 v1 端点
     
     def __init__(
         self,
