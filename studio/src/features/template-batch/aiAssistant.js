@@ -1,3 +1,4 @@
+import { aiGenerateStructuredScript, structuredScriptToLegacySegments } from './aiCopywritingClient.js'
 /**
  * 模板混剪 - AI 辅助工具
  * 提供 AI 推荐模板、AI 生成文案、AI 素材建议等功能
@@ -166,69 +167,57 @@ export async function aiRecommendTemplates(productKeyword, category = '', templa
 /**
  * AI 生成口播文案 - 根据自定义提示词生成文案（鹿场直销专用）
  * @param {Object} params - 参数
- * @param {string} params.customPrompt - 自定义提示词（必填）
+ * @param {string} params.customPrompt - 自定义提示词（可选，如果不传则使用 tone 风格）
  * @param {string} params.templateId - 模板 ID
  * @param {Array} params.segments - 模板段落结构
+ * @param {string} params.productName - 产品名称（鹿场直销风格专用）
+ * @param {string} params.sellingPoints - 核心卖点（鹿场直销风格专用）
+ * @param {string} params.targetAudience - 目标人群（鹿场直销风格专用）
+ * @param {string} params.tone - 文案风格（可选，默认 direct_sale）
+ * @param {string} params.comparisonProduct - 核心对比对象（鹿场直销风格专用）
+ * @param {string} params.farmScale - 鹿场规模（鹿场直销风格专用）
+ * @param {string} params.identificationPoints - 想强调的辨别点（鹿场直销风格专用）
+ * @param {string} params.callToAction - 成交方式（鹿场直销风格专用）
  * @returns {Promise<{ text: string, flag: string, note: string }[]>}
  */
 export async function aiGenerateScript({
   customPrompt,
   templateId,
   segments,
+  productName = '',
+  sellingPoints = '',
+  targetAudience = '',
+  tone = 'direct_sale',
+  comparisonProduct = '普通产品/假冒产品',
+  farmScale = '自家鹿场养殖',
+  identificationPoints = '颜色、状态、溯源信息',
+  callToAction = '点击下方链接/评论区留言',
 }) {
-  // 调用后端 AI 文案生成接口
-  const baseUrl = typeof localStorage !== 'undefined' 
-    ? localStorage.getItem('rjcut_api_base_url') || 'http://192.168.166.151:8000'
-    : 'http://192.168.166.151:8000'
-  
-  // 验证必填参数
-  if (!customPrompt || !customPrompt.trim()) {
-    throw new Error('提示词不能为空')
+  // v0.3：调用 Python/FastAPI 后端的新结构化文案接口。
+  // 返回给旧 UI 的仍然是 segments 数组，但不会再包含 flag=transition，避免插入【转场】给数字人朗读。
+  const requestBody = {
+    template_id: templateId,
+    template_structure: segments,
+    preset_id: tone,
+    tone,
+    user_style_prompt: customPrompt || '',
+    custom_prompt: customPrompt || '',
+    product_name: productName,
+    selling_points: sellingPoints,
+    target_audience: targetAudience,
+    comparison_product: comparisonProduct,
+    farm_scale: farmScale,
+    identification_points: identificationPoints,
+    call_to_action: callToAction,
+    material_tags: (segments || []).map((s) => s.note).filter(Boolean),
   }
-  
-  try {
-    const requestBody = {
-      custom_prompt: customPrompt,
-      template_structure: segments,
-    }
-    
-    console.log('[AI 生成文案] 请求 URL:', `${baseUrl}/v1/ai/generate-script`)
-    console.log('[AI 生成文案] 请求体:', requestBody)
-    
-    const response = await fetch(`${baseUrl}/v1/ai/generate-script`, {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer rjk_oG3u1bRu10myprstb5o2AYVW6v9HipNT33ALuJTmFxaqemUC',
-      },
-      body: JSON.stringify(requestBody),
-    })
 
-    console.log('[AI 生成文案] 响应状态:', response.status)
-    
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}))
-      console.error('[AI 生成文案] 错误响应:', errorData)
-      throw new Error(errorData.message || `HTTP ${response.status}`)
-    }
+  console.log('[AI 生成文案 v0.3] 请求体:', requestBody)
+  const result = await aiGenerateStructuredScript(requestBody)
+  console.log('[AI 生成文案 v0.3] 成功响应:', result)
 
-    const result = await response.json()
-    console.log('[AI 生成文案] 成功响应:', result)
-    
-    // 后端返回格式：{ code: 0, message: "ok", data: { segments: [...] } }
-    if (result.code === 0 && result.data?.segments) {
-      return result.data.segments
-    } else if (result.code === 200 && result.data?.segments) {
-      return result.data.segments
-    } else {
-      throw new Error(result.message || result.msg || 'AI 生成文案失败')
-    }
-  } catch (error) {
-    console.error('AI 生成文案错误:', error)
-    throw error
-  }
+  return structuredScriptToLegacySegments(result, segments)
 }
-
 /**
  * AI 自动生成模板 - 根据产品信息和风格生成模板结构
  * @param {Object} params - 参数

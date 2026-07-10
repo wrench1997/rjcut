@@ -270,4 +270,137 @@ class DhCreateCustomPersonRequest(BaseModel):
     resolution_rate: int = 0
     client_ref_id: Optional[str] = None
 
+# ==========================================
+# Visual Script Editor (AI 自动剪辑) 相关 Schema
+# ==========================================
+
+class VisualScriptSource(BaseModel):
+    """视频源配置"""
+    source_id: Optional[str] = None  # 可选，系统会自动生成
+    label: Optional[str] = None  # 可选，系统会使用文件名
+    oss_key: Optional[str] = None  # OSS 文件路径
+    local_path: Optional[str] = None  # 本地文件路径（仅当后端可访问本地文件时）
+    url: Optional[str] = None  # 公开直链 URL
+
+
+class VisualScriptCandidateShotDefinition(BaseModel):
+    """候选镜头定义（可选自定义，否则使用默认）"""
+    id: str = "usable_editorial_shots"
+    description: Optional[str] = None
+    fields: Optional[List[Dict[str, Any]]] = None
+
+
+class VisualScriptEditorOptions(BaseModel):
+    """视觉脚本编辑器选项"""
+    # Pegasus 分析参数
+    min_shot_seconds: float = Field(2.0, ge=2.0, description="最小镜头时长（Pegasus 要求至少 2 秒）")
+    max_shot_seconds: float = Field(10.0, ge=2.0, description="最大镜头时长")
+    max_candidates_per_video: int = Field(30, ge=1, description="每个视频的最大候选镜头数")
+    
+    # Gemini 导演参数
+    target_seconds: float = Field(45.0, gt=0.0, description="目标总时长（秒）")
+    thinking_level: str = Field("low", description="Gemini 思考级别：minimal/low/medium/high")
+    gemini_model: str = Field("gemini-3-flash-preview", description="Gemini 模型")
+    
+    # 渲染参数（可选）
+    render: bool = Field(False, description="是否渲染 rough cut MP4")
+    canvas: str = Field("9:16", description="渲染画布比例：9:16/16:9/1:1")
+    fit: str = Field("contain", description="填充模式：contain/cover")
+    
+    # 复用已有 catalog（避免重复分析）
+    reuse_catalog_oss_key: Optional[str] = Field(None, description="复用已有 shot_catalog.json 的 OSS 路径")
+
+
+class VisualScriptEditorRequest(BaseModel):
+    """视觉脚本编辑器请求"""
+    # 视觉脚本（必填）
+    script_lines: List[str] = Field(..., min_length=1, description="视觉脚本行，每行一个视觉 beat")
+    style: str = Field(..., description="整体视觉风格，如'高级时尚广告；冷感、克制、留白；竖屏 9:16'")
+    
+    # 视频源（至少一个）
+    sources: List[VisualScriptSource] = Field(..., min_length=1, description="视频源列表")
+    
+    # 可选配置
+    options: VisualScriptEditorOptions = Field(default_factory=VisualScriptEditorOptions)
+    
+    # 回调与引用
+    callback_url: Optional[str] = None
+    client_ref_id: Optional[str] = None
+    timeout_seconds: Optional[int] = Field(3600, ge=60, le=7200)
+
+
+class VisualScriptEditorResponse(BaseModel):
+    """视觉脚本编辑器响应（任务提交成功）"""
+    task_id: str
+    task_type: str = "visual_script_editor"
+    status: str
+    trace_id: str
+    estimated_seconds: int
+
+
+class VisualScriptShotCatalog(BaseModel):
+    """镜头目录项"""
+    candidate_id: str
+    source_id: str
+    source_label: str
+    source_locator: str
+    start_time: float
+    end_time: float
+    duration: float
+    selection_score: float
+    metadata: Dict[str, Any]
+
+
+class VisualScriptEditShot(BaseModel):
+    """编辑决策中的镜头"""
+    candidate_id: str
+    source_id: str
+    source_label: str
+    source_locator: str
+    start_time: float
+    end_time: float
+    duration: float
+    script_index: int
+    script_line: str
+    why_this_shot: str
+    transition: str
+    on_screen_text: str
+    edit_intent: str
+    confidence: float
+
+
+class VisualScriptTimelineEntry(BaseModel):
+    """时间线索引项"""
+    script_index: int
+    script_line: str
+    shots: List[VisualScriptEditShot]
+    on_screen_text: str
+    transition: str
+    edit_intent: str
+    confidence: float
+
+
+class VisualScriptEditPlan(BaseModel):
+    """编辑计划"""
+    project_title: str
+    creative_rationale: str
+    timeline: List[VisualScriptTimelineEntry]
+    uncovered_script_lines: List[str]
+    review_flags: List[str]
+
+
+class VisualScriptTaskResult(BaseModel):
+    """视觉脚本任务结果"""
+    shot_catalog_oss_key: Optional[str] = None  # 镜头目录 OSS 路径
+    edit_plan_oss_key: Optional[str] = None  # 编辑计划 OSS 路径
+    edl_oss_key: Optional[str] = None  # EDL OSS 路径
+    srt_oss_key: Optional[str] = None  # 字幕 SRT OSS 路径
+    ffmpeg_commands_oss_key: Optional[str] = None  # FFmpeg 命令 OSS 路径
+    rough_cut_oss_key: Optional[str] = None  # 渲染成品 OSS 路径（如果启用渲染）
+    
+    # 简要统计
+    total_candidates: int = 0  # 候选镜头总数
+    selected_clips: int = 0  # 选中镜头数
+    uncovered_beats: int = 0  # 未覆盖的脚本行数
+    total_duration: float = 0.0  # 总时长（秒）
 

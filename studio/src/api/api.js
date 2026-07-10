@@ -247,3 +247,9 @@ export const getImageProxyUrl = (imageUrl) => {
   // 使用 URL 编码传递图片路径和 API Key（通过 URL 参数传递，因为<img>标签无法携带 header）
   return `${baseUrl}/v1/dh/proxy-image?path=${encodeURIComponent(path)}&api_key=${encodeURIComponent(apiKey)}`;
 };
+
+// AI 结构化文案 v0.3：Python 后端版，不再让数字人朗读“转场”
+export const aiCopywritingPresets = () => apiClient.get('/v1/ai-copywriting/presets');
+export const aiCopywritingValidatePrompt = (data) => apiClient.post('/v1/ai-copywriting/validate-prompt', data);
+export const aiCopywritingGeneratePlan = (data) => apiClient.post('/v1/ai-copywriting/generate-plan', data);
+export const aiCopywritingBuildTimeline = (data) => apiClient.post('/v1/ai-copywriting/build-timeline', data);

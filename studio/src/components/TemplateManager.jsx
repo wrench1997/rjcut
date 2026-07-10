@@ -14,24 +14,54 @@ import { getVFS } from '../utils/vfsClient.js'
 export default function TemplateManager({ onSelectTemplate, selectedTemplateId, onClose }) {
   const isStandalone = !onClose // 没有 onClose 时，作为独立页面显示
   
-  // 初始化时从 localStorage 加载自定义模板
-  const [templates, setTemplates] = useState(() => {
+  // 从 localStorage 加载自定义模板的辅助函数
+  const loadCustomTemplates = () => {
     try {
       const stored = localStorage.getItem('rjcut_custom_templates')
       if (stored) {
         const customTemplates = JSON.parse(stored)
-        return [...DEFAULT_TEMPLATES, ...customTemplates]
+        console.log('[TemplateManager] 加载到自定义模板:', customTemplates.length, '个')
+        return customTemplates
       }
     } catch (e) {
       console.error('加载自定义模板失败:', e)
     }
-    return DEFAULT_TEMPLATES
+    return []
+  }
+
+  // 初始化时从 localStorage 加载自定义模板
+  const [templates, setTemplates] = useState(() => {
+    const customTemplates = loadCustomTemplates()
+    return [...DEFAULT_TEMPLATES, ...customTemplates]
   })
   const [editingTemplate, setEditingTemplate] = useState(null)
   const [selectedCategory, setSelectedCategory] = useState('all')
   const [showCreateForm, setShowCreateForm] = useState(false)
   const [showAIGenerateForm, setShowAIGenerateForm] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0) // 用于强制刷新模板列表
+
+  // 监听 localStorage 变化，自动刷新模板列表（支持多标签页同步）
+  useEffect(() => {
+    const handleStorageChange = (e) => {
+      if (e.key === 'rjcut_custom_templates') {
+        console.log('[TemplateManager] 检测到 localStorage 变化，刷新模板列表')
+        const customTemplates = loadCustomTemplates()
+        setTemplates([...DEFAULT_TEMPLATES, ...customTemplates])
+        setRefreshKey(prev => prev + 1)
+      }
+    }
+    window.addEventListener('storage', handleStorageChange)
+    return () => window.removeEventListener('storage', handleStorageChange)
+  }, [])
+
+  // 手动刷新模板列表的函数
+  const refreshTemplates = () => {
+    console.log('[TemplateManager] 手动刷新模板列表')
+    const customTemplates = loadCustomTemplates()
+    setTemplates([...DEFAULT_TEMPLATES, ...customTemplates])
+    setRefreshKey(prev => prev + 1)
+  }
 
   const categories = ['all', ...getTemplateCategories()]
 
@@ -65,7 +95,13 @@ export default function TemplateManager({ onSelectTemplate, selectedTemplateId, 
     setTemplates(newTemplates)
     
     // 保存自定义模板到 localStorage（只保存自定义模板，不保存默认模板）
-    const customTemplates = newTemplates.filter(t => t.id?.startsWith('custom_'))
+    // 🐛 修复：AI 生成的模板 (ai_generated_xxx) 和复制的模板 (copy_xxx) 也需要保存
+    const customTemplates = newTemplates.filter(t => 
+      t.id?.startsWith('custom_') || 
+      t.id?.startsWith('copy_') || 
+      t.id?.startsWith('ai_generated_') ||
+      !DEFAULT_TEMPLATES.find(dt => dt.id === t.id)
+    )
     try {
       localStorage.setItem('rjcut_custom_templates', JSON.stringify(customTemplates))
     } catch (e) {
@@ -82,7 +118,13 @@ export default function TemplateManager({ onSelectTemplate, selectedTemplateId, 
       setTemplates(newTemplates)
       
       // 更新 localStorage 中的自定义模板
-      const customTemplates = newTemplates.filter(t => t.id?.startsWith('custom_'))
+      // 🐛 修复：删除模板时也要保留 AI 生成的模板 (ai_generated_xxx) 和复制的模板 (copy_xxx)
+      const customTemplates = newTemplates.filter(t => 
+        t.id?.startsWith('custom_') || 
+        t.id?.startsWith('copy_') || 
+        t.id?.startsWith('ai_generated_') ||
+        !DEFAULT_TEMPLATES.find(dt => dt.id === t.id)
+      )
       try {
         localStorage.setItem('rjcut_custom_templates', JSON.stringify(customTemplates))
       } catch (e) {
@@ -101,7 +143,13 @@ export default function TemplateManager({ onSelectTemplate, selectedTemplateId, 
     setTemplates(newTemplates)
     
     // 更新 localStorage 中的自定义模板
-    const customTemplates = newTemplates.filter(t => t.id?.startsWith('custom_') || t.id?.startsWith('copy_'))
+    // 🐛 修复：复制的模板也需要包含 ai_generated_ 前缀的模板
+    const customTemplates = newTemplates.filter(t => 
+      t.id?.startsWith('custom_') || 
+      t.id?.startsWith('copy_') || 
+      t.id?.startsWith('ai_generated_') ||
+      !DEFAULT_TEMPLATES.find(dt => dt.id === t.id)
+    )
     try {
       localStorage.setItem('rjcut_custom_templates', JSON.stringify(customTemplates))
     } catch (e) {
@@ -118,29 +166,38 @@ export default function TemplateManager({ onSelectTemplate, selectedTemplateId, 
         ...aiTemplate,
         id: aiTemplate.id || `ai_${Date.now()}`,
       }
+      // 🎨 关键：先更新 localStorage，再更新状态，确保刷新后能看到
       const newTemplates = [...templates, newTemplate]
-      setTemplates(newTemplates)
-      
-      // 保存自定义模板到 localStorage（包括手动创建、AI 生成、复制的模板）
+      // 🐛 修复：后端返回的 AI 模板 ID 格式是 ai_generated_xxx，需要正确匹配
       const customTemplates = newTemplates.filter(t => 
         t.id?.startsWith('custom_') || 
         t.id?.startsWith('copy_') || 
-        t.id?.startsWith('ai_') ||
+        t.id?.startsWith('ai_generated_') ||
         !DEFAULT_TEMPLATES.find(dt => dt.id === t.id)
       )
       try {
         localStorage.setItem('rjcut_custom_templates', JSON.stringify(customTemplates))
+        console.log('[TemplateManager] AI 模板已保存到 localStorage:', newTemplate.id, newTemplate.name)
       } catch (e) {
         console.error('保存自定义模板失败:', e)
       }
       
+      // 🎨 先关闭弹窗，再更新状态，避免状态竞争
       setShowAIGenerateForm(false)
+      
+      // 刷新模板列表（确保最新数据）
+      refreshTemplates()
+      
+      // 提示用户保存成功
+      alert(`✅ 模板 "${newTemplate.name}" 已生成并保存！\n\n提示：新生成的模板已添加到列表底部，您可以点击选择它。`)
+      
       // 自动选新生成的模板
       if (onSelectTemplate) {
         onSelectTemplate(newTemplate)
       }
     } catch (err) {
-      alert('AI 生成模板失败：' + err.message)
+      console.error('AI 生成模板失败:', err)
+      alert('❌ AI 生成模板失败：' + err.message)
     } finally {
       setIsGenerating(false)
     }
@@ -157,6 +214,17 @@ export default function TemplateManager({ onSelectTemplate, selectedTemplateId, 
           </div>
           {!isStandalone && (
             <div className="p-4 flex items-center gap-2">
+              <button
+                onClick={() => {
+                  refreshTemplates()
+                  alert('✅ 模板列表已刷新')
+                }}
+                className="px-3 py-1.5 bg-slate-100 text-slate-700 text-sm rounded-lg hover:bg-slate-200 flex items-center gap-1"
+                title="从本地存储重新加载模板"
+              >
+                <Check size={14} />
+                刷新
+              </button>
               <button
                 onClick={() => setShowAIGenerateForm(true)}
                 className="px-3 py-1.5 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700 flex items-center gap-1"
@@ -188,6 +256,17 @@ export default function TemplateManager({ onSelectTemplate, selectedTemplateId, 
         {isStandalone && (
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6 flex justify-between items-center">
             <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  refreshTemplates()
+                  alert('✅ 模板列表已刷新')
+                }}
+                className="px-4 py-2 bg-slate-100 text-slate-700 text-sm rounded-lg hover:bg-slate-200 flex items-center gap-2"
+                title="从本地存储重新加载模板"
+              >
+                <Check size={14} />
+                刷新
+              </button>
               <button
                 onClick={() => setShowAIGenerateForm(true)}
                 className="px-4 py-2 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700 flex items-center gap-2"

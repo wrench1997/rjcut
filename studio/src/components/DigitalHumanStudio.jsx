@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { getCommonPersons, getCustomPersons, getCommonPersonDetail, getCustomPersonDetail, getVoices, createDhGenerateTask, getDhTaskDetail, getDhVideoUrl, getImageProxyUrl, getBaseUrl } from '../api/api'
 import { getVFS } from '../utils/vfsClient'
 import { PROJECT_FOLDERS, buildVFSPath } from '../utils/project-structure'
-import { User, Mic, Check, X, Film, Download, AlertCircle, Loader2, Book, Inbox, Folder, AlertTriangle, Rocket, Settings, Sliders, Volume2, Type, Image, ChevronDown, ChevronUp, Maximize, Sparkles, Wand2, Store, FileText, Lightbulb } from 'lucide-react'
+import { User, Mic, Check, X, Film, Download, AlertCircle, Loader2, Book, Inbox, Folder, AlertTriangle, Rocket, Settings, Sliders, Volume2, Type, Image, ChevronDown, ChevronUp, Maximize, Sparkles, Wand2, Store, FileText, Lightbulb, Package } from 'lucide-react'
 import Tooltip from './Tooltip'
 import TemplateManager from './TemplateManager'
 import { aiGenerateScript, DEFAULT_TEMPLATES } from '../features/template-batch/aiAssistant.js'
@@ -712,47 +712,43 @@ function VideoPreviewModal({ video, onClose, vfs }) {
 
   return (
     <div className="absolute inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
-        <div className="p-4 border-b border-slate-100 flex justify-between items-center">
-          <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
-            <Film size={18} className="text-blue-500" />
+      {/* 🎨 修改：针对 9:16 竖屏视频优化窗口尺寸 */}
+      <div className="bg-white rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]" 
+           style={{ width: 'min(450px, 90vw)', height: 'min(800px, 90vh)' }}
+           onClick={(e) => e.stopPropagation()}>
+        {/* 标题栏 */}
+        <div className="flex justify-between items-center p-3 border-b border-slate-200 flex-shrink-0 bg-gradient-to-r from-slate-50 to-white">
+          <h3 className="font-semibold text-base text-slate-800 flex items-center gap-2">
+            <span className="w-2 h-2 bg-purple-500 rounded-full"></span>
             预览：{video.fileName}
           </h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-sm px-3 py-1.5 rounded hover:bg-slate-100 transition-colors">
-            <X size={18} />
+          <button className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors text-slate-500" onClick={onClose} title="关闭预览">
+            <X size={20} strokeWidth={2} />
           </button>
         </div>
-        <div className="p-6">
+        {/* 视频播放区域 - 黑色背景适配 9:16 竖屏 */}
+        <div className="flex-1 min-h-0 bg-black flex items-center justify-center p-4">
           {loading ? (
-            <div className="aspect-[9/16] max-h-[70vh] bg-slate-100 rounded-lg flex items-center justify-center">
-              <div className="flex flex-col items-center gap-3">
-                <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                <p className="text-sm text-slate-500">加载视频中...</p>
-              </div>
+            <div className="text-slate-400 flex items-center gap-2">
+              <div className="w-6 h-6 border-2 border-purple-500 border-t-transparent rounded-full animate-spin"></div>
+              加载中...
             </div>
           ) : error ? (
-            <div className="aspect-[9/16] max-h-[70vh] bg-red-50 rounded-lg flex items-center justify-center">
-              <div className="flex flex-col items-center gap-2 text-red-500">
-                <AlertCircle size={32} />
-                <p className="text-sm">{error}</p>
-              </div>
+            <div className="text-red-400 flex items-center gap-2">
+              <AlertCircle size={24} />
+              {error}
             </div>
           ) : (
-            <video 
-              src={videoUrl} 
-              controls 
-              autoPlay 
-              className="w-full aspect-[9/16] max-h-[70vh] bg-black rounded-lg object-contain"
-            />
+            <video controls autoPlay className="max-h-full max-w-full rounded-lg shadow-2xl" style={{ aspectRatio: '9/16' }} src={videoUrl}>
+              您的浏览器不支持视频
+            </video>
           )}
-          <div className="mt-4 p-3 bg-slate-50 rounded-lg">
-            <p className="text-xs text-slate-500">
-              <span className="font-medium">文案：</span>{video.text}
-            </p>
-            <p className="text-xs text-slate-500 mt-1">
-              <span className="font-medium">路径：</span><code className="bg-slate-200 px-1 rounded">{video.path}</code>
-            </p>
-          </div>
+        </div>
+        {/* 底部文案信息 */}
+        <div className="p-3 border-t border-slate-200 flex-shrink-0 bg-slate-50">
+          <p className="text-xs text-slate-500 truncate">
+            <span className="font-medium text-slate-600">文案：</span>{video.text}
+          </p>
         </div>
       </div>
     </div>
@@ -857,7 +853,7 @@ function AIScriptForm({ template, productInfo, setProductInfo, onSubmit, onCance
 ## 输出格式要求
 
 请直接输出完整口播文案。
-每一段之间都用"转场"两个字隔开。
+不要在口播文案中输出"转场"两个字；新版转场由后端 timeline 自动处理。
 不要写镜头说明、不要写标题、不要写分段名称、不要解释创作思路。
 全文控制在 450～650 字。
 语言必须口语化，像真人一镜到底口播，节奏要快，句子不要太长。
@@ -873,12 +869,20 @@ function AIScriptForm({ template, productInfo, setProductInfo, onSubmit, onCance
 
 请生成一条具有"鹿茸血和鹿血区别"这种强反差、强科普、强防坑、强成交风格的口播文案。`
 
-  // 获取当前选中的风格信息
+// 获取当前选中的风格信息
   const currentStyle = { label: '鹿场直销', icon: Store }
   
-  // 应用模板到自定义提示词
+  // 应用模板到自定义提示词（动态填充产品信息）
   const applyTemplate = () => {
-    setProductInfo({ ...productInfo, customPrompt: FARM_DIRECT_PROMPT })
+    const filledPrompt = FARM_DIRECT_PROMPT
+      .replace('【填写产品名称】', productInfo.product_name || '鹿茸血口服液')
+      .replace('【填写容易混淆的产品】', productInfo.comparison_product || '普通鹿血/假冒产品')
+      .replace('【例如：自家鹿场养了 1000 头梅花鹿】', productInfo.farm_scale || '自家鹿场养了 1000 头梅花鹿')
+      .replace('【例如：源头养殖、原料可追溯、规范灌装、粉丝价】', productInfo.selling_points || '源头养殖、原料可追溯、规范灌装、粉丝价')
+      .replace('【例如：颜色、摇晃状态、批次信息、鹿场溯源】', productInfo.identification_points || '颜色、摇晃状态、批次信息、鹿场溯源')
+      .replace('【例如：点击下方链接、评论区扣"鹿"、直播间领取福利】', productInfo.call_to_action || '点击下方链接、评论区留言')
+      .replace('【例如：送礼、爱喝酒的中年男性、东北特产爱好者】', productInfo.target_audience || '送礼、爱喝酒的中年男性、东北特产爱好者')
+    setProductInfo({ ...productInfo, customPrompt: filledPrompt })
   }
 
   return (
@@ -912,8 +916,88 @@ function AIScriptForm({ template, productInfo, setProductInfo, onSubmit, onCance
           </div>
         </div>
 
-        {/* 表单内容 */}
+{/* 表单内容 */}
         <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+          {/* 产品信息输入区 */}
+          <div className="mb-6 p-4 bg-gradient-to-br from-violet-50 to-purple-50 rounded-xl border border-violet-100">
+            <div className="flex items-center gap-2 mb-3">
+              <Package size={15} className="text-violet-600" />
+              <p className="text-xs font-semibold text-violet-800">产品信息</p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-[11px] font-medium text-slate-600 block mb-1">产品名称 *</label>
+                <input
+                  type="text"
+                  value={productInfo.product_name || ''}
+                  onChange={(e) => setProductInfo({ ...productInfo, product_name: e.target.value })}
+                  placeholder="例如：鹿茸血口服液"
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-medium text-slate-600 block mb-1">核心对比对象</label>
+                <input
+                  type="text"
+                  value={productInfo.comparison_product || ''}
+                  onChange={(e) => setProductInfo({ ...productInfo, comparison_product: e.target.value })}
+                  placeholder="例如：普通鹿血/假冒产品"
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-medium text-slate-600 block mb-1">鹿场规模</label>
+                <input
+                  type="text"
+                  value={productInfo.farm_scale || ''}
+                  onChange={(e) => setProductInfo({ ...productInfo, farm_scale: e.target.value })}
+                  placeholder="例如：自家鹿场养了 1000 头梅花鹿"
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-medium text-slate-600 block mb-1">目标人群</label>
+                <input
+                  type="text"
+                  value={productInfo.target_audience || ''}
+                  onChange={(e) => setProductInfo({ ...productInfo, target_audience: e.target.value })}
+                  placeholder="例如：送礼、中年男性"
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
+                />
+              </div>
+              <div className="col-span-2">
+                <label className="text-[11px] font-medium text-slate-600 block mb-1">主要卖点</label>
+                <input
+                  type="text"
+                  value={productInfo.selling_points || ''}
+                  onChange={(e) => setProductInfo({ ...productInfo, selling_points: e.target.value })}
+                  placeholder="例如：源头养殖、原料可追溯、规范灌装、粉丝价"
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
+                />
+              </div>
+              <div className="col-span-2">
+                <label className="text-[11px] font-medium text-slate-600 block mb-1">想强调的辨别点</label>
+                <input
+                  type="text"
+                  value={productInfo.identification_points || ''}
+                  onChange={(e) => setProductInfo({ ...productInfo, identification_points: e.target.value })}
+                  placeholder="例如：颜色、摇晃状态、批次信息、鹿场溯源"
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
+                />
+              </div>
+              <div className="col-span-2">
+                <label className="text-[11px] font-medium text-slate-600 block mb-1">成交方式</label>
+                <input
+                  type="text"
+                  value={productInfo.call_to_action || ''}
+                  onChange={(e) => setProductInfo({ ...productInfo, call_to_action: e.target.value })}
+                  placeholder="例如：点击下方链接、评论区留言"
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
+                />
+              </div>
+            </div>
+          </div>
+
           {/* 提示词编辑区 */}
           <div className="mb-6">
             <div className="flex items-center justify-between mb-3">
@@ -934,7 +1018,7 @@ function AIScriptForm({ template, productInfo, setProductInfo, onSubmit, onCance
               <textarea
                 value={productInfo.customPrompt || ''}
                 onChange={(e) => setProductInfo({ ...productInfo, customPrompt: e.target.value })}
-                rows={16}
+                rows={12}
                 className="w-full px-4 py-3 text-sm border-2 border-amber-200 rounded-xl outline-none focus:border-amber-400 focus:ring-4 focus:ring-amber-100 transition-all resize-none font-mono text-slate-700 placeholder:text-slate-400 leading-relaxed"
               />
               <div className="absolute bottom-3 right-3 flex items-center gap-2">
@@ -1031,6 +1115,13 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
   // AI 生成文案的产品信息（鹿场直销专用）
   const [productInfo, setProductInfo] = useState({
     customPrompt: '',
+    product_name: '',
+    comparison_product: '普通鹿血/假冒产品',
+    farm_scale: '自家鹿场养殖',
+    selling_points: '源头养殖、原料可追溯、规范灌装、粉丝价',
+    identification_points: '颜色、摇晃状态、批次信息、鹿场溯源',
+    call_to_action: '点击下方链接/评论区留言',
+    target_audience: '送礼、爱喝酒的中年男性、东北特产爱好者',
   })
   
   // AI 文案生成表单弹窗状态
@@ -1124,10 +1215,18 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
         customPrompt,
         templateId: template.id,
         segments,
+        productName: productInfo.product_name,
+        sellingPoints: productInfo.selling_points,
+        targetAudience: productInfo.target_audience,
+        tone: 'farm_direct',
+        comparisonProduct: productInfo.comparison_product,
+        farmScale: productInfo.farm_scale,
+        identificationPoints: productInfo.identification_points,
+        callToAction: productInfo.call_to_action,
       })
 
       // 将生成的文案合并成一条完整的视频脚本
-      // hook、human、ending 段落有文案，transition 段落作为转场提示
+      // v0.3：只保留数字人要朗读的文案，转场不再混入口播
       const validSegments = generatedSegments.filter(s => 
         s.flag === 'hook' || 
         s.flag === 'ending' || 
@@ -1136,12 +1235,12 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
       )
 
       if (validSegments.length > 0) {
-        // 合并所有段落为一条完整文案，用【转场】标识分隔
+        // 合并所有段落为一条完整口播文案，不再插入【转场】
         let fullScript = ''
         validSegments.forEach((segment, idx) => {
           if (segment.flag === 'transition') {
             // 转场段落：添加转场提示
-            fullScript += `\n【转场：${segment.note || '场景切换'}】\n`
+            fullScript += ``
           } else {
             // 文案段落：添加实际文案
             fullScript += segment.text || ''
@@ -1162,9 +1261,9 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
           setScripts([...scripts, newScript])
         }
 
-        const transitionCount = generatedSegments.filter(s => s.flag === 'transition').length
+        const transitionCount = generatedSegments.filter(s => s.transition_after).length
         const textCount = generatedSegments.filter(s => s.text).length
-        alert(`✅ AI 文案生成成功！已合并为 1 条完整脚本（${textCount}段文案 + ${transitionCount}个转场）`)
+        alert(`✅ AI 文案生成成功！已合并为 1 条完整口播脚本（${textCount}段文案，${transitionCount}个自动转场点不会被朗读）`)
       } else {
         alert('⚠️ 模板中没有可生成文案的段落')
       }
@@ -1902,7 +2001,7 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
           <div className="bg-white rounded-xl shadow-2xl p-6 flex flex-col items-center gap-3">
             <Loader2 size={32} className="animate-spin text-purple-600" />
             <p className="text-sm font-medium text-slate-700">AI 正在生成文案...</p>
-            <p className="text-xs text-slate-400">根据模板结构智能生成带转场提示的文案</p>
+            <p className="text-xs text-slate-400">根据模板结构智能生成口播文案；转场由 timeline 自动处理</p>
           </div>
         </div>
       )}

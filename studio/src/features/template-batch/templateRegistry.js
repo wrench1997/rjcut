@@ -148,8 +148,9 @@ function convertTemplateToSlots(template) {
     aspectRatio: template.aspectRatio || '9:16',
     sourceVideoRequirement: {
       expectedTransitionCount: slots.length,
-      transitionKeyword: '转场',
-      hint: `请选择使用本模板口播稿生成的数字人视频；视频中应包含 ${slots.length} 次"转场"标记。`,
+      transitionKeyword: '',
+      mode: 'char_timing_timeline',
+      hint: `新版数字人不需要朗读"转场"。请选择使用本模板口播稿生成的视频；后续会根据字级时间轴自动生成 ${slots.length} 个转场点。`,
     },
     scriptFactory: createGenericScriptFactory(template),
   }

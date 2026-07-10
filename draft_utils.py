@@ -101,6 +101,10 @@ async def ai_generate_script_via_gateway(
     template_structure: List[Dict],
     model_name: str = None,
     custom_prompt: str = "",
+    comparison_product: str = "普通产品/假冒产品",
+    farm_scale: str = "自家鹿场养殖",
+    identification_points: str = "颜色、状态、溯源信息",
+    call_to_action: str = "点击下方链接/评论区留言",
 ) -> Dict[str, Any]:
     """
     通过 Gateway 调用 vLLM AI 生成口播文案
@@ -113,6 +117,10 @@ async def ai_generate_script_via_gateway(
         template_structure: 模板结构（包含 segments 定义）
         model_name: 模型名称（可选，默认使用 Gateway 配置的模型）
         custom_prompt: 创作者自定义的文案提示词（可选，如果提供则优先使用）
+        comparison_product: 核心对比对象（鹿场直销风格专用）
+        farm_scale: 鹿场规模（鹿场直销风格专用）
+        identification_points: 想强调的辨别点（鹿场直销风格专用）
+        call_to_action: 成交方式（鹿场直销风格专用）
 
     Returns:
         {
@@ -139,6 +147,68 @@ async def ai_generate_script_via_gateway(
         "farm_direct": "🦌 鹿场直销型 - 东北鹿场老板口吻，强对比 + 防踩坑 + 科普，适合农产品/滋补品",
     }
 
+    # 鹿场直销风格的预设提示词模板（与前端保持一致）
+    farm_direct_prompt_template = """你是一名抖音/快手农产品口播带货脚本专家。
+
+请围绕【产品名称】生成一条"知识科普型 + 强对比 + 防踩坑 + 鹿场老板直销"的口播带货文案。
+
+整体风格必须像真实东北鹿场老板/老妹在镜头前讲话：直接、接地气、有节奏、有情绪起伏，不要写成品牌广告，不要写得文绉绉，也不要出现"尊贵、臻选、匠心、品质生活"这类空话。
+
+## 核心写法
+
+文案必须严格按照下面的成交逻辑：
+
+1. **开场制造焦虑和反差**
+   - 用"想买 XX 的家人们，这条视频你必须看完，不然很容易买错/上当"开头。
+   - 第一秒就点出消费者最关心的区别。
+   - 要有明显的"一个字不同，东西差很多"的反差感。
+
+2. **解释产品来源**
+   - 用通俗、口语化方式讲清楚产品到底从哪里来。
+   - 不要像百科解释，要像老板在现场给顾客讲。
+   - 加入"每年什么时候""哪个环节""为什么难得"等信息，强化稀缺感。
+
+3. **对比另一种容易混淆的产品**
+   - 必须明确讲出两者来源、颜色、状态、工艺、价格或市场乱象的差别。
+   - 对比要强，让观众自然觉得"懂行的人会选前者"。
+   - 不要出现医疗、治病等违规功效承诺。
+
+4. **加入市场造假提醒**
+   - 必须有一段"市面上很多人拿 XX 冒充 XX"的提醒。
+   - 语气要像提醒自家人，不要像恶意攻击同行。
+
+5. **给出简单辨别方法**
+   - 至少给 2 个观众能听懂的辨别点。
+   - 可从颜色、摇晃状态、沉淀、挂杯、包装标签、批次信息等角度写。
+   - 语气要像："你记住这两点，基本就不容易买错。"
+
+6. **鹿场实力背书**
+   - 加入"自家鹿场""养了多少头梅花鹿""从养殖到灌装自己做"等信息。
+   - 让观众感觉是源头老板在卖，不是中间商。
+
+7. **结尾成交引导**
+   - 用"粉丝价""地板价""库存有限""想要的点链接"等方式收口。
+   - 结尾要带一点人情味。
+
+## 输出格式要求
+
+请直接输出完整口播文案。
+不要在口播文案中输出"转场"两个字；画面切换由后端 timeline 自动处理。
+不要写镜头说明、不要写标题、不要写分段名称、不要解释创作思路。
+全文控制在 450～650 字。
+语言必须口语化，像真人一镜到底口播，节奏要快，句子不要太长。
+
+## 产品信息
+- 产品名称：{product_name}
+- 核心对比对象：{comparison_product}
+- 鹿场规模：{farm_scale}
+- 主要卖点：{selling_points}
+- 想强调的辨别点：{identification_points}
+- 成交方式：{call_to_action}
+- 目标人群：{target_audience}
+
+请生成一条具有"鹿茸血和鹿血区别"这种强反差、强科普、强防坑、强成交风格的口播文案。"""
+
     system_prompt = """你是一位专业的短视频口播文案创作专家，擅长创作面向大众消费者的带货文案。
 
 【文案风格要求】
@@ -153,7 +223,7 @@ async def ai_generate_script_via_gateway(
 【输出格式】
 请按行输出，每一行对应一个段落的口播词。
 注意：模板中的每个段落都需要生成口播文案，包括 scene 段落。
-scene 段落的文案必须以"转场"开头，但要优雅自然，用意境烘托氛围，不要直白描述画面（如"转场，深山里的梅花鹿自由生长..."、"转场，每一滴都是自然的馈赠..."等）。
+scene 段落不要以"转场"开头；scene 只代表素材位和画面意图，文案要自然衔接。
 不要输出任何解释、段落标识，只输出纯文案内容。
 """
 
@@ -173,7 +243,32 @@ scene 段落的文案必须以"转场"开头，但要优雅自然，用意境烘
 
 【重要说明】
 - 每一行文案对应一个段落
-- scene 段落必须以"转场"开头，但要优雅自然，用意境烘托氛围
+- scene 段落不要以"转场"开头；需要切画面的信息交给 visual_tags / timeline
+- 文案要连贯流畅，段落之间自然衔接
+"""
+    elif tone == "farm_direct":
+        # 鹿场直销风格：使用专用提示词模板（填充产品信息）
+        filled_prompt = farm_direct_prompt_template.format(
+            product_name=product_name or "【产品名称】",
+            comparison_product=comparison_product or "普通产品/假冒产品",
+            farm_scale=farm_scale or "自家鹿场养殖",
+            selling_points=selling_points or "【核心卖点】",
+            identification_points=identification_points or "颜色、状态、溯源信息",
+            call_to_action=call_to_action or "点击下方链接/评论区留言",
+            target_audience=target_audience or "【目标人群】",
+        )
+        user_prompt = f"""{filled_prompt}
+
+【模板结构】
+{template_structure}
+
+【任务】
+模板结构中共有 {text_segment_count} 个段落，每个段落都需要生成口播文案。
+请按顺序输出 {text_segment_count} 行文案，每行对应一个段落。
+
+【重要说明】
+- 每一行文案对应一个段落
+- scene 段落不要以"转场"开头；需要切画面的信息交给 visual_tags / timeline
 - 文案要连贯流畅，段落之间自然衔接
 """
     else:
@@ -195,7 +290,7 @@ scene 段落的文案必须以"转场"开头，但要优雅自然，用意境烘
 
 【重要说明】
 - hook 段落：开场吸引注意力
-- scene 段落：必须以"转场"开头，优雅自然地烘托氛围
+- scene 段落：不要以"转场"开头；需要切画面的信息交给 visual_tags / timeline
 - human 段落：主体内容，介绍产品
 - ending 段落：结尾促单
 
@@ -507,7 +602,11 @@ def parse_ai_script_to_segments(ai_text: str, template_structure: List[Dict]) ->
                     if not re.match(r'^\d+\.', line_stripped):
                         # 【移除 "Line X: " 前缀】AI 可能输出 "Line 1: xxx" 格式
                         cleaned_line = re.sub(r'^Line\s*\d+\s*:\s*', '', line_stripped, flags=re.IGNORECASE)
-                        cleaned_lines.append(cleaned_line)
+                        # v0.3：不再允许“转场”进入数字人口播。
+                        cleaned_line = re.sub(r'^\s*[【\[]?转场[^】\]]*[】\]]?\s*', '', cleaned_line).strip()
+                        cleaned_line = cleaned_line.replace("转场", "").strip()
+                        if cleaned_line:
+                            cleaned_lines.append(cleaned_line)
     
     ai_index = 0
 

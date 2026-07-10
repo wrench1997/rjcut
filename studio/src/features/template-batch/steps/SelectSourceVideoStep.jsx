@@ -404,27 +404,39 @@ function VideoPreviewModal({ videoPath, vfs, onClose }) {
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-xl p-4 max-w-2xl w-full" onClick={(e) => e.stopPropagation()}>
-        <div className="flex justify-between items-center mb-3">
-          <h3 className="font-bold text-lg">视频预览</h3>
-          <button className="p-2 hover:bg-slate-100 rounded-lg" onClick={onClose}>
-            <X size={20} />
+      {/* 🎨 修改：针对 9:16 竖屏视频优化窗口尺寸 */}
+      <div className="bg-white rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]" 
+           style={{ width: 'min(450px, 90vw)', height: 'min(800px, 90vh)' }}
+           onClick={(e) => e.stopPropagation()}>
+        {/* 标题栏 */}
+        <div className="flex justify-between items-center p-3 border-b border-slate-200 flex-shrink-0 bg-gradient-to-r from-slate-50 to-white">
+          <h3 className="font-semibold text-base text-slate-800 flex items-center gap-2">
+            <span className="w-2 h-2 bg-green-500 rounded-full"></span>
+            视频预览
+          </h3>
+          <button className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors text-slate-500" onClick={onClose} title="关闭预览">
+            <X size={20} strokeWidth={2} />
           </button>
         </div>
-        {loading ? (
-          <div className="aspect-[9/16] max-h-[60vh] bg-slate-100 rounded-lg flex items-center justify-center">
-            <div className="text-slate-400">加载中...</div>
-          </div>
-        ) : videoUrl ? (
-          <video controls autoPlay className="w-full aspect-[9/16] max-h-[60vh] bg-black rounded-lg" src={videoUrl}>
-            您的浏览器不支持视频
-          </video>
-        ) : (
-          <div className="aspect-[9/16] max-h-[60vh] bg-slate-100 rounded-lg flex items-center justify-center">
+        {/* 视频播放区域 - 黑色背景适配 9:16 竖屏 */}
+        <div className="flex-1 min-h-0 bg-black flex items-center justify-center p-4">
+          {loading ? (
+            <div className="text-slate-400 flex items-center gap-2">
+              <div className="w-6 h-6 border-2 border-green-500 border-t-transparent rounded-full animate-spin"></div>
+              加载中...
+            </div>
+          ) : videoUrl ? (
+            <video controls autoPlay className="max-h-full max-w-full rounded-lg shadow-2xl" style={{ aspectRatio: '9/16' }} src={videoUrl}>
+              您的浏览器不支持视频
+            </video>
+          ) : (
             <div className="text-slate-400">加载失败</div>
-          </div>
-        )}
-        <p className="text-xs text-slate-500 mt-2 truncate">{videoPath}</p>
+          )}
+        </div>
+        {/* 底部路径信息 */}
+        <div className="p-3 border-t border-slate-200 flex-shrink-0 bg-slate-50">
+          <p className="text-xs text-slate-500 truncate">{videoPath}</p>
+        </div>
       </div>
     </div>
   )

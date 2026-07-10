@@ -2,7 +2,7 @@
 import uuid
 import logging
 from datetime import datetime, timezone, timedelta
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from rq import Queue
 

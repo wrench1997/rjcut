@@ -19,6 +19,8 @@ from schemas import (
     DraftUpdateRequest,
     DraftAiCorrectRequest,
     ComposeFromDraftRequest,
+    VisualScriptEditorRequest,
+    VisualScriptEditorResponse,
 )
 from auth import verify_api_key
 from quota import check_quota, check_concurrent_limit, reserve_quota, refund_quota
@@ -36,6 +38,7 @@ from oss import (
 
 from admin_api import router as admin_router
 from api_digital_human import router as dh_router
+from api_ai_copywriting import router as ai_copywriting_router
 
 from draft_utils import (
     apply_corrections_to_editable_script,
@@ -78,6 +81,7 @@ app.add_middleware(
 
 app.include_router(admin_router)
 app.include_router(dh_router)
+app.include_router(ai_copywriting_router)
 
 # 🖼️ 单独注册不需要认证的代理图片接口（在 router 之后注册，覆盖需要认证版本）
 from api_digital_human import proxy_image_no_auth
@@ -1085,6 +1089,11 @@ async def generate_script(
         "tone": "文案风格 (direct_sale/premium/social_review/explainer/shakespeare/...)",
         "custom_prompt": "创作者自定义的文案提示词（可选，如果提供则优先使用）",
         "template_structure": [...]  # 模板的 segments 结构
+        # 鹿场直销风格专用字段（可选）：
+        "comparison_product": "核心对比对象",
+        "farm_scale": "鹿场规模",
+        "identification_points": "想强调的辨别点",
+        "call_to_action": "成交方式"
     }
     """
     try:
@@ -1100,6 +1109,12 @@ async def generate_script(
     tone = body.get("tone", "direct_sale")
     custom_prompt = body.get("custom_prompt", "")
     template_structure = body.get("template_structure", [])
+    
+    # 鹿场直销风格专用字段
+    comparison_product = body.get("comparison_product", "普通产品/假冒产品")
+    farm_scale = body.get("farm_scale", "自家鹿场养殖")
+    identification_points = body.get("identification_points", "颜色、状态、溯源信息")
+    call_to_action = body.get("call_to_action", "点击下方链接/评论区留言")
 
     result = await ai_generate_script_via_gateway(
         product_name=product_name,
@@ -1108,6 +1123,10 @@ async def generate_script(
         tone=tone,
         template_structure=template_structure,
         custom_prompt=custom_prompt,
+        comparison_product=comparison_product,
+        farm_scale=farm_scale,
+        identification_points=identification_points,
+        call_to_action=call_to_action,
     )
 
     if result["success"]:
@@ -1244,15 +1263,95 @@ async def generate_template(
     )
 
     if result["success"]:
-        # 🔧 硬替换：将所有 scene 段落的 text 替换为"转场"
+        # v0.3：不再把 scene 段落硬替换成“转场”。
+        # scene 现在只表示素材位 / 画面切换意图，数字人口播不应朗读“转场”。
         template = result["template"]
         if template and "segments" in template:
             for seg in template["segments"]:
                 if seg.get("flag") == "scene":
-                    seg["text"] = "转场"
+                    seg["transition_after"] = True
+                    seg.setdefault("visual_tags", [seg.get("note", "")])
         return ok({
             "template": template,
             "usage": result.get("usage", {}),
         })
     else:
         return fail(50001, result.get("error", "AI 生成模板失败"))
+# ==========================================
+# Visual Script Editor (AI 自动剪辑) API
+# ==========================================
+
+@app.post("/v1/tasks/visual-script-editor")
+def create_visual_script_editor_task(
+    req: VisualScriptEditorRequest,
+    merchant: Merchant = Depends(verify_api_key),
+    db: Session = Depends(get_db),
+):
+    """
+    创建视觉脚本编辑器任务
+    
+    AI 根据视觉脚本自动分析视频库并剪辑特殊片段：
+    1. 使用 TwelveLabs Pegasus 分析视频素材
+    2. 使用 Gemini 根据视觉脚本选择并排序镜头
+    3. 生成 EDL、字幕 SRT、FFmpeg 命令，可选渲染 rough cut
+    """
+    trace_id = "trace_" + uuid.uuid4().hex[:16]
+    task_id = "task_" + uuid.uuid4().hex[:16]
+    
+    if not check_quota(merchant):
+        return fail(40201, "insufficient quota", trace_id=trace_id, status_code=402)
+    
+    if not check_concurrent_limit(db, merchant):
+        return fail(42901, "concurrent task limit reached", trace_id=trace_id, status_code=429)
+    
+    timeout = req.timeout_seconds or settings.TASK_TIMEOUT_SECONDS
+    
+    # 验证视频源
+    if not req.sources:
+        return fail(40001, "at least one video source is required", trace_id=trace_id)
+    
+    for idx, src in enumerate(req.sources):
+        if not any([src.oss_key, src.local_path, src.url]):
+            return fail(40002, f"source {idx+1} must have oss_key, local_path, or url", trace_id=trace_id)
+    
+    task = Task(
+        id=task_id,
+        merchant_id=merchant.id,
+        trace_id=trace_id,
+        client_ref_id=req.client_ref_id,
+        task_type="visual_script_editor",
+        status=TaskStatus.queued,
+        payload=req.model_dump(),
+        timeout_seconds=timeout,
+        progress=0,
+        stage="queued",
+    )
+    
+    db.add(task)
+    db.flush()
+    reserve_quota(db, merchant, task)
+    
+    queue = get_queue()
+    job = queue.enqueue(
+        "task_runner.run_visual_script_editor_task",
+        task_id=task_id,
+        payload=req.model_dump(),
+        trace_id=trace_id,
+        merchant_id=merchant.id,
+        job_id=f"rjcut_{task_id}",
+        job_timeout=timeout + 60,
+        result_ttl=86400,
+        failure_ttl=86400,
+    )
+    
+    task.rq_job_id = job.id
+    db.add(task)
+    db.commit()
+    
+    return ok({
+        "task_id": task_id,
+        "task_type": "visual_script_editor",
+        "status": "queued",
+        "trace_id": trace_id,
+        "estimated_seconds": 300,  # 预计 5 分钟（视频分析需要时间）
+    }, trace_id=trace_id)

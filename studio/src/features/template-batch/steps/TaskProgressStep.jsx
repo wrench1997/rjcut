@@ -29,12 +29,14 @@ const PROJECT_FOLDERS = {
 }
 
 export default function TaskProgressStep({ draft, vfs, apiKey }) {
-  const { tasks } = useBatchStore()
+  const { tasks, updateTask } = useBatchStore()
   const [downloadingTaskId, setDownloadingTaskId] = useState(null)
   const [downloadProgress, setDownloadProgress] = useState(null)
   const [previewTaskId, setPreviewTaskId] = useState(null)
   const [previewUrl, setPreviewUrl] = useState(null)
   const [savedPaths, setSavedPaths] = useState({})
+  const [composingTaskId, setComposingTaskId] = useState(null)
+  const [composeProgress, setComposeProgress] = useState(null)
 
   const stageLabels = {
     idle: '等待中',
@@ -89,6 +91,129 @@ export default function TaskProgressStep({ draft, vfs, apiKey }) {
     loadSavedPaths()
   }, [tasks, vfs])
 
+  // 🎨 监听模板混剪任务，draft 完成后自动触发前端视频合成
+  useEffect(() => {
+    const composeVideo = async (task) => {
+      const taskId = task.id
+      const isTemplateBatch = !!task.templateMeta?.templateId
+      
+      if (!isTemplateBatch) return
+      if (task.stage !== 'succeeded') return
+      if (composingTaskId === taskId) return // 已经在合成中
+      
+      const vfsPath = `/输出/${taskId}_成片.mp4`
+      const alreadyExists = await vfs.exists(vfsPath)
+      if (alreadyExists) return // 已经合成过了
+      
+      try {
+        console.log('[TaskProgressStep] 开始前端合成视频:', taskId)
+        setComposingTaskId(taskId)
+        setComposeProgress(0)
+        updateTask(taskId, { stage: 'composing', progress: 0 })
+        
+        // 1. 从 VFS 读取 script.json
+        const scriptPath = task.vfsScriptPath
+        if (!scriptPath) {
+          throw new Error('缺少 script.json 路径')
+        }
+        
+        const scriptContent = await vfs.readFile(scriptPath)
+        const script = JSON.parse(new TextDecoder().decode(scriptContent))
+        
+        // 2. 从 VFS 读取主视频
+        const videoBlob = await vfs.readFileAsBlob(task.vfsVideoPath)
+        
+        // 3. 读取场景文件（如果有）
+        const sceneFiles = {}
+        if (script.segments) {
+          for (const seg of script.segments) {
+            if (seg.type === 'scene' && seg.scene_file) {
+              // 场景文件路径相对于 script.json 目录
+              const sceneDir = scriptPath.substring(0, scriptPath.lastIndexOf('/'))
+              const scenePath = `${sceneDir}/${seg.scene_file}`
+              try {
+                sceneFiles[seg.scene_file] = await vfs.readFileAsBlob(scenePath)
+                console.log('[TaskProgressStep] 读取场景文件:', scenePath)
+              } catch (e) {
+                console.warn('[TaskProgressStep] 读取场景文件失败:', scenePath, e)
+              }
+            }
+          }
+        }
+        
+        // 4. 读取 BGM（如果有）
+        let bgmFile = null
+        if (task.vfsBgmPath) {
+          try {
+            bgmFile = await vfs.readFileAsBlob(task.vfsBgmPath)
+            console.log('[TaskProgressStep] 读取 BGM:', task.vfsBgmPath)
+          } catch (e) {
+            console.warn('[TaskProgressStep] 读取 BGM 失败:', task.vfsBgmPath, e)
+          }
+        }
+        
+        // 5. 使用 videoEditorEngine 合成视频
+        const { videoEditorEngine } = await import('../../../utils/videoEditorEngine.js')
+        
+        // 初始化 engine
+        await videoEditorEngine.initialize()
+        
+        // 设置进度回调
+        videoEditorEngine.setProgressCallback((progress, time) => {
+          const percent = Math.round(progress * 100)
+          setComposeProgress(percent)
+          updateTask(taskId, { progress: percent })
+          console.log('[TaskProgressStep] 合成进度:', percent, '%')
+        })
+        
+        // 调用 composeFromTimeline
+        const timeline = script
+        const partFiles = [videoBlob] // 简化处理：假设只有一个主视频片段
+        
+        const resultBlob = await videoEditorEngine.composeFromTimeline(
+          timeline,
+          partFiles,
+          sceneFiles,
+          {
+            useTransitions: false,
+            bgmFile,
+            bgmVolume: task.audioConfig?.bgmVolume ?? 0.3,
+            originalVolume: task.audioConfig?.originalVolume ?? 1.0,
+          }
+        )
+        
+        // 6. 保存合成后的视频到 VFS
+        console.log('[TaskProgressStep] 保存合成视频到:', vfsPath)
+        const arrayBuffer = await resultBlob.arrayBuffer()
+        await vfs.writeFile(vfsPath, new Uint8Array(arrayBuffer))
+        
+        setSavedPaths(prev => ({ ...prev, [taskId]: vfsPath }))
+        updateTask(taskId, { stage: 'succeeded', progress: 100 })
+        
+        console.log('[TaskProgressStep] 视频合成完成:', taskId)
+        alert(`视频合成完成：${taskId}`)
+        
+      } catch (e) {
+        console.error('[TaskProgressStep] 视频合成失败:', e)
+        updateTask(taskId, { 
+          stage: 'failed', 
+          error: '前端合成失败：' + e.message 
+        })
+        alert('视频合成失败：' + e.message)
+      } finally {
+        setComposingTaskId(null)
+        setComposeProgress(null)
+      }
+    }
+    
+    // 检查所有任务，触发需要合成的
+    tasks.forEach(task => {
+      if (task.stage === 'succeeded' && !savedPaths[task.id] && composingTaskId !== task.id) {
+        composeVideo(task)
+      }
+    })
+  }, [tasks, vfs, savedPaths, composingTaskId, updateTask])
+
   const handleDownload = async (taskId, saveToVFS = true) => {
     const task = tasks.find(t => t.id === taskId)
     if (!task) return
@@ -98,6 +223,41 @@ export default function TaskProgressStep({ draft, vfs, apiKey }) {
     
     try {
       const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8001'
+      
+      // 🎨 模板混剪任务：视频由前端合成，从 VFS 读取
+      // 普通批量任务：从后端下载合成后的视频
+      const isTemplateBatch = !!task.templateMeta?.templateId
+      
+      if (isTemplateBatch) {
+        // 模板混剪：从 VFS 读取前端合成的视频
+        const vfsPath = `/输出/${task.id}_成片.mp4`
+        const exists = await vfs.exists(vfsPath)
+        
+        if (!exists) {
+          throw new Error('视频尚未合成或保存，请稍后再试')
+        }
+        
+        if (saveToVFS) {
+          // 已经在 VFS 中，直接提示路径
+          alert(`视频已存在于：${vfsPath}`)
+          setSavedPaths(prev => ({ ...prev, [taskId]: vfsPath }))
+        } else {
+          // 下载 VFS 中的文件到本地
+          const blob = await vfs.readFileAsBlob(vfsPath)
+          const url = URL.createObjectURL(blob)
+          const a = document.createElement('a')
+          a.href = url
+          a.download = `${task.id}_成片.mp4`
+          a.click()
+          URL.revokeObjectURL(url)
+        }
+        
+        setDownloadingTaskId(null)
+        setDownloadProgress(null)
+        return
+      }
+      
+      // 普通批量处理：从后端下载
       const targetTaskId = task.composeTaskId || task.draftTaskId
       const targetFileKey = task.composeTaskId ? 'final_video' : 'cleaned_video'
 
@@ -203,8 +363,23 @@ export default function TaskProgressStep({ draft, vfs, apiKey }) {
     const task = tasks.find(t => t.id === taskId)
     if (!task) return
     
-    const savedPath = savedPaths[taskId]
-    if (!savedPath) return
+    // 🎨 模板混剪任务：从 VFS 读取前端合成的视频
+    const isTemplateBatch = !!task.templateMeta?.templateId
+    let savedPath = savedPaths[taskId]
+    
+    if (isTemplateBatch && !savedPath) {
+      // 尝试从默认路径加载
+      const defaultPath = `/输出/${task.id}_成片.mp4`
+      const exists = await vfs.exists(defaultPath)
+      if (exists) {
+        savedPath = defaultPath
+      }
+    }
+    
+    if (!savedPath) {
+      alert('视频尚未保存，请先下载或合成')
+      return
+    }
     
     try {
       const blob = await vfs.readFileAsBlob(savedPath)
@@ -292,6 +467,10 @@ export default function TaskProgressStep({ draft, vfs, apiKey }) {
               const isPreviewing = previewTaskId === task.id
               const hasSaved = savedPaths[task.id]
               
+              // 🎨 模板混剪任务：draft 完成后需要前端合成视频
+              const isTemplateBatch = !!task.templateMeta?.templateId
+              const needsFrontendCompose = isTemplateBatch && task.stage === 'succeeded' && !hasSaved
+              
               return (
                 <div key={task.id} className="p-4 hover:bg-slate-50 transition-colors">
                   <div className="flex items-start justify-between mb-2">
@@ -312,37 +491,44 @@ export default function TaskProgressStep({ draft, vfs, apiKey }) {
                         <p className="text-xs text-slate-500">
                           {stageLabels[task.stage]}
                           {task.sceneName && ` · ${task.sceneName}`}
+                          {needsFrontendCompose && '（等待前端合成）'}
                         </p>
                       </div>
                     </div>
                     
                     {task.stage === 'succeeded' && (
                       <div className="flex items-center gap-2">
-                        {hasSaved && (
-                          <button
-                            onClick={() => handlePreview(task.id)}
-                            className="px-3 py-1.5 text-xs bg-blue-50 hover:bg-blue-100 text-blue-600 rounded transition-colors flex items-center gap-1"
-                          >
-                            <Play size={12} />
-                            预览
-                          </button>
-                        )}
-                        <button
-                          onClick={() => handleDownload(task.id, true)}
-                          disabled={isDownloading}
-                          className="px-3 py-1.5 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition-colors flex items-center gap-1 disabled:opacity-50"
-                        >
-                          <Download size={12} />
-                          保存到项目
-                        </button>
-                        <button
-                          onClick={() => handleDownload(task.id, false)}
-                          disabled={isDownloading}
-                          className="px-3 py-1.5 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition-colors flex items-center gap-1 disabled:opacity-50"
-                        >
-                          <Folder size={12} />
-                          直接下载
-                        </button>
+                        {hasSaved ? (
+                          <>
+                            <button
+                              onClick={() => handlePreview(task.id)}
+                              className="px-3 py-1.5 text-xs bg-blue-50 hover:bg-blue-100 text-blue-600 rounded transition-colors flex items-center gap-1"
+                            >
+                              <Play size={12} />
+                              预览
+                            </button>
+                            <button
+                              onClick={() => handleDownload(task.id, true)}
+                              disabled={isDownloading}
+                              className="px-3 py-1.5 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition-colors flex items-center gap-1 disabled:opacity-50"
+                            >
+                              <Download size={12} />
+                              保存到项目
+                            </button>
+                            <button
+                              onClick={() => handleDownload(task.id, false)}
+                              disabled={isDownloading}
+                              className="px-3 py-1.5 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition-colors flex items-center gap-1 disabled:opacity-50"
+                            >
+                              <Folder size={12} />
+                              直接下载
+                            </button>
+                          </>
+                        ) : isTemplateBatch ? (
+                          <div className="text-xs text-amber-600 bg-amber-50 px-3 py-1.5 rounded border border-amber-200">
+                            ⏳ 草稿已生成，等待前端合成视频
+                          </div>
+                        ) : null}
                       </div>
                     )}
                   </div>
@@ -352,6 +538,12 @@ export default function TaskProgressStep({ draft, vfs, apiKey }) {
                   {isDownloading && downloadProgress !== null && (
                     <div className="mt-2 text-xs text-blue-600">
                       下载中... {downloadProgress}%
+                    </div>
+                  )}
+                  
+                  {composingTaskId === task.id && composeProgress !== null && (
+                    <div className="mt-2 text-xs text-purple-600">
+                      🎬 前端合成中... {composeProgress}%
                     </div>
                   )}
                   
@@ -392,26 +584,42 @@ export default function TaskProgressStep({ draft, vfs, apiKey }) {
 
       {/* 视频预览弹窗 */}
       {previewUrl && previewTaskId && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
-            <div className="flex items-center justify-between p-4 border-b border-slate-200">
-              <h3 className="text-lg font-semibold text-slate-800">视频预览</h3>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={closePreview}>
+          {/* 🎨 修改：针对 9:16 竖屏视频优化窗口尺寸，使用 aspect-[9/16] 保持比例 */}
+          <div className="bg-white rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]" 
+               style={{ width: 'min(450px, 90vw)', height: 'min(800px, 90vh)' }}
+               onClick={(e) => e.stopPropagation()}>
+            {/* 标题栏 */}
+            <div className="flex items-center justify-between p-3 border-b border-slate-200 flex-shrink-0 bg-gradient-to-r from-slate-50 to-white">
+              <h3 className="text-base font-semibold text-slate-800 flex items-center gap-2">
+                <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                视频预览
+              </h3>
               <button
                 onClick={closePreview}
-                className="p-2 hover:bg-slate-100 rounded-full transition-colors"
+                className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors text-slate-500 hover:text-slate-700"
+                title="关闭预览"
               >
-                <X size={20} className="text-slate-600" />
+                <X size={20} strokeWidth={2} />
               </button>
             </div>
-            <div className="p-4">
+            {/* 视频播放区域 - 使用 aspect-[9/16] 容器确保竖屏视频最佳显示 */}
+            <div className="flex-1 min-h-0 bg-black flex items-center justify-center p-4">
               <video
                 src={previewUrl}
                 controls
                 autoPlay
-                className="w-full rounded-lg bg-slate-100"
+                className="max-h-full max-w-full rounded-lg shadow-2xl"
+                style={{ aspectRatio: '9/16' }}
                 onPlay={() => console.log('[TaskProgressStep] 视频开始播放')}
                 onError={(e) => console.error('[TaskProgressStep] 视频播放失败:', e)}
               />
+            </div>
+            {/* 底部信息栏 */}
+            <div className="p-3 border-t border-slate-200 flex-shrink-0 bg-slate-50">
+              <p className="text-xs text-slate-500 truncate">
+                <span className="font-medium text-slate-600">任务 ID:</span> {previewTaskId}
+              </p>
             </div>
           </div>
         </div>

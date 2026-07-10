@@ -25,4 +25,4 @@ def get_task_handler(task_type: str) -> Callable:
 
 
 # 导入所有任务处理器以完成注册
-from . import agent_draft, agent_compose, chanjing_video, compose_from_draft
+from . import agent_draft, agent_compose, chanjing_video, compose_from_draft, visual_script_editor

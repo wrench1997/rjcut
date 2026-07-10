@@ -114,7 +114,7 @@ export function validateTemplateRunDraft(draft, stepId) {
     // 如果模板有转场数量要求，给出警告（不阻止）
     if (template?.sourceVideoRequirement?.expectedTransitionCount) {
       console.log(
-        `[模板提示] 此模板建议使用含有 ${template.sourceVideoRequirement.expectedTransitionCount} 段转场的口播视频。`
+        `[模板提示] 新版不要求口播视频朗读“转场”；系统会根据字级时间轴生成 ${template.sourceVideoRequirement.expectedTransitionCount} 个自动转场点。`
       )
     }
   }

@@ -122,3 +122,9 @@ def run_dh_create_person_task(task_id: str, payload: dict, trace_id: str, mercha
     """兼容旧代码：调用 dh_create_person 处理器"""
     from tasks.chanjing_video import run_dh_create_person_task as handler
     handler(task_id, payload, trace_id, merchant_id)
+
+
+def run_visual_script_editor_task(task_id: str, payload: dict, trace_id: str, merchant_id: str):
+    """兼容旧代码：调用 visual_script_editor 处理器"""
+    from tasks.visual_script_editor import run_visual_script_editor_task as handler
+    handler(task_id, payload, trace_id, merchant_id)
