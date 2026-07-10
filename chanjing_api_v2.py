@@ -671,10 +671,15 @@ class ChanjingAPIV2:
             # 获取访问令牌
             access_token = self._get_access_token()
             
+            # 🐛 蝉镜 API 需要将 access_token 作为 query parameter 传递，而不是 header
+            # 将 token 添加到 params 中
+            if params is None:
+                params = {}
+            params["access_token"] = access_token
+            
             # 构建请求头
             request_headers = {
                 "Content-Type": "application/json",
-                "Authorization": f"Bearer {access_token}"
             }
             if headers:
                 request_headers.update(headers)
