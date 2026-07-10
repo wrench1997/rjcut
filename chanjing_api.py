@@ -41,8 +41,11 @@ class ChanjingStatusCode:
         return cls.STATUS_MSG.get(code, f"未知状态码：{code}")
     
     @classmethod
-    def is_success(cls, code: int) -> bool:
+    def is_success(cls, code: Optional[int]) -> bool:
         """判断状态码是否表示成功"""
+        # 兼容 code 为 None 的情况（旧版 API 可能不返回 code）
+        if code is None:
+            return True  # 假设没有错误码表示成功
         return code == 0
 
 

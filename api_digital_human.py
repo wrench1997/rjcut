@@ -63,11 +63,14 @@ def list_common_persons(merchant: Merchant = Depends(verify_api_key)):
         api = get_chanjing_api()
         res = api.list_common_digital_persons(page=1, size=100, use_cache=True)
         
-        # 检查蝉镜 API 返回状态码
-        if res.get('code') != 0:
+        # 检查蝉镜 API 返回状态码（兼容 code 为 None 的情况）
+        api_code = res.get('code')
+        if api_code is not None and api_code != 0:
             error_msg = res.get('msg', '获取数字人列表失败')
-            logger.error(f"蝉镜 API 返回错误：{error_msg} (code: {res.get('code')})")
+            logger.error(f"蝉镜 API 返回错误：{error_msg} (code: {api_code})")
             return {"code": 50000, "message": f"蝉镜 API 错误：{error_msg}", "data": None}
+        elif api_code is None:
+            logger.warning(f"蝉镜 API 返回 code=None，但继续处理（可能是旧版 API）")
     except Exception as e:
         logger.error(f"获取公共数字人列表异常：{e}")
         return {"code": 50000, "message": f"服务器错误：{str(e)}", "data": None}
@@ -601,11 +604,14 @@ def list_voices(_: Merchant = Depends(verify_api_key)):
         api = get_chanjing_api()
         res = api.list_common_audio_mans(page=1, size=100, use_cache=True)
         
-        # 检查蝉镜 API 返回状态码
-        if res.get('code') != 0:
+        # 检查蝉镜 API 返回状态码（兼容 code 为 None 的情况）
+        api_code = res.get('code')
+        if api_code is not None and api_code != 0:
             error_msg = res.get('msg', '获取声音列表失败')
-            logger.error(f"蝉镜 API 返回错误：{error_msg} (code: {res.get('code')})")
+            logger.error(f"蝉镜 API 返回错误：{error_msg} (code: {api_code})")
             return {"code": 50000, "message": f"蝉镜 API 错误：{error_msg}", "data": None}
+        elif api_code is None:
+            logger.warning(f"蝉镜 API 返回 code=None，但继续处理（可能是旧版 API）")
         
         return ok(res.get("data", {}).get("list", []))
     except Exception as e:
