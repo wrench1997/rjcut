@@ -617,7 +617,9 @@ class ChanjingAPIV2(ChanjingAPI):
         
         response = super().list_common_digital_persons(page, size, use_cache=False)
         
-        if use_cache and response.get('code') == 0:
+        # 🐌 兼容 code=None 的情况（旧版 API 可能不返回 code）
+        api_code = response.get('code')
+        if use_cache and (api_code is None or api_code == 0):
             self._cache_set_v2(cache_key, response, ttl=300)
         
         return response
@@ -636,7 +638,9 @@ class ChanjingAPIV2(ChanjingAPI):
         
         response = super().list_common_audio_mans(page, size, use_cache=False)
         
-        if use_cache and response.get('code') == 0:
+        # 🐌 兼容 code=None 的情况（旧版 API 可能不返回 code）
+        api_code = response.get('code')
+        if use_cache and (api_code is None or api_code == 0):
             self._cache_set_v2(cache_key, response, ttl=300)
         
         return response
@@ -655,7 +659,9 @@ class ChanjingAPIV2(ChanjingAPI):
         
         response = super().get_customised_person_status(person_id, use_cache=False)
         
-        if use_cache and response.get('code') == 0:
+        # 🐌 兼容 code=None 的情况（旧版 API 可能不返回 code）
+        api_code = response.get('code')
+        if use_cache and (api_code is None or api_code == 0):
             self._cache_set_v2(cache_key, response, ttl=60)
         
         return response
