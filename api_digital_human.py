@@ -1,6 +1,7 @@
 # api_digital_human.py
 import uuid
 import logging
+import os
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -38,12 +39,13 @@ def get_chanjing_api():
                 "enable_cache": True,
                 "enable_stats": True,
                 "auto_auth": False,
-                # 🐳 Docker 容器内使用宿主机 IP:8080 访问本地 API 服务
-                "base_url": "http://192.168.166.151:8080",
+                # 🐳 Docker 容器内使用 host.docker.internal:8080 访问本地 API 服务
+                # 优先从环境变量读取 CHANJING_BASE_URL，默认使用 host.docker.internal
+                "base_url": os.getenv("CHANJING_BASE_URL", "http://host.docker.internal:8080"),
             }
         )
         logger = logging.getLogger("chanjing")
-        logger.info("✅ 蝉镜 API 客户端已初始化（单例）")
+        logger.info(f"✅ 蝉镜 API 客户端已初始化（单例），base_url={_chanjing_api_instance.base_url}")
     
     return _chanjing_api_instance
 

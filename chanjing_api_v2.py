@@ -362,7 +362,8 @@ class ChanjingAPIV2:
             - 如果不提供：自动从环境变量或配置文件获取
         """
         # 🆕 先初始化基础配置（在自动认证之前）
-        self.base_url = base_url if base_url else "http://192.168.166.151:8080"
+        # 优先使用传入的 base_url，其次从环境变量读取，最后使用默认值
+        self.base_url = base_url if base_url else os.getenv("CHANJING_BASE_URL", "http://host.docker.internal:8080")
         self.timeout = timeout
         self.auto_auth = auto_auth
         
@@ -439,7 +440,7 @@ class ChanjingAPIV2:
         self._request_logger.info(f"🔵 [网络诊断] base_url={self.base_url}")
         self._request_logger.info(f"🔵 [网络诊断] app_id={self.app_id}")
         self._request_logger.info(f"🔵 [网络诊断] timeout={self.timeout}s, max_retries={self.max_retries}")
-        self._request_logger.info(f"🔵 [网络诊断] 如果是 Docker 部署，请确保容器能访问宿主机 IP 192.168.166.151")
+        self._request_logger.info(f"🔵 [网络诊断] Docker 部署使用 host.docker.internal，本地运行使用 localhost")
     
     # ============================================================
     # 🆕 V2 新增：自动认证兼容层
