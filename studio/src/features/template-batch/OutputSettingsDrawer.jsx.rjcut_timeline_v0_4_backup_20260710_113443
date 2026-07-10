@@ -157,7 +157,7 @@ export default function OutputSettingsDrawer({
                   <p className="text-xs text-blue-700">
                     <strong>转场设置：</strong>
                     转场类型和时长在"字幕样式"标签页中配置。
-                    模板场景素材段：{template?.sourceVideoRequirement?.expectedSceneCount || template?.slots?.length || 0}
+                    模板建议转场次数：{template?.sourceVideoRequirement?.expectedTransitionCount || 'N/A'}
                   </p>
                 </div>
               </div>

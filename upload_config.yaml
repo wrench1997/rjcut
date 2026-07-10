@@ -67,8 +67,22 @@ include:
   # Studio 核心组件（AI 文案生成相关）
   - "studio/src/components/DigitalHumanStudio.jsx"
   - "studio/src/components/AIScriptGenerator.jsx"
-  - "studio/src/components/TemplateManager.jsx"
+  - "studio/src/components/BatchProcessor.jsx"
   - "studio/src/features/template-batch/aiAssistant.js"
+  - "studio/src/features/template-batch/TemplateBatchPage.jsx"
+  - "studio/src/features/ai-copywriting/api.ts"
+  - "studio/src/features/ai-copywriting/AiCopywritingPanel.tsx"
+  
+  # Studio API 和工具
+  - "studio/src/api/api.js"
+  - "studio/src/api/mcpClient.js"
+  - "studio/src/api/BatchTaskRunner.js"
+  - "studio/src/utils/vfsClient.js"
+  - "studio/src/utils/virtualFileSystem.js"
+  
+  # Studio 配置
+  - "studio/package.json"
+  - "studio/next.config.js"
   
   # 关键配置文件
   - "docker-compose.yml"

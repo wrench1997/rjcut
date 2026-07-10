@@ -41,7 +41,7 @@ export default function TaskProgressStep({ draft, vfs, apiKey }) {
   const stageLabels = {
     idle: '等待中',
     uploading: '上传中',
-    drafting: '时间线准备中',
+    drafting: '草稿生成中',
     composing: '视频合成中',
     downloading: '下载中',
     succeeded: '完成',
@@ -91,7 +91,7 @@ export default function TaskProgressStep({ draft, vfs, apiKey }) {
     loadSavedPaths()
   }, [tasks, vfs])
 
-  // 监听本地模板任务，timeline 就绪后自动触发前端视频合成
+  // 🎨 监听模板混剪任务，draft 完成后自动触发前端视频合成
   useEffect(() => {
     const composeVideo = async (task) => {
       const taskId = task.id
@@ -111,82 +111,77 @@ export default function TaskProgressStep({ draft, vfs, apiKey }) {
         setComposeProgress(0)
         updateTask(taskId, { stage: 'composing', progress: 0 })
         
-        // 1. 读取由 .rjdh.json + 模板素材绑定生成的 timeline.json
-        const timelinePath = task.vfsTimelinePath || task.vfsScriptPath
-        if (!timelinePath) throw new Error('缺少 timeline.json 路径')
-
-        const timelineContent = await vfs.readFile(timelinePath)
-        const timeline = JSON.parse(new TextDecoder().decode(timelineContent))
-        if (!Array.isArray(timeline.segments) || timeline.segments.length === 0) {
-          throw new Error('timeline.json 中没有可渲染片段')
+        // 1. 从 VFS 读取 script.json
+        const scriptPath = task.vfsScriptPath
+        if (!scriptPath) {
+          throw new Error('缺少 script.json 路径')
         }
-
-        // 2. 读取完整数字人视频
+        
+        const scriptContent = await vfs.readFile(scriptPath)
+        const script = JSON.parse(new TextDecoder().decode(scriptContent))
+        
+        // 2. 从 VFS 读取主视频
         const videoBlob = await vfs.readFileAsBlob(task.vfsVideoPath)
-
-        // 3. 初始化本地视频引擎，并按字级时间轴裁出每个语义片段。
-        const { videoEditorEngine } = await import('../../../utils/videoEditorEngine.js')
-        await videoEditorEngine.initialize()
-        videoEditorEngine.setProgressCallback((progress) => {
-          const percent = Math.round(progress * 100)
-          setComposeProgress(percent)
-          updateTask(taskId, { progress: percent })
-        })
-
-        const cutRanges = timeline.segments.map((segment, index) => ({
-          start: Number(segment.start ?? segment.start_ms / 1000),
-          end: Number(segment.end ?? segment.end_ms / 1000),
-          label: segment.id || `segment_${index + 1}`,
-        }))
-        const videoInfo = timeline.video_info || {}
-        const cutParts = await videoEditorEngine.cutVideoSegments(
-          videoBlob,
-          cutRanges,
-          videoInfo.width || 1080,
-          videoInfo.height || 1920,
-          videoInfo.fps || 30
-        )
-        const partFiles = cutParts.map((item) => item.blob)
-
-        // 4. 读取每个 scene 片段绑定的 VFS 素材。相同文件只读取一次。
+        
+        // 3. 读取场景文件（如果有）
         const sceneFiles = {}
-        for (const segment of timeline.segments) {
-          if (segment.type !== 'scene' || !segment.scene_file) continue
-          if (sceneFiles[segment.scene_file]) continue
-          const scenePath = segment.scene_vfs_path || segment.scene_file
-          try {
-            sceneFiles[segment.scene_file] = await vfs.readFileAsBlob(scenePath)
-            console.log('[TaskProgressStep] 读取场景文件:', scenePath)
-          } catch (error) {
-            throw new Error(`读取场景素材失败：${scenePath}；${error.message}`)
+        if (script.segments) {
+          for (const seg of script.segments) {
+            if (seg.type === 'scene' && seg.scene_file) {
+              // 场景文件路径相对于 script.json 目录
+              const sceneDir = scriptPath.substring(0, scriptPath.lastIndexOf('/'))
+              const scenePath = `${sceneDir}/${seg.scene_file}`
+              try {
+                sceneFiles[seg.scene_file] = await vfs.readFileAsBlob(scenePath)
+                console.log('[TaskProgressStep] 读取场景文件:', scenePath)
+              } catch (e) {
+                console.warn('[TaskProgressStep] 读取场景文件失败:', scenePath, e)
+              }
+            }
           }
         }
-
-        // 5. 读取 BGM（如果有）并在本地完成最终合成。
+        
+        // 4. 读取 BGM（如果有）
         let bgmFile = null
         if (task.vfsBgmPath) {
           try {
             bgmFile = await vfs.readFileAsBlob(task.vfsBgmPath)
-          } catch (error) {
-            console.warn('[TaskProgressStep] 读取 BGM 失败:', error)
+            console.log('[TaskProgressStep] 读取 BGM:', task.vfsBgmPath)
+          } catch (e) {
+            console.warn('[TaskProgressStep] 读取 BGM 失败:', task.vfsBgmPath, e)
           }
         }
-
-        const pipelineOptions = task.globalParams?.pipeline || {}
+        
+        // 5. 使用 videoEditorEngine 合成视频
+        const { videoEditorEngine } = await import('../../../utils/videoEditorEngine.js')
+        
+        // 初始化 engine
+        await videoEditorEngine.initialize()
+        
+        // 设置进度回调
+        videoEditorEngine.setProgressCallback((progress, time) => {
+          const percent = Math.round(progress * 100)
+          setComposeProgress(percent)
+          updateTask(taskId, { progress: percent })
+          console.log('[TaskProgressStep] 合成进度:', percent, '%')
+        })
+        
+        // 调用 composeFromTimeline
+        const timeline = script
+        const partFiles = [videoBlob] // 简化处理：假设只有一个主视频片段
+        
         const resultBlob = await videoEditorEngine.composeFromTimeline(
           timeline,
           partFiles,
           sceneFiles,
           {
-            useTransitions: pipelineOptions.use_transitions ?? false,
-            transitionType: pipelineOptions.transition_type || 'fade',
-            transitionDuration: pipelineOptions.transition_duration ?? 0.5,
+            useTransitions: false,
             bgmFile,
             bgmVolume: task.audioConfig?.bgmVolume ?? 0.3,
             originalVolume: task.audioConfig?.originalVolume ?? 1.0,
           }
         )
-
+        
         // 6. 保存合成后的视频到 VFS
         console.log('[TaskProgressStep] 保存合成视频到:', vfsPath)
         const arrayBuffer = await resultBlob.arrayBuffer()
@@ -211,15 +206,12 @@ export default function TaskProgressStep({ draft, vfs, apiKey }) {
       }
     }
     
-    // WASM/FFmpeg 实例按队列逐条合成，避免多个批次同时争用同一虚拟文件系统。
-    if (!composingTaskId) {
-      const nextTask = tasks.find((task) =>
-        task.stage === 'succeeded' &&
-        task.templateMeta?.templateId &&
-        !savedPaths[task.id]
-      )
-      if (nextTask) composeVideo(nextTask)
-    }
+    // 检查所有任务，触发需要合成的
+    tasks.forEach(task => {
+      if (task.stage === 'succeeded' && !savedPaths[task.id] && composingTaskId !== task.id) {
+        composeVideo(task)
+      }
+    })
   }, [tasks, vfs, savedPaths, composingTaskId, updateTask])
 
   const handleDownload = async (taskId, saveToVFS = true) => {
@@ -534,7 +526,7 @@ export default function TaskProgressStep({ draft, vfs, apiKey }) {
                           </>
                         ) : isTemplateBatch ? (
                           <div className="text-xs text-amber-600 bg-amber-50 px-3 py-1.5 rounded border border-amber-200">
-                            ⏳ 字级时间线已就绪，等待本地合成视频
+                            ⏳ 草稿已生成，等待前端合成视频
                           </div>
                         ) : null}
                       </div>

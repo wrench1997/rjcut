@@ -1,3 +1,4 @@
+import { aiGenerateStructuredScript, structuredScriptToLegacySegments } from './aiCopywritingClient.js'
 /**
  * 模板混剪 - AI 辅助工具
  * 提供 AI 推荐模板、AI 生成文案、AI 素材建议等功能
@@ -34,10 +35,10 @@ export const DEFAULT_TEMPLATES = [
     category: '滋补保健',
     segments: [
       { flag: 'hook', note: '开场吸引 - 数字人出镜' },
-      { flag: 'scene', note: '产品介绍素材' },
-      { flag: 'scene', note: '成分展示素材' },
-      { flag: 'scene', note: '使用演示素材' },
-      { flag: 'scene', note: '使用反馈素材' },
+      { flag: 'transition', note: '转场 1 - 产品介绍' },
+      { flag: 'transition', note: '转场 2 - 成分展示' },
+      { flag: 'transition', note: '转场 3 - 使用演示' },
+      { flag: 'transition', note: '转场 4 - 效果反馈' },
       { flag: 'ending', note: '结尾引导 - 数字人出镜收尾' },
     ],
     style: {
@@ -52,8 +53,8 @@ export const DEFAULT_TEMPLATES = [
     category: '促销',
     segments: [
       { flag: 'hook', note: '开场吸引 - 数字人出镜' },
-      { flag: 'scene', note: '产品展示素材' },
-      { flag: 'scene', note: '优惠信息素材' },
+      { flag: 'transition', note: '转场 1 - 产品展示' },
+      { flag: 'transition', note: '转场 2 - 优惠信息' },
       { flag: 'ending', note: '结尾引导 - 数字人出镜收尾' },
     ],
     style: {
@@ -68,8 +69,8 @@ export const DEFAULT_TEMPLATES = [
     category: '品牌',
     segments: [
       { flag: 'hook', note: '开场吸引 - 数字人出镜' },
-      { flag: 'scene', note: '品质展示素材' },
-      { flag: 'scene', note: '使用场景素材' },
+      { flag: 'transition', note: '转场 1 - 品质展示' },
+      { flag: 'transition', note: '转场 2 - 使用场景' },
       { flag: 'ending', note: '结尾引导 - 数字人出镜收尾' },
     ],
     style: {
@@ -104,8 +105,8 @@ export function getTemplateConfig(templateId) {
 export async function aiRecommendTemplates(productKeyword, category = '', templates = null) {
   // 使用 api 客户端调用后端 AI 推荐接口（自动携带 Authorization header）
   const apiBaseUrl = typeof localStorage !== 'undefined' 
-    ? localStorage.getItem('rjcut_api_base_url') || 'http://192.168.166.151:8000'
-    : 'http://192.168.166.151:8000'
+    ? localStorage.getItem('rjcut_api_base_url') || 'http://127.0.0.1:8000'
+    : 'http://127.0.0.1:8000'
   
   const apiKey = typeof localStorage !== 'undefined'
     ? localStorage.getItem('rjcut_api_key') || 'rjk_oG3u1bRu10myprstb5o2AYVW6v9HipNT33ALuJTmFxaqemUC'
@@ -177,7 +178,7 @@ export async function aiRecommendTemplates(productKeyword, category = '', templa
  * @param {string} params.farmScale - 鹿场规模（鹿场直销风格专用）
  * @param {string} params.identificationPoints - 想强调的辨别点（鹿场直销风格专用）
  * @param {string} params.callToAction - 成交方式（鹿场直销风格专用）
- * @returns {Promise<{ spoken_text: string, segments: Array, meta: Object }>}
+ * @returns {Promise<{ text: string, flag: string, note: string }[]>}
  */
 export async function aiGenerateScript({
   customPrompt,
@@ -192,82 +193,31 @@ export async function aiGenerateScript({
   identificationPoints = '颜色、状态、溯源信息',
   callToAction = '点击下方链接/评论区留言',
 }) {
-  // 调用后端 AI 文案生成接口
-  const baseUrl = typeof localStorage !== 'undefined' 
-    ? localStorage.getItem('rjcut_api_base_url') || 'http://192.168.166.151:8000'
-    : 'http://192.168.166.151:8000'
-  
-  try {
-    const requestBody = {
-      template_structure: segments,
-      tone: tone,
-    }
-    
-    // 如果提供了自定义提示词，优先使用
-    if (customPrompt && customPrompt.trim()) {
-      requestBody.custom_prompt = customPrompt
-    }
-    
-    // 鹿场直销风格专用字段
-    if (productName) requestBody.product_name = productName
-    if (sellingPoints) requestBody.selling_points = sellingPoints
-    if (targetAudience) requestBody.target_audience = targetAudience
-    if (comparisonProduct) requestBody.comparison_product = comparisonProduct
-    if (farmScale) requestBody.farm_scale = farmScale
-    if (identificationPoints) requestBody.identification_points = identificationPoints
-    if (callToAction) requestBody.call_to_action = callToAction
-    
-    console.log('[AI 生成文案] 请求 URL:', `${baseUrl}/v1/ai/generate-script`)
-    console.log('[AI 生成文案] 请求体:', requestBody)
-    
-    const response = await fetch(`${baseUrl}/v1/ai/generate-script`, {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer rjk_oG3u1bRu10myprstb5o2AYVW6v9HipNT33ALuJTmFxaqemUC',
-      },
-      body: JSON.stringify(requestBody),
-    })
-
-    console.log('[AI 生成文案] 响应状态:', response.status)
-    
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}))
-      console.error('[AI 生成文案] 错误响应:', errorData)
-      throw new Error(errorData.message || `HTTP ${response.status}`)
-    }
-
-    const result = await response.json()
-    console.log('[AI 生成文案] 成功响应:', result)
-    
-    // 新版返回 script={spoken_text,segments,meta}；兼容旧后端的 segments。
-    if ((result.code === 0 || result.code === 200) && result.data) {
-      if (result.data.script?.spoken_text) return result.data.script
-      if (result.data.spoken_text && Array.isArray(result.data.segments)) {
-        return {
-          schema: 'rjcut.copywriting-plan/v1',
-          spoken_text: result.data.spoken_text,
-          segments: result.data.segments,
-          meta: {},
-        }
-      }
-      if (Array.isArray(result.data.segments)) {
-        const spokenText = result.data.segments.map((item) => item.text || '').join('')
-        return {
-          schema: 'rjcut.copywriting-plan/v1',
-          spoken_text: spokenText,
-          segments: result.data.segments,
-          meta: { compatibility_mode: true },
-        }
-      }
-    }
-    throw new Error(result.message || result.msg || 'AI 生成文案失败')
-  } catch (error) {
-    console.error('AI 生成文案错误:', error)
-    throw error
+  // v0.3：调用 Python/FastAPI 后端的新结构化文案接口。
+  // 返回给旧 UI 的仍然是 segments 数组，但不会再包含 flag=transition，避免插入【转场】给数字人朗读。
+  const requestBody = {
+    template_id: templateId,
+    template_structure: segments,
+    preset_id: tone,
+    tone,
+    user_style_prompt: customPrompt || '',
+    custom_prompt: customPrompt || '',
+    product_name: productName,
+    selling_points: sellingPoints,
+    target_audience: targetAudience,
+    comparison_product: comparisonProduct,
+    farm_scale: farmScale,
+    identification_points: identificationPoints,
+    call_to_action: callToAction,
+    material_tags: (segments || []).map((s) => s.note).filter(Boolean),
   }
-}
 
+  console.log('[AI 生成文案 v0.3] 请求体:', requestBody)
+  const result = await aiGenerateStructuredScript(requestBody)
+  console.log('[AI 生成文案 v0.3] 成功响应:', result)
+
+  return structuredScriptToLegacySegments(result, segments)
+}
 /**
  * AI 自动生成模板 - 根据产品信息和风格生成模板结构
  * @param {Object} params - 参数
@@ -276,7 +226,7 @@ export async function aiGenerateScript({
  * @param {string} params.sellingPoints - 核心卖点
  * @param {string} params.targetAudience - 目标人群
  * @param {string} params.style - 风格（如：direct_sale、premium、social_review）
- * @param {number} params.transitionCount - 场景素材段数量（保留参数名兼容后端）
+ * @param {number} params.transitionCount - 转场数量（默认 3-5 个）
  * @returns {Promise<{ id: string, name: string, description: string, category: string, segments: Array, style: Object }>}
  */
 export async function aiGenerateTemplate({
@@ -290,8 +240,8 @@ export async function aiGenerateTemplate({
 }) {
   // 调用后端 AI 接口
   const baseUrl = typeof localStorage !== 'undefined' 
-    ? localStorage.getItem('rjcut_api_base_url') || 'http://192.168.166.151:8000'
-    : 'http://192.168.166.151:8000'
+    ? localStorage.getItem('rjcut_api_base_url') || 'http://127.0.0.1:8000'
+    : 'http://127.0.0.1:8000'
   
   // 验证必填参数
   if (!productName || !productName.trim()) {
@@ -306,7 +256,6 @@ export async function aiGenerateTemplate({
       target_audience: targetAudience || '',
       style: style,
       transition_count: transitionCount,
-      scene_count: transitionCount,
       file_names: fileNames,  // 传递文件名列表
     }
     
@@ -391,8 +340,8 @@ async function getVideoDuration(file, vfs) {
 export async function aiSuggestSlotFiles(files, slots, vfs = null) {
   // 调用后端 AI 接口分析视频内容
   const apiBaseUrl = typeof localStorage !== 'undefined' 
-    ? localStorage.getItem('rjcut_api_base_url') || 'http://192.168.166.151:8000'
-    : 'http://192.168.166.151:8000'
+    ? localStorage.getItem('rjcut_api_base_url') || 'http://127.0.0.1:8000'
+    : 'http://127.0.0.1:8000'
   
   const apiKey = typeof localStorage !== 'undefined'
     ? localStorage.getItem('rjcut_api_key') || 'rjk_oG3u1bRu10myprstb5o2AYVW6v9HipNT33ALuJTmFxaqemUC'

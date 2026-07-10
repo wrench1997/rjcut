@@ -104,20 +104,6 @@ await vfs.init()
     const taskId = task.id
 
     try {
-      // 新版模板混剪完全在前端/Electron 本地执行。
-      // timeline.json 已由 templateRunAdapter 根据 .rjdh.json 的 char_timings 生成，
-      // 因此不再上传视频，也不再请求 agent-draft / agent-compose。
-      if (task.localOnly || task.templateMeta?.timelineSchema) {
-        updateTask(taskId, {
-          stage: 'succeeded',
-          progress: 100,
-          localReady: true,
-          draftTaskId: null,
-          composeTaskId: null,
-        })
-        return
-      }
-
       updateTask(taskId, { stage: 'uploading', progress: 5 })
 
       // ==========================================

@@ -3,8 +3,7 @@
  * 用户从 VFS 中选择一个数字人视频作为批次共用素材
  */
 import { useState, useEffect } from 'react'
-import { Film, Search, AlertCircle, FolderOpen, ChevronRight, Home, FileJson } from 'lucide-react'
-import { loadSidecarForVideo } from '../../digital-human-project/digitalHumanProject.js'
+import { Film, Search, AlertCircle, FolderOpen, ChevronRight, Home } from 'lucide-react'
 
 export default function SelectAvatarVideoStep({ draft, updateDraft, vfs, apiKey }) {
   const [currentPath, setCurrentPath] = useState('/')
@@ -12,8 +11,6 @@ export default function SelectAvatarVideoStep({ draft, updateDraft, vfs, apiKey 
   const [files, setFiles] = useState([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
-  const [metadataError, setMetadataError] = useState('')
-  const [loadingMetadata, setLoadingMetadata] = useState(false)
 
   // 加载当前目录内容
   useEffect(() => {
@@ -40,39 +37,18 @@ export default function SelectAvatarVideoStep({ draft, updateDraft, vfs, apiKey 
     loadDirectory()
   }, [vfs, currentPath])
 
-  const handleSelectVideo = async (video) => {
-    setLoadingMetadata(true)
-    setMetadataError('')
-    try {
-      const { projectPath, project } = await loadSidecarForVideo(vfs, video.path)
-      if (!project) {
-        setMetadataError(`未找到 ${projectPath}。旧数字人视频没有字级时间轴，不能自动混剪。`)
-      }
-      updateDraft((d) => ({
-        ...d,
-        avatarVideo: {
-          path: video.path,
-          name: video.name,
-          taskId: project?.digital_human?.task_id || '',
-          source: 'vfs',
-          durationSeconds: project?.digital_human?.duration_ms
-            ? project.digital_human.duration_ms / 1000
-            : null,
-          linkedTemplateId: project?.copywriting?.meta?.template_id || null,
-          projectPath,
-          project,
-        },
-      }))
-    } catch (error) {
-      console.error('[SelectAvatarVideo] 加载项目 JSON 失败:', error)
-      setMetadataError(error.message)
-      updateDraft((d) => ({
-        ...d,
-        avatarVideo: { path: video.path, name: video.name, source: 'vfs', projectPath: '', project: null },
-      }))
-    } finally {
-      setLoadingMetadata(false)
-    }
+  const handleSelectVideo = (video) => {
+    updateDraft((d) => ({
+      ...d,
+      avatarVideo: {
+        path: video.path,
+        name: video.name,
+        taskId: '',
+        source: 'vfs',
+        durationSeconds: null,
+        linkedTemplateId: null,
+      },
+    }))
   }
 
   const handleNavigateTo = (path) => {
@@ -235,7 +211,6 @@ export default function SelectAvatarVideoStep({ draft, updateDraft, vfs, apiKey 
                 key={file.path}
                 type="button"
                 onClick={() => handleSelectVideo(file)}
-                disabled={loadingMetadata}
                 className={[
                   'relative p-4 rounded-xl border-2 transition-all text-left',
                   isSelected
@@ -305,26 +280,9 @@ export default function SelectAvatarVideoStep({ draft, updateDraft, vfs, apiKey 
                 已选择：{draft.avatarVideo.name}
               </p>
               <p className="text-xs text-green-600 mt-1">
-                {draft.avatarVideo.project
-                  ? `已加载字级时间轴：${draft.avatarVideo.project.char_timings?.length || 0} 个字符；将用于所有场景版本。`
-                  : '已选择视频，但尚未加载字级时间轴。'}
+                此视频将用于所有场景版本的生成
               </p>
-              {draft.avatarVideo.projectPath && (
-                <p className="text-xs text-green-700 mt-1 flex items-center gap-1">
-                  <FileJson className="w-3 h-3" /> {draft.avatarVideo.projectPath}
-                </p>
-              )}
             </div>
-          </div>
-        </div>
-      )}
-
-      {metadataError && (
-        <div className="p-4 bg-red-50 rounded-xl border border-red-200 flex items-start gap-3">
-          <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm font-semibold text-red-800">无法自动加载字级时间轴</p>
-            <p className="text-xs text-red-600 mt-1">{metadataError}</p>
           </div>
         </div>
       )}

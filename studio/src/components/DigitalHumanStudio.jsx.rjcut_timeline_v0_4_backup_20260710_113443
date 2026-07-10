@@ -1,13 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { getCommonPersons, getCustomPersons, getCommonPersonDetail, getCustomPersonDetail, getVoices, getImageProxyUrl, getBaseUrl } from '../api/api'
+import { getCommonPersons, getCustomPersons, getCommonPersonDetail, getCustomPersonDetail, getVoices, createDhGenerateTask, getDhTaskDetail, getDhVideoUrl, getImageProxyUrl, getBaseUrl } from '../api/api'
 import { getVFS } from '../utils/vfsClient'
 import { PROJECT_FOLDERS, buildVFSPath } from '../utils/project-structure'
 import { User, Mic, Check, X, Film, Download, AlertCircle, Loader2, Book, Inbox, Folder, AlertTriangle, Rocket, Settings, Sliders, Volume2, Type, Image, ChevronDown, ChevronUp, Maximize, Sparkles, Wand2, Store, FileText, Lightbulb, Package } from 'lucide-react'
 import Tooltip from './Tooltip'
 import TemplateManager from './TemplateManager'
 import { aiGenerateScript, DEFAULT_TEMPLATES } from '../features/template-batch/aiAssistant.js'
-import { createTimelineDigitalHumanTask, getDigitalHumanBaseUrl, getTimelineCharTimings, getTimelineDigitalHumanTask, toDigitalHumanAssetUrl, waitForTimelineDigitalHumanTask } from '../features/digital-human-project/digitalHumanApi.js'
-import { buildDigitalHumanProject, normalizeCopywritingPlan, sidecarPathForVideo, writeDigitalHumanProject } from '../features/digital-human-project/digitalHumanProject.js'
 
 // =====================================================
 // 左侧：资产选择 (数字人与声音) - 9 宫格布局
@@ -855,8 +853,8 @@ function AIScriptForm({ template, productInfo, setProductInfo, onSubmit, onCance
 ## 输出格式要求
 
 请直接输出完整口播文案。
-请按自然语义分段；禁止把导演口令写进口播。
-剪辑意图由结构化 segments 表达；不要在 spoken_text 中写镜头说明。
+不要在口播文案中输出"转场"两个字；新版转场由后端 timeline 自动处理。
+不要写镜头说明、不要写标题、不要写分段名称、不要解释创作思路。
 全文控制在 450～650 字。
 语言必须口语化，像真人一镜到底口播，节奏要快，句子不要太长。
 
@@ -1167,7 +1165,6 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
   const [isGenerating, setIsGenerating] = useState(false)
   const [statusMsg, setStatusMsg] = useState('')
   const [pipelineTasks, setPipelineTasks] = useState([])
-  const resumedTaskIdsRef = useRef(new Set())
   const [showProgress, setShowProgress] = useState(false)
   const [minimizedProgress, setMinimizedProgress] = useState(false)
   const [generatedVideos, setGeneratedVideos] = useState([]) // 存储已生成的视频路径
@@ -1210,11 +1207,14 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
   const generateScriptFromTemplate = async (template, customPrompt) => {
     setIsGeneratingScript(true)
     try {
-      if (!template) throw new Error('未选择模板，请先选择一个模板')
-      const copywritingPlan = normalizeCopywritingPlan(await aiGenerateScript({
+      if (!template) {
+        throw new Error('未选择模板，请先选择一个模板')
+      }
+      const segments = template.segments || []
+      const generatedSegments = await aiGenerateScript({
         customPrompt,
         templateId: template.id,
-        segments: template.segments || [],
+        segments,
         productName: productInfo.product_name,
         sellingPoints: productInfo.selling_points,
         targetAudience: productInfo.target_audience,
@@ -1223,24 +1223,50 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
         farmScale: productInfo.farm_scale,
         identificationPoints: productInfo.identification_points,
         callToAction: productInfo.call_to_action,
-      }))
+      })
 
-      if (!copywritingPlan.spoken_text) throw new Error('AI 没有返回可朗读的 spoken_text')
-      const sceneCount = copywritingPlan.segments.filter((item) => item.visual_mode === 'scene').length
-      const newScript = {
-        id: Date.now(),
-        text: copywritingPlan.spoken_text,
-        copywritingPlan: {
-          ...copywritingPlan,
-          meta: { ...(copywritingPlan.meta || {}), template_id: template.id, template_name: template.name },
-        },
-        note: `AI 结构化文案（${copywritingPlan.segments.length} 个语义段，${sceneCount} 个场景素材段）`,
+      // 将生成的文案合并成一条完整的视频脚本
+      // v0.3：只保留数字人要朗读的文案，转场不再混入口播
+      const validSegments = generatedSegments.filter(s => 
+        s.flag === 'hook' || 
+        s.flag === 'ending' || 
+        s.flag === 'human' ||
+        s.flag === 'transition'
+      )
+
+      if (validSegments.length > 0) {
+        // 合并所有段落为一条完整口播文案，不再插入【转场】
+        let fullScript = ''
+        validSegments.forEach((segment, idx) => {
+          if (segment.flag === 'transition') {
+            // 转场段落：添加转场提示
+            fullScript += ``
+          } else {
+            // 文案段落：添加实际文案
+            fullScript += segment.text || ''
+          }
+        })
+
+        // 创建一条完整的脚本
+        const newScript = {
+          id: Date.now(),
+          text: fullScript.trim(),
+          note: `AI 生成（${validSegments.length}段，含${generatedSegments.filter(s => s.flag === 'transition').length}个转场）`,
+        }
+
+        // 如果当前只有一个空脚本，替换它；否则追加
+        if (scripts.length === 1 && !scripts[0].text) {
+          setScripts([newScript])
+        } else {
+          setScripts([...scripts, newScript])
+        }
+
+        const transitionCount = generatedSegments.filter(s => s.transition_after).length
+        const textCount = generatedSegments.filter(s => s.text).length
+        alert(`✅ AI 文案生成成功！已合并为 1 条完整口播脚本（${textCount}段文案，${transitionCount}个自动转场点不会被朗读）`)
+      } else {
+        alert('⚠️ 模板中没有可生成文案的段落')
       }
-
-      if (scripts.length === 1 && !scripts[0].text) setScripts([newScript])
-      else setScripts([...scripts, newScript])
-
-      alert(`✅ AI 文案生成成功：纯口播 ${copywritingPlan.spoken_text.length} 字，${sceneCount} 个场景素材段。`)
     } catch (err) {
       console.error('[DigitalHumanStudio] AI 文案生成失败:', err)
       alert('AI 文案生成失败：' + err.message)
@@ -1304,87 +1330,175 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
     localStorage.setItem('dh_minimized_progress', minimizedProgress.toString())
   }, [minimizedProgress])
 
-  // 恢复新版字级时间轴任务。任务自身保存 savePath/copywritingPlan，页面刷新后仍可完成落盘。
+  // 🔴 恢复轮询：当组件重新挂载时，如果有未完成的任务，继续轮询
   useEffect(() => {
-    if (isGenerating) return
-
-    const timer = setTimeout(() => {
-      const runningTasks = pipelineTasks.filter((task) =>
-        task.apiVersion === 'timeline_v1' &&
-        task.dhTaskId &&
-        ['dh_generating', 'downloading'].includes(task.stage) &&
-        !resumedTaskIdsRef.current.has(task.id)
+    // 如果正在生成中，跳过（说明是正常流程，不需要恢复）
+    if (isGenerating) {
+      return
+    }
+    
+    const resumePolling = async () => {
+      if (pipelineTasks.length === 0) {
+        return
+      }
+      
+      // 查找所有正在运行中的任务（dh_generating 或 downloading 状态）
+      const runningTasks = pipelineTasks.filter(t => 
+        t.stage === 'dh_generating' || t.stage === 'downloading'
       )
-
+      
+      if (runningTasks.length === 0) {
+        console.log('[DigitalHumanStudio] 没有需要恢复轮询的任务')
+        return
+      }
+      
+      console.log('[DigitalHumanStudio] 🔄 检测到未完成的任务，恢复轮询:', runningTasks.length, '个')
+      
+      // 等待项目列表加载完成
+      if (loadingProjects) {
+        console.log('[DigitalHumanStudio] 等待项目列表加载...')
+        return
+      }
+      
+      // 如果没有选择项目，使用默认路径
+      const projectName = selectedProject?.name || selectedProject?.path?.replace('/projects/', '').split('/')[0] || 'default'
+      const savePath = buildVFSPath(projectName, PROJECT_FOLDERS.EDITED_VIDEO)
+      
+      console.log('[DigitalHumanStudio] 保存路径:', savePath)
+      
+      // 为每个任务启动独立的轮询协程
       runningTasks.forEach((task) => {
-        resumedTaskIdsRef.current.add(task.id)
+        const dhTaskId = task.dhTaskId
+        if (!dhTaskId) {
+          console.warn('[DigitalHumanStudio] 任务缺少 dhTaskId，标记为失败:', task.id)
+          setPipelineTasks(prev => prev.map(t => 
+            t.id === task.id ? { ...t, stage: 'failed', error: '任务 ID 丢失' } : t
+          ))
+          return
+        }
+        
+        console.log('[DigitalHumanStudio] 启动恢复协程:', task.id, ', stage:', task.stage, ', dhTaskId:', dhTaskId)
+        
+        // 启动独立的异步协程
         ;(async () => {
           try {
             const vfs = getVFS()
-            await vfs.init()
-            const baseUrl = task.apiBaseUrl || getDigitalHumanBaseUrl()
-            let status = await getTimelineDigitalHumanTask(task.dhTaskId, baseUrl)
-            if (['queued', 'running'].includes(status.status)) {
-              status = await waitForTimelineDigitalHumanTask(task.dhTaskId, {
-                baseUrl,
-                onProgress: (progress) => setPipelineTasks((prev) => prev.map((item) =>
-                  item.id === task.id ? { ...item, progress: Math.min(55, Math.round(progress * 0.55)) } : item
-                )),
-              })
+            
+            // 🔴 先检查任务真实状态（蝉镜 API：30=完成，40=失败，10/20=进行中）
+            console.log('[DigitalHumanStudio] 检查任务真实状态:', dhTaskId)
+            const statusRes = await getDhTaskDetail(dhTaskId)
+            const apiStatus = statusRes.data.data.status  // 数字：10,20,30,40
+            const apiProgress = statusRes.data.data.progress
+            
+            console.log('[DigitalHumanStudio] 任务真实状态:', apiStatus, ', progress:', apiProgress)
+            
+            // 蝉镜 API 状态码：30=成功，40=失败
+            if (apiStatus === 30) {
+              console.log('[DigitalHumanStudio] 任务已完成 (status=30)，直接下载:', task.id)
+              setPipelineTasks(prev => prev.map(t => 
+                t.id === task.id ? { ...t, stage: 'downloading', progress: 60 } : t
+              ))
+            } else if (apiStatus === 40) {
+              const errorMsg = statusRes.data.data?.error || statusRes.data.data?.msg || '数字人生成失败'
+              console.log('[DigitalHumanStudio] 任务已失败 (status=40):', task.id, errorMsg)
+              setPipelineTasks(prev => prev.map(t => 
+                t.id === task.id ? { ...t, stage: 'failed', error: errorMsg } : t
+              ))
+              return
             }
-            if (!status?.ok || status.status !== 'success' || !status.result) {
-              throw new Error(status?.error?.message || '数字人任务未成功完成')
+            
+            // 阶段 1: 轮询数字人生成状态（只有当任务还在进行中）
+            if (task.stage === 'dh_generating' && apiStatus !== 30) {
+              console.log('[DigitalHumanStudio] 开始轮询数字人状态:', dhTaskId)
+              
+              let dhCompleted = false
+              let pollCount = 0
+              const maxPolls = 600 // 最多轮询 600 次 (30 分钟)
+              
+              while (!dhCompleted && pollCount < maxPolls) {
+                pollCount++
+                await new Promise(r => setTimeout(r, 3000))
+                
+                try {
+                  const sRes = await getDhTaskDetail(dhTaskId)
+                  const st = sRes.data.data.status  // 数字状态码
+                  const pr = sRes.data.data.progress
+                  
+                  console.log('[DigitalHumanStudio] 轮询中:', task.id, ', status:', st, ', progress:', pr)
+                  
+                  if (st === 30) {  // 蝉镜 API: 30 = 成功
+                    dhCompleted = true
+                    console.log('[DigitalHumanStudio] ✅ 数字人生成成功 (status=30):', task.id)
+                  } else if (st === 40) {  // 蝉镜 API: 40 = 失败
+                    const errMsg = sRes.data.data?.error || sRes.data.data?.msg || '数字人生成失败'
+                    throw new Error(errMsg)
+                  } else {
+                    // 更新进度 (10,20 等 = 进行中)
+                    setPipelineTasks(prev => prev.map(t => 
+                      t.id === task.id ? { ...t, progress: Math.min(pr * 0.5, 50) } : t
+                    ))
+                  }
+                } catch (err) {
+                  console.error('[DigitalHumanStudio] 轮询出错:', err)
+                  throw err
+                }
+              }
+              
+              if (!dhCompleted) {
+                throw new Error('轮询超时')
+              }
+              
+              // 进入下载阶段
+              setPipelineTasks(prev => prev.map(t => 
+                t.id === task.id ? { ...t, stage: 'downloading', progress: 60 } : t
+              ))
             }
-            if (!Array.isArray(status.result.char_timings) || !status.result.char_timings.length) {
-              const timingResult = await getTimelineCharTimings(task.dhTaskId, baseUrl)
-              status.result.char_timings = timingResult?.char_timings || []
+            
+            // 阶段 2: 下载视频
+            console.log('[DigitalHumanStudio] 开始下载视频:', dhTaskId)
+            
+            const urlRes = await getDhVideoUrl(dhTaskId)
+            if (urlRes?.data?.code !== 0) {
+              throw new Error('获取下载链接失败')
             }
-
-            const savePath = task.savePath
-            if (!savePath) throw new Error('恢复任务缺少 VFS 保存目录')
+            
+            const downloadUrl = urlRes.data.data.download_url
+            const videoBlob = await (await fetch(downloadUrl)).blob()
+            
+            const timestamp = Date.now()
+            const fileName = `dh_${selectedPerson?.name || 'unknown'}_${timestamp}_${task.id.slice(-6)}.mp4`
+            const vfsVideoPath = `${savePath}/${fileName}`
+            
             await vfs.createDirectory(savePath, true)
-            setPipelineTasks((prev) => prev.map((item) =>
-              item.id === task.id ? { ...item, stage: 'downloading', progress: 65 } : item
+            const arrayBuffer = await videoBlob.arrayBuffer()
+            await vfs.writeFile(vfsVideoPath, arrayBuffer)
+            
+            // 完成任务
+            setPipelineTasks(prev => prev.map(t => 
+              t.id === task.id ? { ...t, stage: 'done', progress: 100 } : t
             ))
-
-            const fileName = task.fileName || `dh_${task.personName || 'human'}_${Date.now()}_${task.id.slice(-6)}.mp4`
-            const videoPath = task.videoPath || `${savePath}/${fileName}`
-            const videoResponse = await fetch(toDigitalHumanAssetUrl(status.result.video_url, baseUrl))
-            if (!videoResponse.ok) throw new Error(`下载数字人视频失败：HTTP ${videoResponse.status}`)
-            const videoBlob = await videoResponse.blob()
-            await vfs.writeFile(videoPath, await videoBlob.arrayBuffer())
-
-            const project = buildDigitalHumanProject({
-              taskId: task.dhTaskId,
-              result: status.result,
-              copywritingPlan: task.copywritingPlan || { spoken_text: task.scriptText },
-              personId: task.personId,
-              audioManId: task.audioManId,
-              apiBaseUrl: baseUrl,
-              videoPath,
-            })
-            const projectPath = sidecarPathForVideo(videoPath)
-            await writeDigitalHumanProject(vfs, projectPath, project)
-
-            setPipelineTasks((prev) => prev.map((item) =>
-              item.id === task.id ? { ...item, stage: 'done', progress: 100, videoPath, projectPath } : item
-            ))
-            setGeneratedVideos((prev) => {
-              if (prev.some((item) => item.projectPath === projectPath)) return prev
-              return [...prev, { id: task.id, path: videoPath, fileName, projectPath, text: project.copywriting.spoken_text }]
-            })
-          } catch (error) {
-            console.error('[DigitalHumanStudio] 恢复字级时间轴任务失败:', error)
-            setPipelineTasks((prev) => prev.map((item) =>
-              item.id === task.id ? { ...item, stage: 'failed', error: error.message } : item
+            setGeneratedVideos(prev => [...prev, { 
+              id: task.id, 
+              path: vfsVideoPath, 
+              fileName,
+              text: task.scriptText || task.text 
+            }])
+            console.log('[DigitalHumanStudio] ✅ 任务恢复完成:', task.id)
+            
+          } catch (err) {
+            console.error('[DigitalHumanStudio] ❌ 恢复失败:', task.id, err.message)
+            setPipelineTasks(prev => prev.map(t => 
+              t.id === task.id ? { ...t, stage: 'failed', error: err.message } : t
             ))
           }
         })()
       })
-    }, 1500)
-
+    }
+    
+    // 延迟执行
+    const timer = setTimeout(resumePolling, 1500)
     return () => clearTimeout(timer)
-  }, [pipelineTasks, isGenerating])
+  }, []) // 每次组件挂载都检查是否有未完成的任务
 
   useEffect(() => {
     // 加载数字人、声音和项目列表
@@ -1562,9 +1676,7 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
       text: script.text.substring(0, 20) + (script.text.length > 20 ? '...' : ''),
       stage: 'dh_generating',
       progress: 0,
-      scriptText: script.text,
-      copywritingPlan: normalizeCopywritingPlan(script.copywritingPlan, script.text),
-      apiVersion: 'timeline_v1'
+      scriptText: script.text
     }))
     setPipelineTasks(initialTasks)
 
@@ -1584,105 +1696,160 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
       console.log('[DigitalHumanStudio] 目录创建成功')
 
       // 并发处理所有任务
-      let failedCount = 0
       console.log('[DigitalHumanStudio] 开始并发处理', initialTasks.length, '个任务')
       await Promise.all(initialTasks.map(async (task, index) => {
         const script = validScripts[index]
         console.log('[DigitalHumanStudio] 处理任务', index + 1, '/', initialTasks.length)
         
         try {
-          // [阶段 1] 直接调用 8080 新版数字人 API。只发送纯口播，要求返回字级时间轴。
-          const apiBaseUrl = getDigitalHumanBaseUrl()
-          const copywritingPlan = normalizeCopywritingPlan(script.copywritingPlan, script.text)
-          const audioManId = selectedVoice || selectedPersonDetails?.audio_man_id || ''
+          // [阶段 1] 提交蝉镜数字人任务（包含高级设置和动作）
+          console.log('[DigitalHumanStudio] 任务', index + 1, ': 提交数字人任务')
+          
+          // 构建动作参数：使用高级设置中同步的 action_id
+          let actionParams = {}
+          if (selectedPersonDetails?.actions && selectedPersonDetails.actions.length > 0) {
+            // 优先使用高级设置中的 action_id（由组件自动同步）
+            if (advancedSettings.action_id) {
+              actionParams.action_id = advancedSettings.action_id
+              console.log('[DigitalHumanStudio] 使用高级设置中的动作:', actionParams.action_id)
+            } else if (advancedSettings.drive_mode === 'random') {
+              // 如果没有设置 action_id 且是随机模式，则随机选择
+              const randomIndex = Math.floor(Math.random() * selectedPersonDetails.actions.length)
+              actionParams.action_id = selectedPersonDetails.actions[randomIndex].id
+              console.log('[DigitalHumanStudio] 随机选择动作:', actionParams.action_id)
+            } else {
+              // 默认使用第一个动作
+              actionParams.action_id = selectedPersonDetails.actions[0].id
+              console.log('[DigitalHumanStudio] 使用默认动作:', actionParams.action_id)
+            }
+          } else {
+            console.log('[DigitalHumanStudio] 该数字人没有可用动作列表')
+          }
+          
+          // 构建请求参数
           const taskPayload = {
-            text: copywritingPlan.spoken_text,
+            text: script.text,
             person_id: selectedPerson.id,
-            audio_man_id: audioManId || undefined,
-            figure_type: advancedSettings.figure_type || 'whole_body',
-            hide_subtitle: advancedSettings.hide_subtitle !== false,
-            extra: {
-              business_task_id: task.id,
-              source: 'rjcut-studio',
-              copywriting_schema: copywritingPlan.schema,
-              requested_settings: {
-                speed: advancedSettings.speed,
-                pitch: advancedSettings.pitch,
-                volume: advancedSettings.volume,
-                language: advancedSettings.language,
-                action_id: advancedSettings.action_id || null,
-              },
-            },
+            // 动作参数
+            ...actionParams,
+            // 高级设置参数
+            speed: advancedSettings.speed,
+            pitch: advancedSettings.pitch,
+            volume: advancedSettings.volume,
+            language: advancedSettings.language,
+            bg_type: advancedSettings.bg_type,
+            bg_color: advancedSettings.bg_color,
+            figure_type: advancedSettings.figure_type,
+            hide_subtitle: advancedSettings.hide_subtitle,
+            drive_mode: advancedSettings.drive_mode,
+            client_ref_id: `dh_${task.id}`,
+            // 🎨 传递字幕配置到后端
+            subtitle_config: advancedSettings.subtitle_config
+          }
+          
+          // 处理 audio_man_id 字段：优先使用用户选择的声音，否则使用数字人自带的 audio_man_id
+          console.log('[DigitalHumanStudio] 检查 audio_man_id 参数:', {
+            selectedVoice,
+            person_audio_man_id: selectedPersonDetails?.audio_man_id,
+            person_details: selectedPersonDetails
+          })
+          
+          if (selectedVoice) {
+            taskPayload.audio_man_id = selectedVoice
+            console.log('[DigitalHumanStudio] 使用用户选择的声音:', selectedVoice)
+          } else if (selectedPersonDetails?.audio_man_id) {
+            taskPayload.audio_man_id = selectedPersonDetails.audio_man_id
+            console.log('[DigitalHumanStudio] 使用数字人自带的 audio_man_id:', selectedPersonDetails.audio_man_id)
+          } else {
+            // 即使没有声音 ID，也要传递空字符串，让后端使用默认 TTS 配置
+            taskPayload.audio_man_id = ''
+            console.log('[DigitalHumanStudio] 未设置声音 ID，将使用默认 TTS 配置')
+          }
+          
+          console.log('[DigitalHumanStudio] 最终提交任务 payload:', taskPayload)
+          
+          const dhRes = await createDhGenerateTask(taskPayload)
+          
+          if (dhRes?.data?.code !== 0) {
+            throw new Error('数字人任务创建失败')
+          }
+          
+          const dhTaskId = dhRes.data.data.task_id
+          console.log('[DigitalHumanStudio] 任务', index + 1, ': 数字人任务 ID', dhTaskId)
+          
+          // 立即更新任务，保存 dhTaskId 以便恢复轮询
+          setPipelineTasks(prev => prev.map(t => 
+            t.id === task.id ? { ...t, dhTaskId } : t
+          ))
+          
+          // 轮询数字人状态
+          let dhCompleted = false
+          while (!dhCompleted) {
+            await new Promise(r => setTimeout(r, 3000))
+            
+            const statusRes = await getDhTaskDetail(dhTaskId)
+            const { status, progress } = statusRes.data.data
+            
+            if (status === 'succeeded') {
+              dhCompleted = true
+              console.log('[DigitalHumanStudio] 任务', index + 1, ': 数字人生成成功')
+            } else if (status === 'failed') {
+              // 获取详细错误信息（优先从 error 字段获取）
+              const errorMsg = statusRes.data.data?.error || 
+                               statusRes.data.data?.error_message || 
+                               statusRes.data.data?.fail_reason || 
+                               '未知错误'
+              console.error('[DigitalHumanStudio] 蝉镜 API 返回错误详情:', statusRes.data.data)
+              throw new Error(`数字人生成失败：${errorMsg}`)
+            } else {
+              // 更新进度 (0-50%)
+              setPipelineTasks(prev => prev.map(t => 
+                t.id === task.id ? { ...t, progress: Math.min(progress * 0.5, 50) } : t
+              ))
+            }
           }
 
-          const created = await createTimelineDigitalHumanTask(taskPayload, apiBaseUrl)
-          const dhTaskId = created.task_id
-          const fileName = `dh_${selectedPerson.name}_${Date.now()}_${index + 1}.mp4`
+          // [阶段 2] 下载视频到 VFS
+          console.log('[DigitalHumanStudio] 任务', index + 1, ': 开始下载视频')
+          setPipelineTasks(prev => prev.map(t => 
+            t.id === task.id ? { ...t, stage: 'downloading', progress: 60 } : t
+          ))
+          
+          const urlRes = await getDhVideoUrl(dhTaskId)
+          if (urlRes?.data?.code !== 0) {
+            throw new Error('获取视频下载链接失败')
+          }
+          
+          const downloadUrl = urlRes.data.data.download_url
+          console.log('[DigitalHumanStudio] 任务', index + 1, ': 下载链接', downloadUrl.substring(0, 50) + '...')
+          const videoBlob = await (await fetch(downloadUrl)).blob()
+          console.log('[DigitalHumanStudio] 任务', index + 1, ': 视频 Blob 大小', videoBlob.size, 'bytes')
+          
+          // 生成保存文件名
+          const timestamp = Date.now()
+          const fileName = `dh_${selectedPerson.name}_${timestamp}_${index + 1}.mp4`
           const vfsVideoPath = `${savePath}/${fileName}`
+          console.log('[DigitalHumanStudio] 任务', index + 1, ': 保存路径', vfsVideoPath)
+          
+          // 将 Blob 转换为 ArrayBuffer 以确保兼容性
+          const arrayBuffer = await videoBlob.arrayBuffer()
+          await vfs.writeFile(vfsVideoPath, arrayBuffer)
+          console.log('[DigitalHumanStudio] 任务', index + 1, ': 写入 VFS 成功')
 
-          setPipelineTasks((prev) => prev.map((item) => item.id === task.id ? {
-            ...item,
-            dhTaskId,
-            apiBaseUrl,
-            savePath,
-            fileName,
-            videoPath: vfsVideoPath,
-            personId: selectedPerson.id,
-            personName: selectedPerson.name,
-            audioManId,
-            copywritingPlan,
-          } : item))
-
-          const completed = await waitForTimelineDigitalHumanTask(dhTaskId, {
-            baseUrl: apiBaseUrl,
-            onProgress: (progress) => setPipelineTasks((prev) => prev.map((item) =>
-              item.id === task.id ? { ...item, progress: Math.min(55, Math.round(progress * 0.55)) } : item
-            )),
-          })
-          const result = { ...(completed.result || {}) }
-          if (!Array.isArray(result.char_timings) || !result.char_timings.length) {
-            const timingResult = await getTimelineCharTimings(dhTaskId, apiBaseUrl)
-            result.char_timings = timingResult?.char_timings || []
-          }
-          if (!result.video_url || !result.char_timings.length) {
-            throw new Error('数字人接口成功响应缺少 video_url 或 char_timings')
-          }
-
-          // [阶段 2] 视频与项目 JSON 一起保存到 VFS。
-          setPipelineTasks((prev) => prev.map((item) =>
-            item.id === task.id ? { ...item, stage: 'downloading', progress: 65 } : item
+          // 任务完成
+          setPipelineTasks(prev => prev.map(t => 
+            t.id === task.id ? { ...t, stage: 'done', progress: 100 } : t
           ))
-          const videoResponse = await fetch(toDigitalHumanAssetUrl(result.video_url, apiBaseUrl))
-          if (!videoResponse.ok) throw new Error(`下载数字人视频失败：HTTP ${videoResponse.status}`)
-          const videoBlob = await videoResponse.blob()
-          await vfs.writeFile(vfsVideoPath, await videoBlob.arrayBuffer())
-
-          const project = buildDigitalHumanProject({
-            taskId: dhTaskId,
-            result,
-            copywritingPlan,
-            personId: selectedPerson.id,
-            audioManId,
-            apiBaseUrl,
-            videoPath: vfsVideoPath,
-          })
-          const projectPath = sidecarPathForVideo(vfsVideoPath)
-          await writeDigitalHumanProject(vfs, projectPath, project)
-
-          setPipelineTasks((prev) => prev.map((item) =>
-            item.id === task.id ? { ...item, stage: 'done', progress: 100, projectPath } : item
-          ))
-          setGeneratedVideos((prev) => [...prev, {
-            id: task.id,
-            path: vfsVideoPath,
+          // 添加到已生成视频列表
+          setGeneratedVideos(prev => [...prev, { 
+            id: task.id, 
+            path: vfsVideoPath, 
             fileName,
-            projectPath,
-            text: copywritingPlan.spoken_text,
+            text: task.text 
           }])
-          console.log('[DigitalHumanStudio] 数字人视频与字级时间轴项目已保存:', vfsVideoPath, projectPath)
+          console.log('[DigitalHumanStudio] 任务', index + 1, ': 完成')
 
         } catch (err) {
-          failedCount += 1
           console.error('[DigitalHumanStudio] 任务', index + 1, ': 失败', err)
           setPipelineTasks(prev => prev.map(t => 
             t.id === task.id ? { ...t, stage: 'failed', error: err.message } : t
@@ -1690,12 +1857,14 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
         }
       }))
 
-      if (failedCount > 0) {
-        setStatusMsg(`生成结束：${failedCount} 个任务失败，请查看进度窗口详情`)
+      // 检查是否有失败的任务
+      const failedTasks = pipelineTasks.filter(t => t.stage === 'failed')
+      if (failedTasks.length > 0) {
+        setStatusMsg(`生成失败：${failedTasks.length} 个任务出错，请查看进度窗口详情`)
       } else {
-        setStatusMsg(`生成完成！MP4 与同名 .rjdh.json 已保存到 ${savePath}，模板混剪可直接加载`)
+        setStatusMsg(`生成完成！视频已保存到 ${savePath}，请前往【批量处理】进行后期合成`)
       }
-      console.log('[DigitalHumanStudio] 所有任务完成，失败数:', failedCount)
+      console.log('[DigitalHumanStudio] 所有任务完成，失败数:', failedTasks.length)
       
     } catch (err) {
       console.error('[DigitalHumanStudio] 生成流程失败:', err)
@@ -1832,7 +2001,7 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
           <div className="bg-white rounded-xl shadow-2xl p-6 flex flex-col items-center gap-3">
             <Loader2 size={32} className="animate-spin text-purple-600" />
             <p className="text-sm font-medium text-slate-700">AI 正在生成文案...</p>
-            <p className="text-xs text-slate-400">生成纯口播与语义场景段，不插入口令</p>
+            <p className="text-xs text-slate-400">根据模板结构智能生成口播文案；转场由 timeline 自动处理</p>
           </div>
         </div>
       )}

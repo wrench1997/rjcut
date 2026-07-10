@@ -95,7 +95,7 @@ class VideoEditorEngine {
    * @param {Array<File|Blob>} videoFiles - 视频文件列表
    * @returns {Promise<Blob>} - 合并后的视频
    */
-  async mergeVideos(videoFiles, width = 1920, height = 1080, fps = 30) {
+  async mergeVideos(videoFiles) {
     const task = new Ffmpeg.FfmpegTask('merge_' + Date.now(), 0)
 
     // 添加所有输入文件
@@ -112,11 +112,11 @@ class VideoEditorEngine {
     const concatFileName = 'concat_list.txt'
     task.add_input_file(concatFileName, new TextEncoder().encode(concatList))
 
-    // 按 timeline 的真实画布参数合并，避免竖屏视频被强制成横屏。
+    // 构建合并命令（假设 1080p 30fps）
     const cmd = Ffmpeg.build_concat_command(
       concatFileName,
       'output.mp4',
-      width, height, fps, 5000, 192
+      1920, 1080, 30, 5000, 192
     )
     const args = JSON.parse(cmd).args
     task.set_args_json(JSON.stringify(args))
@@ -254,7 +254,7 @@ class VideoEditorEngine {
         fps
       )
     } else {
-      mergedVideo = await this.mergeVideos(renderClips, width, height, fps)
+      mergedVideo = await this.mergeVideos(renderClips)
     }
 
     // 3. 添加背景音乐（如果提供）
