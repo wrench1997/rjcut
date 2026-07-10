@@ -17,7 +17,7 @@ from database import get_db_session
 from models import Task, TaskStatus, DhCustomPerson
 from quota import confirm_quota, refund_quota
 from oss import download_file_from_oss, is_oss_key, upload_file_to_oss
-from chanjing_api_v2 import create_chanjing_api_v2, ChanjingAPI, ChanjingStatusCode
+from chanjing_api_v2 import create_chanjing_api_v2, ChanjingStatusCode
 from tasks import register_task
 from tasks.components import TaskContext, FileManagerComponent
 

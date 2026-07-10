@@ -1,6 +1,6 @@
 # apps/digital_human/chanjing_api_v2.py
-# 蝉镜 API V2 客户端 - 增强稳定性版本
-# 在保持接口兼容的基础上，增加更好的错误处理、重试机制和容错能力
+# 蝉镜 API V2 客户端 - 增强稳定性版本（独立实现，无 V1 依赖）
+# 支持：指数退避重试、智能缓存、请求统计、熔断器、降级策略
 
 import requests
 import json
@@ -10,20 +10,54 @@ import logging
 import hashlib
 import random
 from typing import Dict, Any, List, Union, Optional, Callable
-from functools import lru_cache, wraps
+from functools import wraps
 import threading
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
 from enum import Enum
 
-# 导入 V1 版本以保持向后兼容
-from chanjing_api import ChanjingAPI, ChanjingStatusCode
 import requests as requests_lib
 
 
 # ============================================================
-# V2 新增：增强的错误处理
+# 错误处理
 # ============================================================
+
+class ChanjingStatusCode:
+    """
+    蝉镜 API 状态码（兼容层）
+    
+    保持与旧版本的兼容性，提供状态码判断和消息获取方法
+    """
+    SUCCESS = 0
+    SYSTEM_ERROR = 500
+    PARAM_ERROR = 400
+    AUTH_ERROR = 401
+    QUOTA_ERROR = 402
+    RATE_LIMIT_ERROR = 429
+    
+    # 状态码消息映射
+    _MSG_MAP = {
+        0: "成功",
+        400: "参数错误",
+        401: "认证失败",
+        402: "配额不足",
+        429: "请求过于频繁",
+        500: "系统错误",
+    }
+    
+    @classmethod
+    def is_success(cls, code: Optional[int]) -> bool:
+        """判断是否成功"""
+        return code == cls.SUCCESS or code is None
+    
+    @classmethod
+    def get_msg(cls, code: Optional[int], default: str = "未知错误") -> str:
+        """获取状态码对应的消息"""
+        if code is None:
+            return "成功"
+        return cls._MSG_MAP.get(code, default)
+
 
 class APIErrorType(Enum):
     """API 错误类型枚举"""
@@ -37,7 +71,7 @@ class APIErrorType(Enum):
 
 
 @dataclass
-class APIError:
+class APIError(Exception):
     """增强的 API 错误信息"""
     code: int
     message: str
@@ -57,7 +91,7 @@ class APIError:
 
 
 # ============================================================
-# V2 新增：指数退避重试装饰器
+# 指数退避重试装饰器
 # ============================================================
 
 def retry_with_backoff(
@@ -149,7 +183,7 @@ def retry_with_backoff(
 
 
 # ============================================================
-# V2 新增：请求统计和监控
+# 请求统计和监控
 # ============================================================
 
 @dataclass
@@ -176,7 +210,7 @@ class RequestStats:
 
 
 # ============================================================
-# V2 新增：智能缓存（支持 TTL 和 LRU）
+# 智能缓存（支持 TTL 和 LRU）
 # ============================================================
 
 @dataclass
@@ -269,22 +303,29 @@ class SmartCache:
 
 
 # ============================================================
-# V2 版本：增强的蝉镜 API 客户端
+# 蝉镜 API V2 客户端（独立实现）
 # ============================================================
 
-class ChanjingAPIV2(ChanjingAPI):
+class ChanjingAPIV2:
     """
-    蝉镜 API V2 客户端 - 增强稳定性版本
+    蝉镜 API V2 客户端 - 增强稳定性版本（独立实现，无 V1 依赖）
     
-    在 V1 基础上增加：
+    功能特性：
     1. 指数退避重试机制
     2. 智能缓存（LRU + TTL）
     3. 请求统计和监控
     4. 更详细的错误分类
     5. 请求日志记录
     6. 降级策略支持
-    7. 自动 Token 管理（兼容层）
+    7. 自动 Token 管理
     """
+    
+    # API 端点常量
+    ENDPOINT_ACCESS_TOKEN = "/access_token"
+    ENDPOINT_COMMON_PERSONS = "/api/open/v2/digital-human/common-persons"
+    ENDPOINT_COMMON_AUDIO = "/api/open/v2/digital-human/common-audio"
+    ENDPOINT_CUSTOM_PERSON_STATUS = "/api/open/v2/digital-human/custom-person-status"
+    ENDPOINT_VIDEO_STATUS = "/api/open/v2/digital-human/video-status"
     
     def __init__(
         self,
@@ -317,8 +358,8 @@ class ChanjingAPIV2(ChanjingAPI):
             auto_auth: 是否自动获取认证信息（兼容层，默认 True）
         
         🆕 兼容层说明：
-            - 如果提供 app_id 和 secret_key：使用传统模式（兼容 V1）
-            - 如果不提供：自动从本地 API 服务获取（新模式）
+            - 如果提供 app_id 和 secret_key：使用传统模式
+            - 如果不提供：自动从环境变量或配置文件获取
         """
         # 🆕 先初始化基础配置（在自动认证之前）
         self.base_url = base_url if base_url else "http://192.168.166.151:8080"
@@ -365,14 +406,10 @@ class ChanjingAPIV2(ChanjingAPI):
                 "4. 直接在代码中传入 app_id 和 secret_key 参数"
             )
         
-        # 调用 V1 初始化
-        super().__init__(app_id, secret_key)
-        
-        # 🔴 修复：V1 的 __init__ 会覆盖 base_url，需要重新设置
-        # V1 硬编码了 base_url="https://www.chanjing.cc/api/open/v1"
-        # 默认使用本地 API 代理服务（8080 端口），由代理转发到蝉镜官方 API
-        self.base_url = base_url if base_url else "http://192.168.166.151:8080"
-        self._request_logger.info(f"✅ base_url 已设置为：{self.base_url}")
+        # 保存认证信息
+        self.app_id = app_id
+        self.secret_key = secret_key
+        self._request_logger.info(f"✅ 认证信息已设置：app_id={app_id}")
         
         # V2 新增配置
         self.max_retries = max_retries
@@ -392,6 +429,17 @@ class ChanjingAPIV2(ChanjingAPI):
         self._circuit_breaker_threshold = 5
         self._circuit_breaker_reset_time = timedelta(minutes=5)
         self._last_failure_time: Optional[datetime] = None
+        
+        # Token 缓存
+        self._access_token: Optional[str] = None
+        self._token_expires_at: Optional[datetime] = None
+        
+        # 🔵 初始化时记录网络配置信息
+        self._request_logger.info(f"🔵 [网络诊断] ChanjingAPIV2 初始化完成")
+        self._request_logger.info(f"🔵 [网络诊断] base_url={self.base_url}")
+        self._request_logger.info(f"🔵 [网络诊断] app_id={self.app_id}")
+        self._request_logger.info(f"🔵 [网络诊断] timeout={self.timeout}s, max_retries={self.max_retries}")
+        self._request_logger.info(f"🔵 [网络诊断] 如果是 Docker 部署，请确保容器能访问宿主机 IP 192.168.166.151")
     
     # ============================================================
     # 🆕 V2 新增：自动认证兼容层
@@ -439,7 +487,73 @@ class ChanjingAPIV2(ChanjingAPI):
             return None, None
     
     # ============================================================
-    # V2 新增：统计方法
+    # Token 管理
+    # ============================================================
+    
+    def _get_access_token(self) -> str:
+        """
+        获取访问令牌（带缓存）
+        
+        Returns:
+            访问令牌字符串
+        """
+        # 检查缓存的 token 是否有效
+        if self._access_token and self._token_expires_at:
+            if datetime.now() < self._token_expires_at:
+                self._request_logger.debug("使用缓存的 access_token")
+                return self._access_token
+        
+        # 获取新的 token
+        self._request_logger.info(f"🔵 正在获取新的 access_token，base_url={self.base_url}")
+        self._request_logger.info(f"🔵 网络诊断：尝试连接 {self.base_url}{self.ENDPOINT_ACCESS_TOKEN}")
+        try:
+            self._request_logger.info(f"🔵 请求详情：POST {self.base_url}{self.ENDPOINT_ACCESS_TOKEN} app_id={self.app_id}")
+            response = requests_lib.post(
+                f"{self.base_url}{self.ENDPOINT_ACCESS_TOKEN}",
+                json={
+                    "app_id": self.app_id,
+                    "secret_key": self.secret_key
+                },
+                timeout=min(self.timeout, 10)
+            )
+            self._request_logger.info(f"🔵 响应状态码：{response.status_code}")
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("code") == 0 or data.get("code") is None:
+                    self._access_token = data.get("data", {}).get("access_token")
+                    expires_in = data.get("data", {}).get("expires_in", 7200)
+                    self._token_expires_at = datetime.now() + timedelta(seconds=expires_in - 60)
+                    self._request_logger.info("✅ 获取 access_token 成功")
+                    return self._access_token
+                else:
+                    raise APIError(
+                        code=data.get("code", -1),
+                        message=data.get("msg", "获取 token 失败"),
+                        error_type=APIErrorType.AUTH_ERROR,
+                        endpoint=self.ENDPOINT_ACCESS_TOKEN,
+                        original_response=data
+                    )
+            else:
+                raise APIError(
+                    code=response.status_code,
+                    message=f"获取 token 失败：{response.text}",
+                    error_type=APIErrorType.AUTH_ERROR,
+                    endpoint=self.ENDPOINT_ACCESS_TOKEN
+                )
+        except requests.exceptions.RequestException as e:
+            self._request_logger.error(f"🔴 网络错误详情：type={type(e).__name__}, error={e}")
+            self._request_logger.error(f"🔴 网络诊断：无法连接到 {self.base_url}")
+            self._request_logger.error(f"🔴 可能原因：1.Docker 容器无法访问宿主机 2.防火墙阻止 3.服务未启动")
+            raise APIError(
+                code=-1,
+                message=f"网络错误：{e}",
+                error_type=APIErrorType.NETWORK_ERROR,
+                endpoint=self.ENDPOINT_ACCESS_TOKEN
+            )
+    
+    # ============================================================
+    # 统计方法
     # ============================================================
     
     def get_stats(self) -> Optional[Dict[str, Any]]:
@@ -463,7 +577,7 @@ class ChanjingAPIV2(ChanjingAPI):
             self._stats = RequestStats()
     
     # ============================================================
-    # V2 新增：熔断器逻辑
+    # 熔断器逻辑
     # ============================================================
     
     def _check_circuit_breaker(self) -> bool:
@@ -500,17 +614,31 @@ class ChanjingAPIV2(ChanjingAPI):
             )
     
     # ============================================================
-    # V2 增强：重写 _request 方法，增加重试和统计
+    # 核心请求方法
     # ============================================================
     
     @retry_with_backoff(max_retries=3, base_delay=1.0, max_delay=30.0)
-    def _request(self, method, endpoint, params=None, data=None, headers=None, retry=True):
+    def _request(self, method: str, endpoint: str, params: Optional[Dict] = None, 
+                 data: Optional[Dict] = None, headers: Optional[Dict] = None, 
+                 retry: bool = True) -> Dict[str, Any]:
         """
         增强的请求方法，支持：
         1. 指数退避重试
         2. 请求统计
         3. 熔断器
         4. 详细日志
+        5. 自动 Token 管理
+        
+        Args:
+            method: HTTP 方法 (GET/POST)
+            endpoint: API 端点
+            params: URL 参数
+            data: 请求体数据
+            headers: 请求头
+            retry: 是否启用重试
+        
+        Returns:
+            API 响应数据字典
         """
         start_time = time.time()
         
@@ -532,30 +660,79 @@ class ChanjingAPIV2(ChanjingAPI):
             self._stats.last_request_time = datetime.now()
         
         try:
-            # 调用 V1 的 _request 方法
-            result = super()._request(method, endpoint, params, data, headers, retry)
+            # 构建请求 URL
+            url = f"{self.base_url}{endpoint}"
             
-            # 🔴 添加详细日志，诊断返回结果
-            self._request_logger.info(
-                f"API 调用结果：{method} {endpoint} - code={result.get('code') if isinstance(result, dict) else 'N/A'}, msg={result.get('msg') if isinstance(result, dict) else 'N/A'}"
-            )
+            # 🔵 网络诊断日志
+            self._request_logger.info(f"🔵 [网络诊断] 准备请求：{method} {url}")
+            self._request_logger.info(f"🔵 [网络诊断] base_url={self.base_url}, endpoint={endpoint}, timeout={self.timeout}s")
             
-            # 记录成功
-            latency = time.time() - start_time
-            if self._stats:
-                self._stats.successful_requests += 1
-                self._stats.total_latency += latency
+            # 获取访问令牌
+            access_token = self._get_access_token()
             
-            self._record_success()
+            # 构建请求头
+            request_headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {access_token}"
+            }
+            if headers:
+                request_headers.update(headers)
             
-            # 记录请求日志
-            self._request_logger.debug(
-                f"✓ {method} {endpoint} - {latency:.3f}s"
-            )
+            # 发送请求
+            self._request_logger.debug(f"{method} {url} params={params} data={data}")
             
-            return result
+            if method.upper() == "GET":
+                response = requests_lib.get(
+                    url,
+                    params=params,
+                    headers=request_headers,
+                    timeout=self.timeout
+                )
+            elif method.upper() == "POST":
+                response = requests_lib.post(
+                    url,
+                    params=params,
+                    json=data,
+                    headers=request_headers,
+                    timeout=self.timeout
+                )
+            else:
+                raise ValueError(f"不支持的 HTTP 方法：{method}")
             
-        except APIError as e:
+            # 解析响应
+            if response.status_code == 200:
+                result = response.json()
+                
+                # 🔴 添加详细日志，诊断返回结果
+                self._request_logger.info(
+                    f"API 调用结果：{method} {endpoint} - code={result.get('code') if isinstance(result, dict) else 'N/A'}, msg={result.get('msg') if isinstance(result, dict) else 'N/A'}"
+                )
+                
+                # 记录成功
+                latency = time.time() - start_time
+                if self._stats:
+                    self._stats.successful_requests += 1
+                    self._stats.total_latency += latency
+                
+                self._record_success()
+                
+                # 记录请求日志
+                self._request_logger.debug(
+                    f"✓ {method} {endpoint} - {latency:.3f}s"
+                )
+                
+                return result
+            else:
+                # HTTP 错误
+                error_msg = f"HTTP {response.status_code}: {response.text}"
+                raise APIError(
+                    code=response.status_code,
+                    message=error_msg,
+                    error_type=APIErrorType.SERVER_ERROR,
+                    endpoint=endpoint
+                )
+                
+        except APIError:
             # 记录失败
             if self._stats:
                 self._stats.failed_requests += 1
@@ -563,11 +740,30 @@ class ChanjingAPIV2(ChanjingAPI):
             self._record_failure()
             
             # 尝试降级
-            if self.fallback_enabled and self.fallback_func and e.is_retryable():
-                self._request_logger.warning(f"API 失败，使用降级策略：{e.message}")
+            if self.fallback_enabled and self.fallback_func:
+                self._request_logger.warning(f"API 失败，使用降级策略")
                 return self.fallback_func(method, endpoint, params, data)
             
             raise
+        except requests.exceptions.RequestException as e:
+            # 网络错误
+            if self._stats:
+                self._stats.failed_requests += 1
+            
+            self._record_failure()
+            
+            api_error = APIError(
+                code=-1,
+                message=str(e),
+                error_type=APIErrorType.NETWORK_ERROR,
+                endpoint=endpoint
+            )
+            
+            if self.fallback_enabled and self.fallback_func:
+                self._request_logger.warning(f"网络错误，使用降级策略：{e}")
+                return self.fallback_func(method, endpoint, params, data)
+            
+            raise api_error
         except Exception as e:
             # 其他异常
             if self._stats:
@@ -577,7 +773,7 @@ class ChanjingAPIV2(ChanjingAPI):
             raise
     
     # ============================================================
-    # V2 新增：缓存增强方法
+    # 缓存增强方法
     # ============================================================
     
     def _cache_get_v2(self, key: str) -> Optional[Any]:
@@ -599,11 +795,21 @@ class ChanjingAPIV2(ChanjingAPI):
         self._cache_v2.delete(key)
     
     # ============================================================
-    # V2 增强：重写缓存相关方法，使用 V2 缓存
+    # 公共 API 方法
     # ============================================================
     
     def list_common_digital_persons(self, page: int = 1, size: int = 20, use_cache: bool = True) -> Dict[str, Any]:
-        """获取公共数字人列表（增强版）"""
+        """
+        获取公共数字人列表（增强版）
+        
+        Args:
+            page: 页码（从 1 开始）
+            size: 每页数量
+            use_cache: 是否使用缓存
+        
+        Returns:
+            数字人列表响应
+        """
         cache_key = f"v2:list_common_persons:{page}:{size}"
         
         if use_cache:
@@ -614,7 +820,12 @@ class ChanjingAPIV2(ChanjingAPI):
                     self._stats.successful_requests += 1
                 return cached
         
-        response = super().list_common_digital_persons(page, size, use_cache=False)
+        params = {
+            "page": page,
+            "size": size
+        }
+        
+        response = self._request("GET", self.ENDPOINT_COMMON_PERSONS, params=params)
         
         # 🐌 兼容 code=None 的情况（旧版 API 可能不返回 code）
         api_code = response.get('code')
@@ -624,7 +835,17 @@ class ChanjingAPIV2(ChanjingAPI):
         return response
     
     def list_common_audio_mans(self, page: int = 1, size: int = 20, use_cache: bool = True) -> Dict[str, Any]:
-        """获取公共声音模型列表（增强版）"""
+        """
+        获取公共声音模型列表（增强版）
+        
+        Args:
+            page: 页码（从 1 开始）
+            size: 每页数量
+            use_cache: 是否使用缓存
+        
+        Returns:
+            声音模型列表响应
+        """
         cache_key = f"v2:list_common_audio:{page}:{size}"
         
         if use_cache:
@@ -635,7 +856,12 @@ class ChanjingAPIV2(ChanjingAPI):
                     self._stats.successful_requests += 1
                 return cached
         
-        response = super().list_common_audio_mans(page, size, use_cache=False)
+        params = {
+            "page": page,
+            "size": size
+        }
+        
+        response = self._request("GET", self.ENDPOINT_COMMON_AUDIO, params=params)
         
         # 🐌 兼容 code=None 的情况（旧版 API 可能不返回 code）
         api_code = response.get('code')
@@ -645,7 +871,16 @@ class ChanjingAPIV2(ChanjingAPI):
         return response
     
     def get_customised_person_status(self, person_id: str, use_cache: bool = True) -> Dict[str, Any]:
-        """获取自定义数字人状态（增强版）"""
+        """
+        获取自定义数字人状态（增强版）
+        
+        Args:
+            person_id: 数字人 ID
+            use_cache: 是否使用缓存
+        
+        Returns:
+            数字人状态响应
+        """
         cache_key = f"v2:customised_person_status:{person_id}"
         
         if use_cache:
@@ -656,7 +891,11 @@ class ChanjingAPIV2(ChanjingAPI):
                     self._stats.successful_requests += 1
                 return cached
         
-        response = super().get_customised_person_status(person_id, use_cache=False)
+        params = {
+            "person_id": person_id
+        }
+        
+        response = self._request("GET", self.ENDPOINT_CUSTOM_PERSON_STATUS, params=params)
         
         # 🐌 兼容 code=None 的情况（旧版 API 可能不返回 code）
         api_code = response.get('code')
@@ -665,8 +904,24 @@ class ChanjingAPIV2(ChanjingAPI):
         
         return response
     
+    def get_video_status(self, video_id: str) -> Dict[str, Any]:
+        """
+        获取视频制作状态
+        
+        Args:
+            video_id: 视频 ID
+        
+        Returns:
+            视频状态响应
+        """
+        params = {
+            "video_id": video_id
+        }
+        
+        return self._request("GET", self.ENDPOINT_VIDEO_STATUS, params=params)
+    
     # ============================================================
-    # V2 新增：健康检查方法
+    # 健康检查方法
     # ============================================================
     
     def health_check(self) -> Dict[str, Any]:
@@ -685,7 +940,7 @@ class ChanjingAPIV2(ChanjingAPI):
         # 检查网络连接
         try:
             start = time.time()
-            resp = requests.get(f"{self.base_url}/access_token", timeout=5)
+            resp = requests_lib.get(f"{self.base_url}/access_token", timeout=5)
             latency = time.time() - start
             result["checks"]["network"] = {
                 "status": "ok",
@@ -719,7 +974,7 @@ class ChanjingAPIV2(ChanjingAPI):
         return result
     
     # ============================================================
-    # V2 新增：批量操作方法
+    # 批量操作方法
     # ============================================================
     
     def batch_get_video_status(
@@ -762,7 +1017,7 @@ class ChanjingAPIV2(ChanjingAPI):
 
 
 # ============================================================
-# V2 工厂函数
+# 工厂函数
 # ============================================================
 
 def create_chanjing_api_v2(
@@ -774,8 +1029,8 @@ def create_chanjing_api_v2(
     创建 V2 API 客户端的工厂函数
     
     🆕 兼容层设计：
-        - 传统模式：提供 app_id 和 secret_key（兼容 V1）
-        - 自动模式：不提供，自动从本地 API 服务获取
+        - 传统模式：提供 app_id 和 secret_key
+        - 自动模式：不提供，自动从环境变量获取
     
     Args:
         app_id: 应用 ID（可选，不提供则自动获取）
@@ -794,7 +1049,7 @@ def create_chanjing_api_v2(
         ChanjingAPIV2 实例
     
     使用示例：
-        # 传统模式（兼容 V1）
+        # 传统模式
         api = create_chanjing_api_v2("app_id", "secret_key")
         
         # 自动模式（推荐）
@@ -832,15 +1087,13 @@ def create_chanjing_api_v2(
 
 
 # ============================================================
-# 兼容性导出（保持与 V1 相同的导入方式）
+# 导出
 # ============================================================
 
-# 导出 V1 的类，确保现有代码不受影响
 __all__ = [
     'ChanjingAPIV2',
-    'ChanjingAPI',  # V1 保持兼容
-    'ChanjingStatusCode',
     'create_chanjing_api_v2',
+    'ChanjingStatusCode',  # 兼容层
     'APIError',
     'APIErrorType',
 ]

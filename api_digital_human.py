@@ -11,7 +11,7 @@ from models import Merchant, Task, TaskStatus, ApiKey
 from auth import verify_api_key
 from quota import check_quota, check_concurrent_limit, reserve_quota
 from config import get_settings
-from chanjing_api_v2 import create_chanjing_api_v2, ChanjingAPI, ChanjingStatusCode
+from chanjing_api_v2 import create_chanjing_api_v2, ChanjingStatusCode
 from schemas import DhGenerateVideoRequest
 from schemas import DhCreateCustomPersonRequest
 from models import DhCustomPerson # 引入模型
