@@ -38,7 +38,8 @@ def get_chanjing_api():
                 "enable_cache": True,
                 "enable_stats": True,
                 "auto_auth": False,
-                "base_url": "http://host.docker.internal:8080",
+                # 🐳 Docker 容器内使用宿主机 IP:8080 访问本地 API 服务
+                "base_url": "http://192.168.166.151:8080",
             }
         )
         logger = logging.getLogger("chanjing")

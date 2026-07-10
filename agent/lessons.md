@@ -9,6 +9,22 @@
 ## 已记录规则
 
 
+
+
+### Docker 容器访问宿主机应使用实际 IP 而非 host.docker.internal
+
+- **出现日期**: 2026-07-10
+- **问题描述**: Docker 容器内访问宿主机服务时，不能使用 host.docker.internal（这是 Docker Desktop 的专有特性），在 Linux/Windows Docker 环境中需要使用宿主机实际 IP 地址
+- **根因**: 1. api_digital_human.py 中配置 base_url 为 "http://host.docker.internal:8080"
+2. host.docker.internal 仅在 Docker Desktop (Mac/Windows) 上有效
+3. 在 Linux 或某些 Docker 环境中，此域名无法解析，导致容器无法访问宿主机的 API 服务
+- **正确规则**: 1. Docker 容器访问宿主机服务时，使用实际宿主机 IP 地址（如 192.168.166.151）
+2. 不要依赖 host.docker.internal，除非明确只在 Docker Desktop 环境运行
+3. 统一使用项目既定的宿主机 IP 配置（192.168.166.151）
+- **回归检查**:
+  ```bash
+  grep -n "host.docker.internal" api_digital_human.py chanjing_api_v2.py
+  ```
 ### 蝉镜 API code=None 兼容性处理
 
 - **出现日期**: 2026-07-10
