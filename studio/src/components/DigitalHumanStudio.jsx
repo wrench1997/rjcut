@@ -9,6 +9,9 @@ import TemplateManager from './TemplateManager'
 import { aiGenerateScript, DEFAULT_TEMPLATES } from '../features/template-batch/aiAssistant.js'
 import { createTimelineDigitalHumanTask, getDigitalHumanBaseUrl, getTimelineCharTimings, getTimelineDigitalHumanTask, toDigitalHumanAssetUrl, waitForTimelineDigitalHumanTask } from '../features/digital-human-project/digitalHumanApi.js'
 import { buildDigitalHumanProject, normalizeCopywritingPlan, sidecarPathForVideo, writeDigitalHumanProject } from '../features/digital-human-project/digitalHumanProject.js'
+import { downloadDigitalHumanVideo } from '../features/digital-human-project/digitalHumanDownload.js'
+import { createManualCopywritingPlan, createManualScriptEntry, insertManualSegment, makeManualSegment, moveManualSegment, parseManualCopywritingPlanJson, rebuildManualCopywritingPlan, removeManualSegment, splitManualTextIntoSegments, updateManualSegment } from '../features/digital-human-project/manualCopywritingPlan.js'
+import { requireFullSpokenText, summarizeTextContract, validateDigitalHumanResult } from '../features/digital-human-project/digitalHumanIntegrity.js'
 import { decoratePersonsForGeneration, findMatchingPerson, mergePersonDetails, personSelectionKey, resolvePersonIdentity, safeFilePart, verifyGeneratedPersonIdentity } from '../features/digital-human-project/personIdentity.js'
 
 // =====================================================
@@ -417,59 +420,396 @@ function AdvancedSettings({ settings, setSettings, isOpen, onToggle, personDetai
 // 中间：批量文案输入
 // =====================================================
 function BatchScriptInput({ scripts, setScripts, onAIGenerate }) {
-  const handleAdd = () => setScripts([...scripts, { id: Date.now(), text: '' }])
-  const handleRemove = (id) => setScripts(scripts.filter(s => s.id !== id))
-  const handleChange = (id, text) => setScripts(scripts.map(s => s.id === id ? { ...s, text } : s))
+  const [editorModeById, setEditorModeById] = useState({})
+  const [jsonDraftById, setJsonDraftById] = useState({})
+  const [jsonErrorById, setJsonErrorById] = useState({})
+
+  const getPlan = (script) => script.copywritingPlan || createManualCopywritingPlan(script.text || '')
+
+  const replaceScriptPlan = (scriptId, nextPlan, note = '手动结构化文案') => {
+    setScripts((current) => current.map((script) => script.id === scriptId
+      ? {
+          ...script,
+          text: nextPlan.spoken_text,
+          copywritingPlan: nextPlan,
+          note,
+        }
+      : script))
+  }
+
+  const handleAdd = () => {
+    const id = Date.now() + scripts.length
+    setScripts((current) => [...current, createManualScriptEntry(id)])
+    setEditorModeById((current) => ({ ...current, [id]: 'segments' }))
+  }
+
+  const handleRemove = (id) => {
+    setScripts((current) => current.filter((script) => script.id !== id))
+    setEditorModeById((current) => {
+      const next = { ...current }
+      delete next[id]
+      return next
+    })
+    setJsonDraftById((current) => {
+      const next = { ...current }
+      delete next[id]
+      return next
+    })
+  }
+
+  const handlePlainTextChange = (scriptId, text) => {
+    setScripts((current) => current.map((script) => {
+      if (script.id !== scriptId) return script
+      const plan = getPlan(script)
+      const segments = Array.isArray(plan.segments) ? plan.segments : []
+
+      // 单段手写文案可以直接编辑全文；多段结构必须在“段落”或“JSON”中修改，
+      // 避免 spoken_text 已变化而 segments 仍指向旧文字。
+      if (segments.length > 1) return script
+
+      const base = segments[0] || makeManualSegment(0)
+      const nextPlan = rebuildManualCopywritingPlan(plan, [{ ...base, text }])
+      return {
+        ...script,
+        text: nextPlan.spoken_text,
+        copywritingPlan: nextPlan,
+        note: '手动结构化文案（单段）',
+      }
+    }))
+  }
+
+  const setEditorMode = (script, mode) => {
+    const plan = getPlan(script)
+    setEditorModeById((current) => ({ ...current, [script.id]: mode }))
+    setJsonErrorById((current) => ({ ...current, [script.id]: '' }))
+    if (mode === 'json') {
+      setJsonDraftById((current) => ({
+        ...current,
+        [script.id]: JSON.stringify(plan, null, 2),
+      }))
+    }
+  }
+
+  const handleSegmentPatch = (script, segmentId, patch) => {
+    const nextPlan = updateManualSegment(getPlan(script), segmentId, patch)
+    replaceScriptPlan(
+      script.id,
+      nextPlan,
+      `结构化文案（${nextPlan.segments.length} 个语义段，${nextPlan.transition_segments.length} 个场景替换段）`,
+    )
+  }
+
+  const handleAddSegment = (script, afterIndex) => {
+    const nextPlan = insertManualSegment(getPlan(script), afterIndex)
+    replaceScriptPlan(script.id, nextPlan)
+  }
+
+  const handleRemoveSegment = (script, segmentId) => {
+    const nextPlan = removeManualSegment(getPlan(script), segmentId)
+    replaceScriptPlan(script.id, nextPlan)
+  }
+
+  const handleMoveSegment = (script, segmentId, direction) => {
+    const nextPlan = moveManualSegment(getPlan(script), segmentId, direction)
+    replaceScriptPlan(script.id, nextPlan)
+  }
+
+  const handleAutoSplit = (script) => {
+    const plan = getPlan(script)
+    if (plan.segments?.length > 1 && !window.confirm('自动分段会重新建立段落，并把所有段落先设为“数字人”。确定继续吗？')) {
+      return
+    }
+    const segments = splitManualTextIntoSegments(plan.spoken_text || script.text)
+    const nextPlan = rebuildManualCopywritingPlan({
+      ...plan,
+      meta: { ...(plan.meta || {}), auto_split_at: new Date().toISOString() },
+    }, segments)
+    replaceScriptPlan(script.id, nextPlan, `手动自动分段（${nextPlan.segments.length} 段）`)
+    setEditorModeById((current) => ({ ...current, [script.id]: 'segments' }))
+  }
+
+  const handleApplyJson = (script) => {
+    try {
+      const nextPlan = parseManualCopywritingPlanJson(
+        jsonDraftById[script.id] || '',
+        script.text,
+      )
+      replaceScriptPlan(
+        script.id,
+        nextPlan,
+        `JSON 结构化文案（${nextPlan.segments.length} 个语义段，${nextPlan.transition_segments.length} 个场景替换段）`,
+      )
+      setJsonDraftById((current) => ({
+        ...current,
+        [script.id]: JSON.stringify(nextPlan, null, 2),
+      }))
+      setJsonErrorById((current) => ({ ...current, [script.id]: '' }))
+    } catch (error) {
+      setJsonErrorById((current) => ({
+        ...current,
+        [script.id]: error?.message || String(error),
+      }))
+    }
+  }
+
+  const handleCopyJson = async (script) => {
+    const value = JSON.stringify(getPlan(script), null, 2)
+    setJsonDraftById((current) => ({ ...current, [script.id]: value }))
+    try {
+      await navigator.clipboard.writeText(value)
+    } catch (error) {
+      console.warn('[BatchScriptInput] 复制 JSON 失败:', error)
+    }
+  }
 
   return (
     <>
       <div className="p-4 border-b border-slate-200 bg-white flex justify-between items-center">
-        <Tooltip tip="为每个视频输入不同的播报文案" delay={1000}>
-          <h2 className="text-sm font-bold text-slate-800">2. 输入批量文案 ({scripts.length} 条)</h2>
-        </Tooltip>
-        <p className="text-xs text-slate-500 mt-1">每条文案将生成一个独立的数字人视频</p>
+        <div>
+          <Tooltip tip="为每个视频输入不同的播报文案" delay={1000}>
+            <h2 className="text-sm font-bold text-slate-800">2. 输入批量文案 ({scripts.length} 条)</h2>
+          </Tooltip>
+          <p className="text-xs text-slate-500 mt-1">AI 与手动文案都保存纯口播、语义段落和场景替换标记</p>
+        </div>
         <div className="flex items-center gap-2">
-          <Tooltip tip="使用 AI 根据模板自动生成文案" delay={1000}>
+          <Tooltip tip="使用 AI 根据模板生成纯口播和结构化剪辑段落" delay={1000}>
             <button onClick={onAIGenerate} className="text-xs bg-purple-100 text-purple-700 px-3 py-1.5 rounded-md hover:bg-purple-200 flex items-center gap-1">
               <Sparkles size={12} />
               AI 生成文案
             </button>
           </Tooltip>
-          <Tooltip tip="添加新的文案条目" delay={1000}>
+          <Tooltip tip="添加一条可手动编辑段落和 JSON 的结构化文案" delay={1000}>
             <button onClick={handleAdd} className="text-xs bg-blue-100 text-blue-700 px-3 py-1.5 rounded-md hover:bg-blue-200">
               + 新增文案
             </button>
           </Tooltip>
         </div>
       </div>
+
       <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
-        {scripts.map((script, idx) => (
-          <div key={script.id} className="bg-white rounded-lg shadow-sm border border-slate-200 p-3 cursor-text" onClick={(e) => {
-              if (e.target === e.currentTarget) {
-                const textarea = e.currentTarget.querySelector('textarea')
-                if (textarea) textarea.focus()
-              }
-            }}>
-            <div className="flex justify-between items-center mb-2">
-              <span className="text-xs font-bold text-slate-400">视频 {idx + 1}</span>
-              {scripts.length > 1 && (
-                <button onClick={() => handleRemove(script.id)} className="text-red-400 hover:text-red-600">
-                  <X size={16} strokeWidth={2} />
-                </button>
+        {scripts.map((script, idx) => {
+          const plan = getPlan(script)
+          const transitionCount = plan?.segments?.filter((segment) => segment.visual_mode === 'scene').length || 0
+          const mode = editorModeById[script.id] || (script.copywritingPlan ? 'segments' : 'plain')
+          const multiSegment = (plan?.segments?.length || 0) > 1
+
+          return (
+            <div key={script.id} className="bg-white rounded-lg shadow-sm border border-slate-200 p-3">
+              <div className="flex justify-between items-start gap-3 mb-3">
+                <div>
+                  <span className="text-xs font-bold text-slate-500">视频 {idx + 1}</span>
+                  <p className="text-[10px] text-slate-400 mt-0.5">
+                    {plan.segments.length} 个语义段 · {transitionCount} 个场景替换段 · {plan.spoken_text.length} 字
+                  </p>
+                </div>
+                <div className="flex items-center gap-1">
+                  {['plain', 'segments', 'json'].map((item) => (
+                    <button
+                      key={item}
+                      type="button"
+                      onClick={() => setEditorMode(script, item)}
+                      className={`px-2 py-1 text-[10px] rounded ${mode === item ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                    >
+                      {item === 'plain' ? '全文' : item === 'segments' ? '段落' : 'JSON'}
+                    </button>
+                  ))}
+                  {scripts.length > 1 && (
+                    <button onClick={() => handleRemove(script.id)} className="ml-1 text-red-400 hover:text-red-600">
+                      <X size={16} strokeWidth={2} />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {mode === 'plain' && (
+                <div>
+                  <textarea
+                    className={`w-full h-32 text-sm resize-y rounded-lg border p-3 focus:outline-none focus:ring-2 focus:ring-blue-200 ${multiSegment ? 'bg-slate-50 text-slate-500 border-slate-200' : 'bg-white border-slate-200'}`}
+                    placeholder="输入该视频的完整播报文案..."
+                    value={plan.spoken_text || script.text || ''}
+                    readOnly={multiSegment}
+                    onChange={(event) => handlePlainTextChange(script.id, event.target.value)}
+                  />
+                  {multiSegment && (
+                    <p className="text-[10px] text-amber-600 mt-1">
+                      当前是多段结构。为了避免全文与段落错位，请切换到“段落”修改文字，或在“JSON”中整体修改。
+                    </p>
+                  )}
+                  <div className="mt-2 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => handleAutoSplit(script)}
+                      className="text-[10px] px-2.5 py-1.5 rounded bg-blue-50 text-blue-700 hover:bg-blue-100"
+                    >
+                      按标点自动建立段落
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {mode === 'segments' && (
+                <div>
+                  <div className="flex items-center justify-between mb-2 rounded-lg bg-slate-50 border border-slate-200 px-2.5 py-2">
+                    <div>
+                      <p className="text-xs font-semibold text-slate-700">可视化剪辑段落</p>
+                      <p className="text-[10px] text-slate-400">选择“场景”后，该段会在生成后的 .rjdh.json 中换算成精确毫秒区间</p>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => handleAutoSplit(script)}
+                        className="text-[10px] px-2 py-1 rounded bg-white border border-slate-200 text-slate-600 hover:bg-slate-100"
+                      >
+                        自动分段
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleAddSegment(script, plan.segments.length - 1)}
+                        className="text-[10px] px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700"
+                      >
+                        + 添加段落
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 max-h-[440px] overflow-y-auto pr-1 custom-scrollbar">
+                    {plan.segments.map((segment, segmentIndex) => {
+                      const isScene = segment.visual_mode === 'scene'
+                      return (
+                        <div
+                          key={segment.id || segmentIndex}
+                          className={`rounded-lg border p-2.5 ${isScene ? 'border-purple-200 bg-purple-50' : 'border-slate-200 bg-white'}`}
+                        >
+                          <div className="flex items-center justify-between gap-2 mb-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="text-[10px] font-mono text-slate-400">{segment.id || `s${segmentIndex + 1}`}</span>
+                              <select
+                                value={segment.purpose || 'explain'}
+                                onChange={(event) => handleSegmentPatch(script, segment.id, { purpose: event.target.value })}
+                                className="text-[10px] rounded border border-slate-200 bg-white px-1.5 py-1"
+                              >
+                                <option value="hook">开场钩子</option>
+                                <option value="pain_point">痛点</option>
+                                <option value="explain">讲解</option>
+                                <option value="trust">信任</option>
+                                <option value="close">收尾</option>
+                              </select>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                type="button"
+                                disabled={segmentIndex === 0}
+                                onClick={() => handleMoveSegment(script, segment.id, -1)}
+                                className="px-1.5 py-1 text-[10px] rounded bg-white border border-slate-200 disabled:opacity-30"
+                              >↑</button>
+                              <button
+                                type="button"
+                                disabled={segmentIndex === plan.segments.length - 1}
+                                onClick={() => handleMoveSegment(script, segment.id, 1)}
+                                className="px-1.5 py-1 text-[10px] rounded bg-white border border-slate-200 disabled:opacity-30"
+                              >↓</button>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveSegment(script, segment.id)}
+                                className="px-1.5 py-1 text-[10px] rounded bg-red-50 text-red-600"
+                              >删除</button>
+                            </div>
+                          </div>
+
+                          <textarea
+                            value={segment.text || ''}
+                            onChange={(event) => handleSegmentPatch(script, segment.id, { text: event.target.value })}
+                            placeholder="输入这一段实际要朗读的文字"
+                            className="w-full min-h-20 resize-y rounded border border-slate-200 bg-white px-2.5 py-2 text-xs leading-5 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                          />
+
+                          <div className="mt-2 flex items-center justify-between gap-2">
+                            <div className="flex rounded border border-slate-200 overflow-hidden shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => handleSegmentPatch(script, segment.id, { visual_mode: 'human', slot_id: null })}
+                                className={`px-2.5 py-1.5 text-[10px] ${!isScene ? 'bg-blue-600 text-white' : 'bg-white text-slate-500'}`}
+                              >数字人画面</button>
+                              <button
+                                type="button"
+                                onClick={() => handleSegmentPatch(script, segment.id, { visual_mode: 'scene' })}
+                                className={`px-2.5 py-1.5 text-[10px] ${isScene ? 'bg-purple-600 text-white' : 'bg-white text-slate-500'}`}
+                              >场景替换</button>
+                            </div>
+                            {isScene && (
+                              <input
+                                value={segment.slot_id || ''}
+                                onChange={(event) => handleSegmentPatch(script, segment.id, { slot_id: event.target.value })}
+                                placeholder="slot_id，例如 slot_2"
+                                className="min-w-0 flex-1 rounded border border-purple-200 bg-white px-2 py-1.5 text-[10px]"
+                              />
+                            )}
+                          </div>
+
+                          <div className="mt-2 grid grid-cols-1 gap-2">
+                            <input
+                              value={(segment.visual_tags || []).join('、')}
+                              onChange={(event) => handleSegmentPatch(script, segment.id, {
+                                visual_tags: event.target.value.split(/[、,，]/u).map((item) => item.trim()).filter(Boolean),
+                              })}
+                              placeholder="素材标签，例如：鹿场全景、梅花鹿群"
+                              className="rounded border border-slate-200 bg-white px-2 py-1.5 text-[10px]"
+                            />
+                            <input
+                              value={segment.note || ''}
+                              onChange={(event) => handleSegmentPatch(script, segment.id, { note: event.target.value })}
+                              placeholder="剪辑备注（可选）"
+                              className="rounded border border-slate-200 bg-white px-2 py-1.5 text-[10px]"
+                            />
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {mode === 'json' && (
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <p className="text-xs font-semibold text-slate-700">结构化 JSON</p>
+                      <p className="text-[10px] text-slate-400">可直接粘贴 AI JSON 或手动修改；应用时会校验 spoken_text 与 segments.text 是否一致</p>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setJsonDraftById((current) => ({ ...current, [script.id]: JSON.stringify(getPlan(script), null, 2) }))}
+                        className="text-[10px] px-2 py-1 rounded bg-slate-100 text-slate-600"
+                      >重新载入</button>
+                      <button
+                        type="button"
+                        onClick={() => handleCopyJson(script)}
+                        className="text-[10px] px-2 py-1 rounded bg-blue-50 text-blue-700"
+                      >复制 JSON</button>
+                      <button
+                        type="button"
+                        onClick={() => handleApplyJson(script)}
+                        className="text-[10px] px-2 py-1 rounded bg-purple-600 text-white"
+                      >应用 JSON</button>
+                    </div>
+                  </div>
+                  <textarea
+                    value={jsonDraftById[script.id] ?? JSON.stringify(plan, null, 2)}
+                    onChange={(event) => setJsonDraftById((current) => ({ ...current, [script.id]: event.target.value }))}
+                    spellCheck={false}
+                    className="w-full h-80 resize-y rounded-lg border border-slate-300 bg-slate-950 text-emerald-300 p-3 font-mono text-[11px] leading-5 focus:outline-none focus:ring-2 focus:ring-purple-200"
+                  />
+                  {jsonErrorById[script.id] && (
+                    <p className="mt-2 rounded bg-red-50 border border-red-200 px-2.5 py-2 text-[10px] text-red-600">
+                      {jsonErrorById[script.id]}
+                    </p>
+                  )}
+                </div>
               )}
             </div>
-            <textarea
-              className="w-full h-24 text-sm resize-none border-0 bg-transparent focus:outline-none focus:ring-0 focus:border-0 no-focus-style cursor-text"
-              placeholder="输入该视频的播报文案..."
-              value={script.text}
-              onChange={(e) => handleChange(script.id, e.target.value)}
-              onDoubleClick={(e) => {
-                e.target.focus()
-                e.target.select()
-              }}
-            />
-          </div>
-        ))}
+          )
+        })}
       </div>
     </>
   )
@@ -640,12 +980,32 @@ function PipelineProgress({ tasks, generatedVideos, onClose, onMinimize, onPrevi
                   <p className="text-[10px] text-red-500 mt-1">{task.error}</p>
                 )}
                 {task.stage === 'done' && video && (
-                  <button
-                    onClick={() => onPreviewVideo(video)}
-                    className="mt-2 w-full py-1.5 bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium rounded transition-colors flex items-center justify-center gap-1"
-                  >
-                    <Film size={12} /> 预览视频
-                  </button>
+                  <div className="mt-2 space-y-2">
+                    <button
+                      onClick={() => onPreviewVideo(video)}
+                      className="w-full py-1.5 bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium rounded transition-colors flex items-center justify-center gap-1"
+                    >
+                      <Film size={12} /> 预览视频
+                    </button>
+                    {video.project?.transition_segments?.length > 0 && (
+                      <div className="rounded border border-purple-200 bg-purple-50 p-2">
+                        <p className="text-[10px] font-semibold text-purple-800 mb-1">
+                          已写入 JSON 的场景替换时间：{video.project.transition_segments.length} 段
+                        </p>
+                        <div className="space-y-1 max-h-24 overflow-y-auto">
+                          {video.project.transition_segments.map((clip, clipIndex) => (
+                            <div key={clip.segment_id || clipIndex} className="text-[10px] text-purple-700 flex gap-2">
+                              <span className="font-mono shrink-0">
+                                {(Number(clip.start_ms || 0) / 1000).toFixed(2)}s-
+                                {(Number(clip.end_ms || 0) / 1000).toFixed(2)}s
+                              </span>
+                              <span className="truncate">{clip.slot_id || clip.segment_id}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
             )
@@ -1154,7 +1514,7 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
   const [selectedPerson, setSelectedPerson] = useState(null)
   const [selectedPersonDetails, setSelectedPersonDetails] = useState(null) // 数字人详情（包含可用动作）
   const [selectedVoice, setSelectedVoice] = useState('')
-  const [scripts, setScripts] = useState([{ id: Date.now(), text: '' }])
+  const [scripts, setScripts] = useState([createManualScriptEntry()])
   
   // AI 文案生成相关状态
   const [showTemplateManager, setShowTemplateManager] = useState(false)
@@ -1388,6 +1748,14 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
               status.result.char_timings = timingResult?.char_timings || []
             }
 
+            const resumedFullText = requireFullSpokenText(
+              task.copywritingPlan || { spoken_text: task.scriptText },
+              task.scriptText
+            )
+            const resumedIntegrity = validateDigitalHumanResult(status.result, resumedFullText)
+            status.result.generation_integrity = resumedIntegrity
+            console.log('[DigitalHumanStudio] 恢复任务完整性校验通过:', resumedIntegrity)
+
             const identityVerification = verifyGeneratedPersonIdentity(status.result, task.personId)
             if (!identityVerification.verified) {
               console.warn('[DigitalHumanStudio] 恢复任务时后端未返回 resolved_person_id:', identityVerification)
@@ -1402,9 +1770,19 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
 
             const fileName = task.fileName || `dh_${safeFilePart(task.personName, task.personId || 'human')}_${Date.now()}_${task.id.slice(-6)}.mp4`
             const videoPath = task.videoPath || `${savePath}/${fileName}`
-            const videoResponse = await fetch(toDigitalHumanAssetUrl(status.result.video_url, baseUrl))
-            if (!videoResponse.ok) throw new Error(`下载数字人视频失败：HTTP ${videoResponse.status}`)
-            const videoBlob = await videoResponse.blob()
+            const originalVideoUrl = status.result.video_url
+            const { blob: videoBlob, url: resolvedVideoUrl, attempts: videoDownloadAttempts } =
+              await downloadDigitalHumanVideo({
+                result: status.result,
+                baseUrl,
+                taskId: task.dhTaskId,
+              })
+            status.result.video_url = resolvedVideoUrl
+            console.log('[DigitalHumanStudio] 恢复任务视频地址:', {
+              originalVideoUrl,
+              resolvedVideoUrl,
+              attempts: videoDownloadAttempts,
+            })
             await vfs.writeFile(videoPath, await videoBlob.arrayBuffer(), { type: videoBlob.type || 'video/mp4' })
 
             const project = buildDigitalHumanProject({
@@ -1429,7 +1807,14 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
             ))
             setGeneratedVideos((prev) => {
               if (prev.some((item) => item.projectPath === projectPath)) return prev
-              return [...prev, { id: task.id, path: videoPath, fileName, projectPath, text: project.copywriting.spoken_text }]
+              return [...prev, {
+                id: task.id,
+                path: videoPath,
+                fileName,
+                projectPath,
+                text: project.copywriting.spoken_text,
+                project,
+              }]
             })
           } catch (error) {
             console.error('[DigitalHumanStudio] 恢复字级时间轴任务失败:', error)
@@ -1453,28 +1838,38 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
         
         // 加载数字人、声音列表，添加 token 过期错误处理
         let commonPersonsRes, customPersonsRes, voicesRes
-        
-        try {
-          ;[commonPersonsRes, customPersonsRes, voicesRes] = await Promise.all([
-            getCommonPersons(),
-            getCustomPersons(),
-            getVoices(),
-          ])
-        } catch (apiErr) {
-          // 如果是 token 过期错误，不阻塞界面，仅警告
-          if (apiErr.isTokenExpired) {
-            console.warn('[DigitalHumanStudio] Token 已过期，数字人列表可能无法加载:', apiErr.message)
-            setStatusMsg('⚠️ 登录已过期，请重新登录或刷新页面')
-            // 返回空数组，避免崩溃
-            commonPersonsRes = { data: { code: 0, data: [] } }
-            customPersonsRes = { data: { code: 0, data: [] } }
-            voicesRes = { data: { code: 0, data: [] } }
-          } else {
-            throw apiErr
-          }
-        }
-        
-        const [cRes, pRes, vRes] = [commonPersonsRes, customPersonsRes, voicesRes]
+
+        const listResults = await Promise.allSettled([
+          getCommonPersons(),
+          getCustomPersons(),
+          getVoices(),
+        ])
+        const listNames = ['公共数字人', '自定义数字人', '声音列表']
+        const listFallback = () => ({ data: { code: 0, data: [] } })
+
+        ;[commonPersonsRes, customPersonsRes, voicesRes] = listResults.map((settled, index) => {
+          if (settled.status === 'fulfilled') return settled.value
+
+          const apiErr = settled.reason
+          const detail =
+            apiErr?.responseData?.detail?.message ||
+            apiErr?.responseData?.detail ||
+            apiErr?.responseData?.message ||
+            apiErr?.data?.message ||
+            apiErr?.message ||
+            '未知错误'
+
+          console.error(`[DigitalHumanStudio] ${listNames[index]}加载失败:`, {
+            message: apiErr?.message,
+            code: apiErr?.code,
+            data: apiErr?.data,
+            responseData: apiErr?.responseData,
+          })
+          setStatusMsg(`${listNames[index]}加载失败，其他数据继续加载：${detail}`)
+          return listFallback()
+        })
+
+const [cRes, pRes, vRes] = [commonPersonsRes, customPersonsRes, voicesRes]
         
         let all = []
         if (cRes?.data?.code === 0) {
@@ -1691,9 +2086,12 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
           // [阶段 1] 直接调用 8080 新版数字人 API。只发送纯口播，要求返回字级时间轴。
           const apiBaseUrl = getDigitalHumanBaseUrl()
           const copywritingPlan = normalizeCopywritingPlan(script.copywritingPlan, script.text)
+          // 8080 只接收一次完整口播。segments 只保存在 RJCut，用于后续模板混剪。
+          const fullSpokenText = requireFullSpokenText(copywritingPlan, script.text)
+          copywritingPlan.spoken_text = fullSpokenText
           const audioManId = selectedVoice || selectedPersonDetails?.audio_man_id || ''
           const taskPayload = {
-            text: copywritingPlan.spoken_text,
+            text: fullSpokenText,
             // 不能再发送 selectedPerson.id：旧列表可能让多张卡片共用同一个 ID。
             person_id: selectedGenerationPersonId,
             audio_man_id: audioManId || undefined,
@@ -1703,6 +2101,9 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
               business_task_id: task.id,
               source: 'rjcut-studio',
               copywriting_schema: copywritingPlan.schema,
+              request_contract: 'full_spoken_text_once',
+              requested_text_length: Array.from(fullSpokenText).length,
+              semantic_segment_count: copywritingPlan.segments.length,
               selected_person_name: selectedPerson.name || '',
               selected_person_ui_id: selectedPerson.id || '',
               selected_person_legacy_id: selectedPerson.legacyPersonId || selectedPerson.id || '',
@@ -1720,13 +2121,17 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
             },
           }
 
-          console.log('[DigitalHumanStudio] 提交数字人生成请求:', {
+          const textContract = summarizeTextContract(fullSpokenText)
+          console.log('[DigitalHumanStudio] 提交数字人生成请求（完整文本，仅一次）:', {
             personId: selectedGenerationPersonId,
             personName: selectedPerson.name,
             selectionKey: selectedPersonKey,
             identitySource: selectedIdentity.source,
             figureType: taskPayload.figure_type,
             audioManId,
+            ...textContract,
+            semanticSegmentCount: copywritingPlan.segments.length,
+            sentKeys: Object.keys(taskPayload),
           })
           const created = await createTimelineDigitalHumanTask(taskPayload, apiBaseUrl)
           const dhTaskId = created.task_id
@@ -1760,9 +2165,12 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
             const timingResult = await getTimelineCharTimings(dhTaskId, apiBaseUrl)
             result.char_timings = timingResult?.char_timings || []
           }
-          if (!result.video_url || !result.char_timings.length) {
-            throw new Error('数字人接口成功响应缺少 video_url 或 char_timings')
-          }
+          const integrity = validateDigitalHumanResult(result, fullSpokenText)
+          result.generation_integrity = integrity
+          console.log('[DigitalHumanStudio] 数字人完整文本结果校验通过:', {
+            ...integrity,
+            returnedTextLength: Array.from(String(result.normalized_text || result.text || '')).length,
+          })
 
           const identityVerification = verifyGeneratedPersonIdentity(result, selectedGenerationPersonId)
           if (!identityVerification.verified) {
@@ -1775,9 +2183,19 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
           setPipelineTasks((prev) => prev.map((item) =>
             item.id === task.id ? { ...item, stage: 'downloading', progress: 65 } : item
           ))
-          const videoResponse = await fetch(toDigitalHumanAssetUrl(result.video_url, apiBaseUrl))
-          if (!videoResponse.ok) throw new Error(`下载数字人视频失败：HTTP ${videoResponse.status}`)
-          const videoBlob = await videoResponse.blob()
+          const originalVideoUrl = result.video_url
+          const { blob: videoBlob, url: resolvedVideoUrl, attempts: videoDownloadAttempts } =
+            await downloadDigitalHumanVideo({
+              result,
+              baseUrl: apiBaseUrl,
+              taskId: dhTaskId,
+            })
+          result.video_url = resolvedVideoUrl
+          console.log('[DigitalHumanStudio] 视频下载地址:', {
+            originalVideoUrl,
+            resolvedVideoUrl,
+            attempts: videoDownloadAttempts,
+          })
           await vfs.writeFile(vfsVideoPath, await videoBlob.arrayBuffer(), { type: videoBlob.type || 'video/mp4' })
 
           const project = buildDigitalHumanProject({
@@ -1806,6 +2224,7 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
             fileName,
             projectPath,
             text: copywritingPlan.spoken_text,
+            project,
           }])
           console.log('[DigitalHumanStudio] 数字人视频与字级时间轴项目已保存:', vfsVideoPath, projectPath)
 

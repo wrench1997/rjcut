@@ -65,7 +65,7 @@ export default function AdvancedVideoEditor({ vfs }) {
 
   return (
     // 使用 video-editor-theme 隔离暗色工业风主题
-    <div className="video-editor-theme flex flex-col overflow-hidden no-select w-full h-full text-slate-200" style={{ background: '#0a0a0f' }}>
+    <div className="video-editor-theme flex flex-col overflow-hidden no-select w-full h-full text-slate-200 rounded-2xl shadow-2xl border border-slate-800/80" style={{ background: 'linear-gradient(135deg, #09090f 0%, #111827 100%)' }}>
       
       {/* 顶部工具栏 */}
       <header className="flex items-center justify-between px-4 py-2 bg-slate-900 border-b border-slate-800 flex-shrink-0">

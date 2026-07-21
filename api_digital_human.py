@@ -2,6 +2,7 @@
 import uuid
 import logging
 import os
+import urllib.parse
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -143,13 +144,21 @@ def list_common_persons(merchant: Merchant = Depends(verify_api_key)):
             original_cover_url = person.get("cover_url", "")
             preview_video_url = person.get("preview_video_url", "")
         
-        # 🔗 蝉镜返回的 cover 是本地路径，需要转换为代理 URL
-        if original_cover_url and (original_cover_url.startswith('/root/') or original_cover_url.startswith('/data/') or original_cover_url.startswith('/app/')):
-            # 转换为代理 URL，让前端能通过 /v1/dh/proxy-image 接口访问
-            cover_url = f"/v1/dh/proxy-image?path={original_cover_url}"
-            logger.info(f"本地封面路径转换为代理 URL: {cover_url}")
+        # 🔗 蝉镜返回的 cover 可能是本地路径或 HTTP URL，需要转换为代理 URL
+        # 让前端能通过 /v1/dh/proxy-image 接口访问，避免跨域问题
+        if original_cover_url:
+            if (original_cover_url.startswith('/root/') or 
+                original_cover_url.startswith('/data/') or 
+                original_cover_url.startswith('/app/') or
+                original_cover_url.startswith('http://') or
+                original_cover_url.startswith('https://')):
+                # 转换为代理 URL，让前端能通过 /v1/dh/proxy-image 接口访问
+                cover_url = f"/v1/dh/proxy-image?path={urllib.parse.quote(original_cover_url, safe='')}"
+                logger.info(f"封面 URL 转换为代理 URL: {cover_url}")
+            else:
+                cover_url = original_cover_url
         else:
-            cover_url = original_cover_url
+            cover_url = ""
         
         result_list.append({
             "id": person_id,
@@ -314,12 +323,16 @@ def list_custom_persons(
             except Exception as e:
                  logger.error(f"  *** ❌ 调用蝉镜 API 失败：{e}")
         
-        if p.cover_url and not p.cover_url.startswith("http"):
-            # 🔗 检查是否是本地路径（蝉镜 API 返回的）
-            if p.cover_url.startswith('/root/') or p.cover_url.startswith('/data/') or p.cover_url.startswith('/app/'):
+        if p.cover_url:
+            # 🔗 检查是否是本地路径或 HTTP URL（蝉镜 API 返回的）
+            if (p.cover_url.startswith('/root/') or 
+                p.cover_url.startswith('/data/') or 
+                p.cover_url.startswith('/app/') or
+                p.cover_url.startswith('http://') or
+                p.cover_url.startswith('https://')):
                 # 转换为代理 URL
-                cover_url = f"/v1/dh/proxy-image?path={p.cover_url}"
-                logger.info(f"  🔄 本地路径转换为代理 URL: {cover_url}")
+                cover_url = f"/v1/dh/proxy-image?path={urllib.parse.quote(p.cover_url, safe='')}"
+                logger.info(f"  🔄 封面 URL 转换为代理 URL: {cover_url}")
             else:
                 # 🎬 为私有 MinIO 文件生成预签名 URL（有效期 7 天）
                 try:
@@ -336,8 +349,6 @@ def list_custom_persons(
                     minio_external = oss_settings.MINIO_EXTERNAL_ENDPOINT.rstrip("/")
                     cover_url = f"{minio_external}/{bucket}/{p.cover_url}"
                     logger.info(f"  🔄 使用公开 URL: {cover_url}")
-        elif p.cover_url:
-            logger.info(f"  ✅ 使用外部 URL: {p.cover_url[:100]}...")
         else:
             logger.warning(f"  ⚠️ 无封面图 (cover_url 为空)")
         
@@ -402,10 +413,15 @@ def get_custom_person_detail(
     # 🎬 蝉镜 API 返回的是 pic_url / preview_url，不是 cover_url
     cover_url = data.get('pic_url') or data.get('preview_url') or data.get('cover_url')
     
-    # 🔗 将本地路径转换为代理 URL
-    if cover_url and (cover_url.startswith('/root/') or cover_url.startswith('/data/') or cover_url.startswith('/app/')):
-        cover_url = f"/v1/dh/proxy-image?path={cover_url}"
-        logger.info(f"详情页本地封面路径转换为代理 URL: {cover_url}")
+    # 🔗 将本地路径或 HTTP URL 转换为代理 URL
+    if cover_url:
+        if (cover_url.startswith('/root/') or 
+            cover_url.startswith('/data/') or 
+            cover_url.startswith('/app/') or
+            cover_url.startswith('http://') or
+            cover_url.startswith('https://')):
+            cover_url = f"/v1/dh/proxy-image?path={urllib.parse.quote(cover_url, safe='')}"
+            logger.info(f"详情页封面 URL 转换为代理 URL: {cover_url}")
     
     # 返回详细信息
     result = {
@@ -545,11 +561,16 @@ def sync_custom_persons(
             cover_url = person_data.get('cover_url', '')
             figure_type = person_data.get('figure_type', '')
         
-        # 🔗 将本地路径转换为代理 URL（不保存到数据库，只在返回时转换）
+        # 🔗 将本地路径或 HTTP URL 转换为代理 URL（不保存到数据库，只在返回时转换）
         display_cover_url = cover_url
-        if cover_url and (cover_url.startswith('/root/') or cover_url.startswith('/data/') or cover_url.startswith('/app/')):
-            display_cover_url = f"/v1/dh/proxy-image?path={cover_url}"
-            logger.info(f"  🔄 同步时本地路径转换为代理 URL: {display_cover_url}")
+        if cover_url:
+            if (cover_url.startswith('/root/') or 
+                cover_url.startswith('/data/') or 
+                cover_url.startswith('/app/') or
+                cover_url.startswith('http://') or
+                cover_url.startswith('https://')):
+                display_cover_url = f"/v1/dh/proxy-image?path={urllib.parse.quote(cover_url, safe='')}"
+                logger.info(f"  🔄 同步时封面 URL 转换为代理 URL: {display_cover_url}")
         
         audio_man_id = person_data.get('audio_man_id')  # 🆕 获取声音 ID
         

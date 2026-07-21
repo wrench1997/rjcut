@@ -1,5 +1,6 @@
-export const DIGITAL_HUMAN_PROJECT_SCHEMA = 'rjcut.digital-human-project/v1'
-export const LOCAL_TIMELINE_SCHEMA = 'rjcut.local-timeline/v2'
+export const DIGITAL_HUMAN_PROJECT_SCHEMA = 'rjcut.digital-human-project/v2'
+export const LEGACY_DIGITAL_HUMAN_PROJECT_SCHEMA = 'rjcut.digital-human-project/v1'
+export const LOCAL_TIMELINE_SCHEMA = 'rjcut.local-timeline/v3'
 
 const DIRECTOR_WORD_RE = /(转场|切镜|镜头切到|画面切到|画面给到|这里放素材|插入素材)/gi
 
@@ -252,9 +253,27 @@ export function buildDigitalHumanProject({
     lastSegment.duration = lastSegment.duration_ms / 1000
   }
 
+  const timedTransitionSegments = timelineSegments
+    .filter((segment) => segment.is_transition_segment || segment.type === 'scene')
+    .map((segment) => ({
+      segment_id: segment.id,
+      text: segment.text,
+      start_ms: segment.start_ms,
+      end_ms: segment.end_ms,
+      duration_ms: segment.duration_ms,
+      char_start: segment.char_start,
+      char_end: segment.char_end,
+      slot_id: segment.slot_id || null,
+      visual_tags: segment.visual_tags || [],
+      action: segment.edit_action || 'replace_visual',
+      keep_original_audio: segment.transition?.keep_original_audio !== false,
+      entry: segment.transition?.entry || 'cut',
+      exit: segment.transition?.exit || 'cut',
+    }))
+
   return {
     schema: DIGITAL_HUMAN_PROJECT_SCHEMA,
-    version: 1,
+    version: 2,
     created_at: new Date().toISOString(),
     source,
     digital_human: {
@@ -268,6 +287,8 @@ export function buildDigitalHumanProject({
       selection_key: selectionKey || '',
       identity_source: identitySource || '',
       identity_verification: identityVerification || null,
+      generation_integrity: result?.generation_integrity || null,
+      request_contract: result?.generation_integrity?.request_contract || 'full_spoken_text_once',
       audio_man_id: audioManId || '',
       video_url: result?.video_url || '',
       audio_url: result?.audio_url || '',
@@ -275,8 +296,11 @@ export function buildDigitalHumanProject({
       audio_vfs_path: audioPath || '',
       duration_ms: durationMs,
     },
-    copywriting: plan,
-    transition_segments: plan.transition_segments || [],
+    copywriting: {
+      ...plan,
+      transition_segments: plan.transition_segments || [],
+    },
+    transition_segments: timedTransitionSegments,
     text: plan.spoken_text,
     normalized_text: result?.normalized_text || result?.text || plan.spoken_text,
     char_timings: charTimings,
@@ -297,6 +321,7 @@ export function buildDigitalHumanProject({
         transition: segment.transition,
         keep_original_audio: segment.transition?.keep_original_audio !== false,
       })),
+      transition_clips: timedTransitionSegments,
     },
   }
 }
@@ -316,7 +341,7 @@ export async function readDigitalHumanProject(vfs, projectPath) {
   const raw = await vfs.readFile(projectPath)
   const text = typeof raw === 'string' ? raw : new TextDecoder().decode(raw)
   const project = JSON.parse(text)
-  if (project?.schema !== DIGITAL_HUMAN_PROJECT_SCHEMA) {
+  if (![DIGITAL_HUMAN_PROJECT_SCHEMA, LEGACY_DIGITAL_HUMAN_PROJECT_SCHEMA].includes(project?.schema)) {
     throw new Error(`不是受支持的数字人项目 JSON：${project?.schema || 'missing schema'}`)
   }
   return project
@@ -355,7 +380,9 @@ function splitSceneSegment(segment, files) {
 }
 
 export function buildBoundLocalTimeline(project, template, scene) {
-  if (project?.schema !== DIGITAL_HUMAN_PROJECT_SCHEMA) throw new Error('数字人项目 JSON 无效')
+  if (![DIGITAL_HUMAN_PROJECT_SCHEMA, LEGACY_DIGITAL_HUMAN_PROJECT_SCHEMA].includes(project?.schema)) {
+    throw new Error('数字人项目 JSON 无效')
+  }
   const baseSegments = project.timeline?.segments || mapPlanToTimeline(project.copywriting, project.char_timings)
   const sceneSlots = template?.slots || []
   let sequentialSceneIndex = 0
@@ -383,7 +410,7 @@ export function buildBoundLocalTimeline(project, template, scene) {
     duration_ms: project.digital_human?.duration_ms || project.timeline?.duration_ms || 0,
     char_timings: project.char_timings,
     spoken_text: project.copywriting?.spoken_text || project.text || '',
-    transition_segments: project.copywriting?.transition_segments || project.transition_segments || [],
+    transition_segments: project.transition_segments || project.copywriting?.transition_segments || [],
     segments: outputSegments,
     clips: outputSegments.map((segment) => ({
       id: segment.id,
@@ -397,5 +424,19 @@ export function buildBoundLocalTimeline(project, template, scene) {
       transition: segment.transition || buildTransitionDescriptor(segment.type === 'scene' ? 'scene' : 'human', segment.slot_id),
       keep_original_audio: segment.transition?.keep_original_audio !== false,
     })),
+    transition_clips: outputSegments
+      .filter((segment) => segment.type === 'scene' || segment.is_transition_segment)
+      .map((segment) => ({
+        segment_id: segment.id,
+        text: segment.text,
+        start_ms: segment.start_ms,
+        end_ms: segment.end_ms,
+        duration_ms: segment.end_ms - segment.start_ms,
+        slot_id: segment.slot_id || null,
+        scene_vfs_path: segment.scene_vfs_path || null,
+        visual_tags: segment.visual_tags || [],
+        action: 'replace_visual',
+        keep_original_audio: segment.transition?.keep_original_audio !== false,
+      })),
   }
 }

@@ -100,6 +100,9 @@ export default function SelectAvatarVideoStep({ draft, updateDraft, vfs, apiKey 
 
   const selectedPath = draft.avatarVideo?.path
   const isRoot = currentPath === '/'
+  const transitionClips = draft.avatarVideo?.project?.timeline?.transition_clips
+    || draft.avatarVideo?.project?.transition_segments
+    || []
 
   return (
     <div className="space-y-6">
@@ -313,6 +316,28 @@ export default function SelectAvatarVideoStep({ draft, updateDraft, vfs, apiKey 
                 <p className="text-xs text-green-700 mt-1 flex items-center gap-1">
                   <FileJson className="w-3 h-3" /> {draft.avatarVideo.projectPath}
                 </p>
+              )}
+              {transitionClips.length > 0 && (
+                <div className="mt-3 rounded-lg border border-green-200 bg-white/70 p-3">
+                  <p className="text-xs font-semibold text-green-800 mb-2">
+                    自动剪辑位置：{transitionClips.length} 段
+                  </p>
+                  <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                    {transitionClips.map((clip, index) => (
+                      <div key={clip.segment_id || clip.id || index} className="text-[11px] text-green-700 flex items-start gap-2">
+                        <span className="font-mono shrink-0">
+                          {Number.isFinite(Number(clip.start_ms)) && Number.isFinite(Number(clip.end_ms))
+                            ? `${(Number(clip.start_ms) / 1000).toFixed(2)}s-${(Number(clip.end_ms) / 1000).toFixed(2)}s`
+                            : '待映射'}
+                        </span>
+                        <span className="min-w-0">
+                          <strong>{clip.slot_id || `场景 ${index + 1}`}</strong>
+                          {clip.text ? `：${clip.text}` : ''}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               )}
             </div>
           </div>

@@ -19,7 +19,7 @@ const useBatchProcessStore = create((set, get) => ({
       succeeded: tasks.filter(t => t.stage === 'succeeded').length,
       failed: tasks.filter(t => t.stage === 'failed').length,
       cancelled: tasks.filter(t => t.stage === 'cancelled').length,
-      running: tasks.filter(t => ['uploading', 'drafting', 'composing', 'downloading'].includes(t.stage)).length,
+      running: tasks.filter(t => ['preparing', 'uploading', 'drafting', 'composing', 'downloading'].includes(t.stage)).length,
     }
   },
 
@@ -43,7 +43,7 @@ const useBatchProcessStore = create((set, get) => ({
       isRunning: false,
       endTime: Date.now(),
       tasks: tasks.map(t =>
-        ['idle', 'uploading', 'drafting', 'composing', 'downloading'].includes(t.stage)
+        ['idle', 'preparing', 'uploading', 'drafting', 'composing', 'downloading'].includes(t.stage)
           ? { ...t, stage: 'cancelled', error: '用户已取消' }
           : t
       )
@@ -104,16 +104,35 @@ await vfs.init()
     const taskId = task.id
 
     try {
-      // 新版模板混剪完全在前端/Electron 本地执行。
-      // timeline.json 已由 templateRunAdapter 根据 .rjdh.json 的 char_timings 生成，
-      // 因此不再上传视频，也不再请求 agent-draft / agent-compose。
+      // 模板混剪在这里真正执行本地渲染。
+      // 旧实现只是提前标记 succeeded，再依赖第五步组件的 useEffect 做合成，
+      // 会造成“任务已成功但仍未渲染”、旧输出被误认为本次结果等问题。
       if (task.localOnly || task.templateMeta?.timelineSchema) {
         updateTask(taskId, {
-          stage: 'succeeded',
-          progress: 100,
-          localReady: true,
+          stage: 'preparing',
+          stageLabel: '读取字级时间轴',
+          progress: 2,
           draftTaskId: null,
           composeTaskId: null,
+        })
+        const { renderLocalTemplateTask } = await import('../features/template-batch/localTemplateRenderer.js')
+        const result = await renderLocalTemplateTask(task, vfs, (progress, stageLabel) => {
+          updateTask(taskId, {
+            stage: progress >= 10 ? 'composing' : 'preparing',
+            stageLabel,
+            progress,
+          })
+        })
+        updateTask(taskId, {
+          stage: 'succeeded',
+          stageLabel: '本地渲染完成',
+          progress: 100,
+          localReady: true,
+          outputPath: result.outputPath,
+          renderReportPath: result.renderReportPath,
+          outputBytes: result.outputBytes,
+          transitionCount: result.transitionCount,
+          result,
         })
         return
       }

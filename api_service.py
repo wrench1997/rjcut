@@ -66,11 +66,11 @@ app = FastAPI(title="RJCut Commercial API", version="1.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:3000",
+        "http://localhost:30099",
         "http://localhost:5173",
-        "http://127.0.0.1:3000",
+        "http://127.0.0.1:30099",
         "http://127.0.0.1:5173",
-        "http://192.168.166.8:3000",  # 局域网前端地址
+        "http://192.168.166.8:30099",  # 局域网前端地址
         "http://192.168.166.8",
         "*",  # 允许所有来源（开发环境），生产环境建议限制具体域名
     ],

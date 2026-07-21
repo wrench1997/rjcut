@@ -47,11 +47,21 @@ apiClient.interceptors.response.use(
     if (data && typeof data === 'object') {
       // 如果后端返回了 code 字段且不为 0，表示业务错误
       if (data.code !== undefined && data.code !== 0 && data.code !== 200) {
-        const error = new Error(data.message || '请求失败');
+        const detailMessage =
+          (typeof data.detail === 'string' ? data.detail : data.detail?.message) ||
+          data.error?.message ||
+          data.msg ||
+          data.message ||
+          `请求失败（业务码 ${data.code}）`;
+        const error = new Error(detailMessage);
         error.code = data.code;
         error.data = data.data;
-        // 标记 token 过期错误，便于前端特殊处理
-        error.isTokenExpired = data.message?.includes('Token') || data.message?.includes('token') || data.code === 401;
+        error.responseData = data;
+        error.isBusinessError = true;
+        error.isTokenExpired =
+          detailMessage.includes('Token') ||
+          detailMessage.includes('token') ||
+          data.code === 401;
         throw error;
       }
     }

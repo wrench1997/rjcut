@@ -9,6 +9,7 @@ import {
   createTemplateRunDraft,
   updateDraftTimestamp,
   validateTemplateRunDraft,
+  convertToBatchTasks,
 } from './templateRunAdapter.js'
 
 import {
@@ -49,6 +50,7 @@ export default function TemplateBatchPage({
   const [error, setError] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
   const [showMinimizedProgress, setShowMinimizedProgress] = useState(false)
+  const [lastRunInfo, setLastRunInfo] = useState(null)
 
   // 获取批量任务状态
   const { tasks, getTaskStats, reset, startBatch } = useBatchStore()
@@ -109,17 +111,36 @@ export default function TemplateBatchPage({
     setError('')
 
     try {
-      // 调用 adapter 生成任务
-      const { convertToBatchTasks } = await import('./templateRunAdapter.js')
-      const taskItems = await convertToBatchTasks(draft, vfs)
+      const finalErrors = [
+        ...validateTemplateRunDraft(draft, 'select_template'),
+        ...validateTemplateRunDraft(draft, 'select_avatar_video'),
+        ...validateTemplateRunDraft(draft, 'add_scenes'),
+      ]
+      if (finalErrors.length) throw new Error(finalErrors[0])
+
+      // 新的一次点击必须创建全新 runId 和输出目录，不能复用上次 task.id/outputPath。
+      reset()
+      const converted = await convertToBatchTasks(draft, vfs)
+      const taskItems = converted.tasks
 
       if (taskItems.length === 0) {
-        setError('没有可生成的任务')
-        return
+        throw new Error('没有可生成的任务')
       }
 
-      // ✅ 直接调用 useBatchStore 的 startBatch 方法，真正开始执行任务
-      // 从 localStorage 获取全局参数配置
+      setLastRunInfo({
+        runId: converted.runId,
+        runDir: converted.runDir,
+        startedAt: new Date().toISOString(),
+      })
+      updateDraft((previous) => ({
+        ...previous,
+        lastRun: {
+          runId: converted.runId,
+          runDir: converted.runDir,
+          startedAt: new Date().toISOString(),
+        },
+      }))
+
       let globalParams = null
       try {
         const saved = localStorage.getItem('rjcut_global_params_v1')
@@ -128,22 +149,19 @@ export default function TemplateBatchPage({
         console.error('[TemplateBatchPage] 加载全局参数失败:', e)
       }
 
-      // 使用 draft 中的执行配置（并发数）
-      const concurrency = draft.execution?.concurrency || 3
-
-      // ✅ 启动任务（不等待完成，让任务在后台运行）
-      // 使用 Promise 包裹，启动后立即 resolve，不等待任务完成
+      const concurrency = 1 // 本地 FFmpeg/WASM 单实例，按队列串行最稳定
       const startPromise = startBatch(taskItems, concurrency, globalParams)
-      
-      // 启动任务后立即进入第五步（任务进度与下载）
-      console.log('[TemplateBatchPage] 任务已启动，共', taskItems.length, '个任务')
-      setActiveStepIndex(STEPS.length - 1) // 进入第五步
-      
-      // 在后台等待任务完成（不阻塞 UI）
-      startPromise.catch(err => {
-        console.error('[TemplateBatchPage] 后台任务执行错误:', err)
+
+      console.log('[TemplateBatchPage] 新批次已启动', {
+        runId: converted.runId,
+        runDir: converted.runDir,
+        taskCount: taskItems.length,
       })
-      
+      setActiveStepIndex(STEPS.length - 1)
+
+      startPromise.catch((err) => {
+        console.error('[TemplateBatchPage] 本地批量渲染错误:', err)
+      })
     } catch (e) {
       console.error('[TemplateBatchPage] 生成任务失败:', e)
       setError('生成任务失败：' + e.message)
@@ -181,7 +199,7 @@ export default function TemplateBatchPage({
         )
 
       case 'task_progress':
-        return <TaskProgressStep {...commonProps} />
+        return <TaskProgressStep {...commonProps} runInfo={lastRunInfo} />
 
       default:
         return null
@@ -374,7 +392,7 @@ export default function TemplateBatchPage({
               </button>
 
               <div className="text-sm text-slate-500">
-                任务正在后台运行，您可以等待完成或关闭页面
+                本次批次使用独立输出目录；关闭页面前建议等待本地渲染完成
               </div>
             </footer>
           )}

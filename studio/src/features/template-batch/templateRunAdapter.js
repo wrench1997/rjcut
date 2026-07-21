@@ -1,18 +1,18 @@
 /**
- * 模板混剪 - 本地时间线任务适配器
+ * 模板混剪任务适配器 v0.8
  *
- * 模板任务不再上传数字人视频到后端，也不再请求 agent-draft/agent-compose。
- * 每条任务直接携带由 .rjdh.json 生成的本地 timeline.json。
+ * 每次点击“生成”都会创建唯一 runId、唯一 timeline 路径和唯一输出路径。
+ * 不再复用草稿 id，也不会因为旧输出已存在而跳过本次渲染。
  */
 import { getTemplateById } from './templateRegistry.js'
-import { buildVFSPath } from '../../utils/project-structure.js'
 import { buildBoundLocalTimeline } from '../digital-human-project/digitalHumanProject.js'
+import { buildTemplateTaskPaths, buildTemplateRunDirectory, createTemplateRunId } from './templateRunPaths.js'
 
 export function createTemplateRunDraft() {
   return {
-    id: `template_run_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    id: `template_draft_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     templateId: '',
-    templateVersion: 2,
+    templateVersion: 3,
     avatarVideo: {
       path: '',
       name: '',
@@ -41,7 +41,8 @@ export function createTemplateRunDraft() {
       subtitleFont: { enabled: false, vfsFontPath: '', fontName: '' },
       corrections: { enabled: false, mode: 'manual', vfsPath: '', entries: [] },
     },
-    execution: { concurrency: 3 },
+    execution: { concurrency: 1 },
+    lastRun: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   }
@@ -63,6 +64,11 @@ export function validateTemplateRunDraft(draft, stepId) {
       errors.push('该视频缺少同名 .rjdh.json，无法获得字级时间轴。请使用新版数字人接口重新生成。')
     } else if (!Array.isArray(draft.avatarVideo.project.char_timings) || !draft.avatarVideo.project.char_timings.length) {
       errors.push('数字人项目 JSON 中没有 char_timings。')
+    } else {
+      const clips = draft.avatarVideo.project.timeline?.transition_clips
+        || draft.avatarVideo.project.transition_segments
+        || []
+      if (!clips.length) errors.push('数字人项目 JSON 没有标记任何场景替换段。请先在 AI 文案中设置场景段。')
     }
   }
 
@@ -101,11 +107,27 @@ export async function generateSceneScript(draft, scene) {
   }
 }
 
-export async function convertToBatchTasks(draft, vfs) {
+async function ensureDir(vfs, path) {
+  try {
+    if (await vfs.exists(path)) return
+  } catch (_) {}
+  if (typeof vfs.mkdir === 'function') return vfs.mkdir(path, true)
+  if (typeof vfs.createDirectory === 'function') return vfs.createDirectory(path, true)
+  throw new Error(`VFS 不支持创建目录：${path}`)
+}
+
+export async function convertToBatchTasks(draft, vfs, options = {}) {
   const template = getTemplateById(draft.templateId)
   if (!template) throw new Error(`模板未找到：${draft.templateId}`)
   if (!draft.scenes?.length) throw new Error('没有场景版本')
   if (!draft.avatarVideo?.project) throw new Error('数字人视频没有字级时间轴项目 JSON')
+
+  const runId = options.runId || createTemplateRunId()
+  const runInfo = buildTemplateRunDirectory({
+    avatarVideoPath: draft.avatarVideo.path,
+    runId,
+  })
+  await ensureDir(vfs, runInfo.runDir)
 
   const tasks = []
   for (let sceneIndex = 0; sceneIndex < draft.scenes.length; sceneIndex += 1) {
@@ -113,43 +135,61 @@ export async function convertToBatchTasks(draft, vfs) {
     const sceneId = scene.id || `scene_${String(sceneIndex + 1).padStart(3, '0')}`
     const sceneName = scene.name || `场景版本 ${sceneIndex + 1}`
     const timeline = await generateSceneScript(draft, scene)
-    const projectName = `template_${draft.templateId}_${draft.id.slice(-8)}`
-    const sceneDir = buildVFSPath(projectName, sceneId)
-
-    try {
-      await vfs.mkdir(sceneDir, true)
-    } catch (error) {
-      await vfs.createDirectory?.(sceneDir, true)
-    }
-
-    const timelinePath = `${sceneDir}/timeline.json`
-    await vfs.writeFile(timelinePath, new TextEncoder().encode(JSON.stringify(timeline, null, 2)))
-
-    tasks.push({
-      id: `${draft.id}_${sceneId}`,
+    const paths = buildTemplateTaskPaths({
+      avatarVideoPath: draft.avatarVideo.path,
+      templateId: draft.templateId,
+      runId,
       sceneId,
       sceneName,
+    })
+    await ensureDir(vfs, paths.runDir)
+
+    const timelineDocument = {
+      ...timeline,
+      run_id: runId,
+      scene_id: sceneId,
+      scene_name: sceneName,
+      output_path: paths.outputPath,
+      generated_at: new Date().toISOString(),
+    }
+    await vfs.writeFile(
+      paths.timelinePath,
+      new TextEncoder().encode(JSON.stringify(timelineDocument, null, 2)),
+      { type: 'application/json' },
+    )
+
+    tasks.push({
+      id: `${runId}_${sceneId}`,
+      runId,
+      sceneId,
+      sceneName,
+      displayName: `${template.name} · ${sceneName}`,
       vfsVideoPath: draft.avatarVideo.path,
       vfsProjectPath: draft.avatarVideo.projectPath,
-      vfsTimelinePath: timelinePath,
-      // Compatibility: old UI still reads vfsScriptPath in a few places.
-      vfsScriptPath: timelinePath,
+      vfsTimelinePath: paths.timelinePath,
+      vfsScriptPath: paths.timelinePath,
       vfsCorrectionsPath: null,
       vfsBgmPath: draft.outputConfig?.audio?.enabled ? draft.outputConfig.audio.bgmPath : null,
       vfsFontPath: draft.outputConfig?.subtitleFont?.enabled
         ? draft.outputConfig.subtitleFont.vfsFontPath
         : null,
+      outputPath: paths.outputPath,
+      outputDir: paths.runDir,
+      renderReportPath: paths.renderReportPath,
+      runManifestPath: paths.runManifestPath,
       stage: 'idle',
+      stageLabel: '等待本地渲染',
       progress: 0,
       localOnly: true,
       templateMeta: {
         templateId: draft.templateId,
-        templateVersion: draft.templateVersion || 2,
+        templateVersion: draft.templateVersion || 3,
         templateName: template.name,
         sceneIndex,
         sceneName,
         avatarVideoName: draft.avatarVideo.name,
         timelineSchema: timeline.schema,
+        transitionCount: timeline.transition_clips?.length || 0,
       },
       globalParams: mergeRenderParams(draft.outputConfig?.globalParams, scene.overrideRenderParams),
       audioConfig: draft.outputConfig?.audio?.enabled
@@ -164,7 +204,33 @@ export async function convertToBatchTasks(draft, vfs) {
         : null,
     })
   }
-  return tasks
+
+  const manifest = {
+    schema: 'rjcut.template-batch-run/v1',
+    run_id: runId,
+    created_at: new Date().toISOString(),
+    draft_id: draft.id,
+    template_id: draft.templateId,
+    template_name: template.name,
+    source_video: draft.avatarVideo.path,
+    source_project: draft.avatarVideo.projectPath,
+    output_directory: runInfo.runDir,
+    tasks: tasks.map((task) => ({
+      task_id: task.id,
+      scene_id: task.sceneId,
+      scene_name: task.sceneName,
+      timeline_path: task.vfsTimelinePath,
+      output_path: task.outputPath,
+      transition_count: task.templateMeta.transitionCount,
+    })),
+  }
+  await vfs.writeFile(
+    `${runInfo.runDir}/run.json`,
+    new TextEncoder().encode(JSON.stringify(manifest, null, 2)),
+    { type: 'application/json' },
+  )
+
+  return { runId, runDir: runInfo.runDir, manifest, tasks }
 }
 
 function mergeRenderParams(globalParams, overrideParams) {

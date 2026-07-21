@@ -6,8 +6,8 @@
   "private": true,
   "scripts": {
     "dev": "concurrently \"npm run dev:next\" \"npm run dev:electron\"",
-    "dev:next": "next dev -p 3000",
-    "dev:electron": "wait-on http://localhost:3000 && cross-env NODE_ENV=development electron .",
+    "dev:next": "next dev -p 30099",
+    "dev:electron": "wait-on http://localhost:30099 && cross-env NODE_ENV=development electron .",
     "build": "next build",
     "build:electron": "electron-builder",
     "start": "next start",

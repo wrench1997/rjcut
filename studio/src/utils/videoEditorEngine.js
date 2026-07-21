@@ -222,7 +222,7 @@ class VideoEditorEngine {
         renderClips.push(partFile)
       } else if (seg.type === 'scene') {
         // scene 类型：用 scene_file 替换画面，保留 part 音频
-        const sceneFile = sceneFiles[seg.scene_file]
+        const sceneFile = sceneFiles[seg.scene_vfs_path] || sceneFiles[seg.scene_file]
         if (!sceneFile) {
           throw new Error(`缺少场景文件：${seg.scene_file}`)
         }
@@ -341,25 +341,28 @@ class VideoEditorEngine {
    * 构建 xfades 转场命令参数
    */
   _buildXfadeArgs(clipCount, transitionType, td, width, height, fps) {
-    // 简化处理：使用 concat 代替复杂 xfades
-    // 完整的 xfades 实现需要根据 clipCount 动态构建 filter_complex
-    const args = ['-i', 'clip_0.mp4']
-    for (let i = 1; i < clipCount; i++) {
+    // 旧实现把 concat 固定写成 n=2，场景超过两个时后续片段会全部丢失。
+    // 当前先使用稳定的全量 hard-cut concat；transitionType/td 保留给后续真正 xfade。
+    const args = []
+    for (let i = 0; i < clipCount; i += 1) {
       args.push('-i', `clip_${i}.mp4`)
     }
-    
-    // 使用 concat 滤镜（简单方案）
-    args.push('-filter_complex', `[0:v][0:a][1:v][1:a]concat=n=2:v=1:a=1[outv][outa]`)
-    args.push('-map', '[outv]')
-    args.push('-map', '[outa]')
-    args.push('-c:v', 'libx264')
-    args.push('-preset', 'fast')
-    args.push('-crf', '18')
-    args.push('-c:a', 'aac')
-    args.push('-b:a', '192k')
-    args.push('-movflags', '+faststart')
-    args.push('output.mp4')
-    
+
+    const concatInputs = Array.from({ length: clipCount }, (_, index) => `[${index}:v][${index}:a]`).join('')
+    args.push(
+      '-filter_complex',
+      `${concatInputs}concat=n=${clipCount}:v=1:a=1[outv][outa]`,
+      '-map', '[outv]',
+      '-map', '[outa]',
+      '-c:v', 'libx264',
+      '-preset', 'fast',
+      '-crf', '18',
+      '-pix_fmt', 'yuv420p',
+      '-c:a', 'aac',
+      '-b:a', '192k',
+      '-movflags', '+faststart',
+      'output.mp4',
+    )
     return args
   }
 

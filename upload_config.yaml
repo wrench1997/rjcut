@@ -135,5 +135,5 @@ exclude:
 
 # Git 历史配置
 git:
-  include: true
-  limit: 5  # 只包含最近 5 条提交记录
+  include: false
+  limit: 0  # 不包含 git 历史

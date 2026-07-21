@@ -56,7 +56,7 @@ function createWindow() {
   
   if (!isPackaged) {
     // 开发模式：加载 localhost
-    mainWindow.loadURL('http://localhost:3000')
+    mainWindow.loadURL('http://localhost:30099')
     mainWindow.webContents.openDevTools()
   } else {
     // 生产模式（exe）：使用我们自定义的 app:// 协议加载
@@ -1083,7 +1083,7 @@ app.on('web-contents-created', (event, contents) => {
     // 开发模式允许 localhost，生产模式允许 app:// 协议
     const isDev = !app.isPackaged
     if (isDev) {
-      if (parsedUrl.origin !== 'http://localhost:3000') {
+      if (parsedUrl.origin !== 'http://localhost:30099') {
         event.preventDefault()
       }
     } else {
