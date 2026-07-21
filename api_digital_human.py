@@ -146,12 +146,18 @@ def list_common_persons(merchant: Merchant = Depends(verify_api_key)):
         
         # 🔗 蝉镜返回的 cover 可能是本地路径或 HTTP URL，需要转换为代理 URL
         # 让前端能通过 /v1/dh/proxy-image 接口访问，避免跨域问题
+        # 支持 Linux 路径（/root/, /data/, /app/）和 Windows 路径（D:/, D:\）
         if original_cover_url:
-            if (original_cover_url.startswith('/root/') or 
+            is_local_path = (
+                original_cover_url.startswith('/root/') or 
                 original_cover_url.startswith('/data/') or 
                 original_cover_url.startswith('/app/') or
                 original_cover_url.startswith('http://') or
-                original_cover_url.startswith('https://')):
+                original_cover_url.startswith('https://') or
+                # Windows 路径：盘符 + 冒号 + 斜杠（如 D:/ 或 D:\）
+                (len(original_cover_url) >= 3 and original_cover_url[1] == ':' and original_cover_url[2] in ('/', '\\'))
+            )
+            if is_local_path:
                 # 转换为代理 URL，让前端能通过 /v1/dh/proxy-image 接口访问
                 cover_url = f"/v1/dh/proxy-image?path={urllib.parse.quote(original_cover_url, safe='')}"
                 logger.info(f"封面 URL 转换为代理 URL: {cover_url}")
@@ -228,10 +234,18 @@ def get_common_person_detail(
         cover_url = target_person.get("cover_url", "")
         preview_video_url = target_person.get("preview_video_url", "")
     
-    # 🔗 将本地路径转换为代理 URL
-    if cover_url and (cover_url.startswith('/root/') or cover_url.startswith('/data/') or cover_url.startswith('/app/')):
-        cover_url = f"/v1/dh/proxy-image?path={cover_url}"
-        logger.info(f"详情页本地封面路径转换为代理 URL: {cover_url}")
+    # 🔗 将本地路径转换为代理 URL（支持 Linux 和 Windows 路径）
+    if cover_url:
+        is_local_path = (
+            cover_url.startswith('/root/') or 
+            cover_url.startswith('/data/') or 
+            cover_url.startswith('/app/') or
+            # Windows 路径：盘符 + 冒号 + 斜杠
+            (len(cover_url) >= 3 and cover_url[1] == ':' and cover_url[2] in ('/', '\\'))
+        )
+        if is_local_path:
+            cover_url = f"/v1/dh/proxy-image?path={cover_url}"
+            logger.info(f"详情页本地封面路径转换为代理 URL: {cover_url}")
     
     result = {
         "id": person_id,
@@ -325,11 +339,17 @@ def list_custom_persons(
         
         if p.cover_url:
             # 🔗 检查是否是本地路径或 HTTP URL（蝉镜 API 返回的）
-            if (p.cover_url.startswith('/root/') or 
+            # 支持 Linux 路径（/root/, /data/, /app/）和 Windows 路径（D:/, D:\）
+            is_local_path = (
+                p.cover_url.startswith('/root/') or 
                 p.cover_url.startswith('/data/') or 
                 p.cover_url.startswith('/app/') or
                 p.cover_url.startswith('http://') or
-                p.cover_url.startswith('https://')):
+                p.cover_url.startswith('https://') or
+                # Windows 路径：盘符 + 冒号 + 斜杠
+                (len(p.cover_url) >= 3 and p.cover_url[1] == ':' and p.cover_url[2] in ('/', '\\'))
+            )
+            if is_local_path:
                 # 转换为代理 URL
                 cover_url = f"/v1/dh/proxy-image?path={urllib.parse.quote(p.cover_url, safe='')}"
                 logger.info(f"  🔄 封面 URL 转换为代理 URL: {cover_url}")
@@ -413,13 +433,18 @@ def get_custom_person_detail(
     # 🎬 蝉镜 API 返回的是 pic_url / preview_url，不是 cover_url
     cover_url = data.get('pic_url') or data.get('preview_url') or data.get('cover_url')
     
-    # 🔗 将本地路径或 HTTP URL 转换为代理 URL
+    # 🔗 将本地路径或 HTTP URL 转换为代理 URL（支持 Linux 和 Windows 路径）
     if cover_url:
-        if (cover_url.startswith('/root/') or 
+        is_local_path = (
+            cover_url.startswith('/root/') or 
             cover_url.startswith('/data/') or 
             cover_url.startswith('/app/') or
             cover_url.startswith('http://') or
-            cover_url.startswith('https://')):
+            cover_url.startswith('https://') or
+            # Windows 路径：盘符 + 冒号 + 斜杠
+            (len(cover_url) >= 3 and cover_url[1] == ':' and cover_url[2] in ('/', '\\'))
+        )
+        if is_local_path:
             cover_url = f"/v1/dh/proxy-image?path={urllib.parse.quote(cover_url, safe='')}"
             logger.info(f"详情页封面 URL 转换为代理 URL: {cover_url}")
     
@@ -562,13 +587,19 @@ def sync_custom_persons(
             figure_type = person_data.get('figure_type', '')
         
         # 🔗 将本地路径或 HTTP URL 转换为代理 URL（不保存到数据库，只在返回时转换）
+        # 支持 Linux 路径（/root/, /data/, /app/）和 Windows 路径（D:/, D:\）
         display_cover_url = cover_url
         if cover_url:
-            if (cover_url.startswith('/root/') or 
+            is_local_path = (
+                cover_url.startswith('/root/') or 
                 cover_url.startswith('/data/') or 
                 cover_url.startswith('/app/') or
                 cover_url.startswith('http://') or
-                cover_url.startswith('https://')):
+                cover_url.startswith('https://') or
+                # Windows 路径：盘符 + 冒号 + 斜杠
+                (len(cover_url) >= 3 and cover_url[1] == ':' and cover_url[2] in ('/', '\\'))
+            )
+            if is_local_path:
                 display_cover_url = f"/v1/dh/proxy-image?path={urllib.parse.quote(cover_url, safe='')}"
                 logger.info(f"  🔄 同步时封面 URL 转换为代理 URL: {display_cover_url}")
         
@@ -944,22 +975,33 @@ async def proxy_image(
                 )
         else:
             # 本地文件路径：安全检查后读取
+            # 同时支持 Linux 和 Windows 路径
             allowed_dirs = [
                 "/root/MuseTalk/data/video",
                 "/data/video",
                 "/app/data",
+                # Windows 开发环境
+                "D:\\workspace\\rjcut",
+                "D:/workspace/rjcut",
             ]
             
-            # 检查路径是否在允许的目录中
-            is_allowed = any(path.startswith(allowed) for allowed in allowed_dirs)
+            # 处理相对路径：转换为绝对路径
+            file_path = Path(path)
+            if not file_path.is_absolute():
+                # 相对路径，转换为绝对路径（从当前工作目录开始）
+                file_path = Path.cwd() / file_path
+                logger.info(f"相对路径转换为绝对路径：{file_path}")
+            
+            # 检查路径是否在允许的目录中（使用绝对路径检查）
+            abs_path_str = str(file_path)
+            is_allowed = any(abs_path_str.startswith(allowed) for allowed in allowed_dirs)
             if not is_allowed:
-                logger.warning(f"拒绝访问路径：{path}")
+                logger.warning(f"拒绝访问路径：{path} (绝对路径：{abs_path_str})")
                 raise HTTPException(status_code=403, detail="不允许访问此路径")
             
             # 检查文件是否存在
-            file_path = Path(path)
             if not file_path.exists():
-                logger.warning(f"文件不存在：{path}")
+                logger.warning(f"文件不存在：{path} (绝对路径：{abs_path_str})")
                 raise HTTPException(status_code=404, detail="文件不存在")
             
             # 读取文件
@@ -1042,22 +1084,33 @@ async def proxy_image_no_auth(
                 )
         else:
             # 本地文件路径：安全检查后读取
+            # 同时支持 Linux 和 Windows 路径
             allowed_dirs = [
                 "/root/MuseTalk/data/video",
                 "/data/video",
                 "/app/data",
+                # Windows 开发环境
+                "D:\\workspace\\rjcut",
+                "D:/workspace/rjcut",
             ]
             
-            # 检查路径是否在允许的目录中
-            is_allowed = any(path.startswith(allowed) for allowed in allowed_dirs)
+            # 处理相对路径：转换为绝对路径
+            file_path = Path(path)
+            if not file_path.is_absolute():
+                # 相对路径，转换为绝对路径（从当前工作目录开始）
+                file_path = Path.cwd() / file_path
+                logger.info(f"相对路径转换为绝对路径：{file_path}")
+            
+            # 检查路径是否在允许的目录中（使用绝对路径检查）
+            abs_path_str = str(file_path)
+            is_allowed = any(abs_path_str.startswith(allowed) for allowed in allowed_dirs)
             if not is_allowed:
-                logger.warning(f"拒绝访问路径：{path}")
+                logger.warning(f"拒绝访问路径：{path} (绝对路径：{abs_path_str})")
                 raise HTTPException(status_code=403, detail="不允许访问此路径")
             
             # 检查文件是否存在
-            file_path = Path(path)
             if not file_path.exists():
-                logger.warning(f"文件不存在：{path}")
+                logger.warning(f"文件不存在：{path} (绝对路径：{abs_path_str})")
                 raise HTTPException(status_code=404, detail="文件不存在")
             
             # 读取文件
