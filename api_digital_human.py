@@ -949,7 +949,7 @@ async def proxy_image(
         raise HTTPException(status_code=400, detail="缺少 path 参数")
     
     try:
-        # 判断是本地路径还是远程 URL
+        # 判断是本地路径、远程 URL 还是文件服务器路径
         if path.startswith('http://') or path.startswith('https://'):
             # 远程 URL：下载并转发
             logger.info(f"代理远程图片：{path}")
@@ -961,6 +961,34 @@ async def proxy_image(
                 elif resp.status_code != 200:
                     logger.error(f"下载远程图片失败：{path}, status={resp.status_code}")
                     raise HTTPException(status_code=502, detail=f"下载远程图片失败：{resp.status_code}")
+                
+                # 获取内容类型
+                content_type = resp.headers.get('content-type', 'image/png')
+                
+                # 返回图片
+                return Response(
+                    content=resp.content,
+                    media_type=content_type,
+                    headers={
+                        "Cache-Control": "public, max-age=3600",  # 缓存 1 小时
+                    }
+                )
+        elif path.startswith('/files/'):
+            # 蝉镜文件服务器路径：通过 HTTP 请求文件服务器
+            # 使用 CHANJING_BASE_URL 配置，优先从环境变量读取
+            files_base_url = os.getenv("CHANJING_FILES_URL", "http://host.docker.internal:8080/files")
+            # 移除路径开头的 /files/，拼接成完整 URL
+            file_subpath = path[7:]  # 移除 '/files/'
+            file_url = f"{files_base_url}/{file_subpath}"
+            logger.info(f"代理文件服务器图片：{path} -> {file_url}")
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.get(file_url)
+                if resp.status_code == 404:
+                    logger.warning(f"文件服务器图片不存在：{file_url}")
+                    raise HTTPException(status_code=404, detail="文件服务器图片不存在")
+                elif resp.status_code != 200:
+                    logger.error(f"从文件服务器下载失败：{file_url}, status={resp.status_code}")
+                    raise HTTPException(status_code=502, detail=f"从文件服务器下载失败：{resp.status_code}")
                 
                 # 获取内容类型
                 content_type = resp.headers.get('content-type', 'image/png')
@@ -1058,7 +1086,7 @@ async def proxy_image_no_auth(
         raise HTTPException(status_code=400, detail="缺少 path 参数")
     
     try:
-        # 判断是本地路径还是远程 URL
+        # 判断是本地路径、远程 URL 还是文件服务器路径
         if path.startswith('http://') or path.startswith('https://'):
             # 远程 URL：下载并转发
             logger.info(f"代理远程图片：{path}")
@@ -1070,6 +1098,34 @@ async def proxy_image_no_auth(
                 elif resp.status_code != 200:
                     logger.error(f"下载远程图片失败：{path}, status={resp.status_code}")
                     raise HTTPException(status_code=502, detail=f"下载远程图片失败：{resp.status_code}")
+                
+                # 获取内容类型
+                content_type = resp.headers.get('content-type', 'image/png')
+                
+                # 返回图片
+                return Response(
+                    content=resp.content,
+                    media_type=content_type,
+                    headers={
+                        "Cache-Control": "public, max-age=3600",  # 缓存 1 小时
+                    }
+                )
+        elif path.startswith('/files/'):
+            # 蝉镜文件服务器路径：通过 HTTP 请求文件服务器
+            # 使用 CHANJING_BASE_URL 配置，优先从环境变量读取
+            files_base_url = os.getenv("CHANJING_FILES_URL", "http://host.docker.internal:8080/files")
+            # 移除路径开头的 /files/，拼接成完整 URL
+            file_subpath = path[7:]  # 移除 '/files/'
+            file_url = f"{files_base_url}/{file_subpath}"
+            logger.info(f"代理文件服务器图片：{path} -> {file_url}")
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.get(file_url)
+                if resp.status_code == 404:
+                    logger.warning(f"文件服务器图片不存在：{file_url}")
+                    raise HTTPException(status_code=404, detail="文件服务器图片不存在")
+                elif resp.status_code != 200:
+                    logger.error(f"从文件服务器下载失败：{file_url}, status={resp.status_code}")
+                    raise HTTPException(status_code=502, detail=f"从文件服务器下载失败：{resp.status_code}")
                 
                 # 获取内容类型
                 content_type = resp.headers.get('content-type', 'image/png')
