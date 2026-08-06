@@ -1247,7 +1247,9 @@ async def ai_analyze_videos_via_gateway(
             
             # 使用正则提取 suggestions 字段
             suggestions = extract_json_field(ai_content, "suggestions")
-            if not suggestions:
+            # 空数组代表“当前没有可靠推荐”，是合法 AI 结果；只有字段缺失或
+            # 不是数组时才属于模型/解析异常。旧逻辑把 [] 误报成 suggestions 缺失。
+            if suggestions is None or not isinstance(suggestions, list):
                 print(f"[AI 素材分析] 提取 suggestions 失败，完整内容：{ai_content[:2000]}")
                 raise ValueError("无法提取 suggestions 字段")
 
@@ -1477,5 +1479,4 @@ ending: "老妹家自家鹿场养了 1000 头梅花鹿，无论是鹿茸血还�
             "template": None,
             "error": f"AI 生成失败：{str(e)}",
         }
-
 

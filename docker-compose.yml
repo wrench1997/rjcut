@@ -7,7 +7,7 @@ x-common-env: &common-env
   MINIO_SECRET_KEY: minioadmin
   MINIO_BUCKET: rjcut
   MINIO_USE_SSL: "false"
-  MINIO_EXTERNAL_ENDPOINT: http://host.docker.internal:9003
+  MINIO_EXTERNAL_ENDPOINT: http://192.168.166.151:9003
   TASK_TIMEOUT_SECONDS: "360"
   TASK_STALE_CHECK_INTERVAL: "60"
   SECRET_KEY: change_me_in_production_2024
@@ -15,8 +15,9 @@ x-common-env: &common-env
   PYTHONUNBUFFERED: "1"
   CHANJING_APP_ID: itop
   CHANJING_SECRET_KEY: rj-itop+0591
-  # 🐳 Docker 容器内访问宿主机蝉镜 API 的地址（直接使用宿主机 IP，更稳定）
-  CHANJING_BASE_URL: http://host.docker.internal:8080
+  # 🐳 蝉镜服务部署在 192.168.166.151，避免依赖 host.docker.internal 的解析和代理行为
+  CHANJING_BASE_URL: http://192.168.166.151:8080
+  CHANJING_FILES_URL: http://192.168.166.151:8080/files
 
 services:
 # --- 新增 Loki 监控组件 ---
@@ -149,7 +150,17 @@ services:
       - CACHED_INPUT_PRICE_PER_1M=0.025
       - TTFT_CACHE_HIT_THRESHOLD=0.5
       - GATEWAY_BASE_URL=http://gateway:8888
+      - UPSTREAM_CONNECT_TIMEOUT=8
+      - UPSTREAM_READ_TIMEOUT=240
+      - UPSTREAM_WRITE_TIMEOUT=30
+      - UPSTREAM_MAX_RETRIES=2
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8888/healthz', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
     networks:
       - rjcut-network
 
@@ -162,8 +173,6 @@ services:
     environment:
       <<: *common-env
       GATEWAY_BASE_URL: http://gateway:8888
-    extra_hosts:
-      - "host.docker.internal:host-gateway"  # 🔴 关键：允许容器访问宿主机（Linux 需要 Docker 20.10+）
     volumes:
       - ./:/app          # 开发时建议加 :ro（只读），避免意外修改；生产去掉 ro
       - /opt/rjcut/service_data:/app/service_data   # 这个持久化目录保持 rw

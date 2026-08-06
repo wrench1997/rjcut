@@ -1,4 +1,5 @@
 # codex_qwen_gateway.py
+import asyncio
 import json
 import os
 import re
@@ -23,7 +24,31 @@ MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen3.5-397B-A17B-FP8")
 METRICS_URL = VLLM_BASE_URL.rstrip("/") + "/metrics"
 # 数据刷新频率（秒）
 POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "5"))
+# 上游模型不是本机服务，必须把连接、首包和总读取失败区分开；不能再用
+# timeout=1800 把所有失败藏成一个很晚才出现的 502/504。
+UPSTREAM_CONNECT_TIMEOUT = float(os.getenv("UPSTREAM_CONNECT_TIMEOUT", "8"))
+UPSTREAM_READ_TIMEOUT = float(os.getenv("UPSTREAM_READ_TIMEOUT", "240"))
+UPSTREAM_WRITE_TIMEOUT = float(os.getenv("UPSTREAM_WRITE_TIMEOUT", "30"))
+UPSTREAM_MAX_RETRIES = max(0, int(os.getenv("UPSTREAM_MAX_RETRIES", "2")))
 app = FastAPI()
+
+
+@app.get("/healthz")
+async def healthz():
+    """网关存活探针：不依赖外部模型，避免上游抖动导致容器反复重启。"""
+    return {"status": "ok", "service": "rjcut-gateway"}
+
+
+@app.get("/readyz")
+async def readyz():
+    """网关就绪探针：用于人工/监控判断当前能否访问模型。"""
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(connect=3, read=5, write=3, pool=3)) as client:
+            response = await client.get(f"{VLLM_BASE_URL}/v1/models")
+        response.raise_for_status()
+        return {"status": "ready", "upstream": "ok"}
+    except Exception as exc:
+        return JSONResponse(status_code=503, content={"status": "not_ready", "upstream": "unavailable", "detail": type(exc).__name__})
 
 # =========================================================
 # BILLING STATS - 当天计费统计
@@ -577,6 +602,83 @@ async def vllm_stream(payload):
                 except:
                     continue
 
+
+def _upstream_timeout() -> httpx.Timeout:
+    return httpx.Timeout(
+        connect=UPSTREAM_CONNECT_TIMEOUT,
+        read=UPSTREAM_READ_TIMEOUT,
+        write=UPSTREAM_WRITE_TIMEOUT,
+        pool=UPSTREAM_CONNECT_TIMEOUT,
+    )
+
+
+def _is_retryable_status(status_code: int) -> bool:
+    return status_code in (408, 429, 500, 502, 503, 504)
+
+
+async def request_vllm_json(payload: dict) -> dict:
+    """稳定地请求上游并返回标准 Chat Completions JSON。
+
+    旧实现把 *所有* 非流式请求强行改成 SSE 再自行拼接；上游在连接中断、
+    chunk 格式变化或只返回 reasoning 时，会被拼成空 content，API 最后只能报 502。
+    文案生成本身是非流式接口，直接请求 JSON 才是 OpenAI/vLLM 的正确协议。
+    """
+    request_payload = payload.copy()
+    request_payload["stream"] = False
+    last_error = None
+
+    for attempt in range(UPSTREAM_MAX_RETRIES + 1):
+        try:
+            async with httpx.AsyncClient(timeout=_upstream_timeout()) as client:
+                response = await client.post(
+                    f"{VLLM_BASE_URL}/v1/chat/completions",
+                    json=request_payload,
+                )
+            if _is_retryable_status(response.status_code) and attempt < UPSTREAM_MAX_RETRIES:
+                last_error = httpx.HTTPStatusError(
+                    f"上游暂时不可用 ({response.status_code})", request=response.request, response=response
+                )
+                await asyncio.sleep(0.5 * (2 ** attempt))
+                continue
+            response.raise_for_status()
+            result = response.json()
+            choices = result.get("choices") if isinstance(result, dict) else None
+            if not choices or not isinstance(choices[0], dict):
+                raise ValueError("上游响应缺少 choices")
+            message = choices[0].get("message") or {}
+            if not (message.get("content") or message.get("reasoning") or message.get("reasoning_content")):
+                raise ValueError("上游返回了空消息")
+            return result
+        except (httpx.TimeoutException, httpx.TransportError) as exc:
+            last_error = exc
+            if attempt < UPSTREAM_MAX_RETRIES:
+                await asyncio.sleep(0.5 * (2 ** attempt))
+                continue
+            raise
+
+    raise last_error or RuntimeError("上游请求失败")
+
+
+def gateway_error_response(exc: Exception) -> JSONResponse:
+    """将网关错误变成前后端都能读懂、可区分是否可重试的结构。"""
+    trace_id = f"gw_{uuid.uuid4().hex[:12]}"
+    if isinstance(exc, httpx.TimeoutException):
+        status, code, retryable, message = 504, "UPSTREAM_TIMEOUT", True, "AI 上游响应超时，请稍后重试"
+    elif isinstance(exc, httpx.TransportError):
+        status, code, retryable, message = 502, "UPSTREAM_UNREACHABLE", True, "AI 上游连接失败，请稍后重试"
+    elif isinstance(exc, httpx.HTTPStatusError):
+        upstream_status = exc.response.status_code
+        status = upstream_status if 400 <= upstream_status < 500 else 502
+        code, retryable = "UPSTREAM_HTTP_ERROR", _is_retryable_status(upstream_status)
+        message = f"AI 上游返回 HTTP {upstream_status}"
+    else:
+        status, code, retryable, message = 502, "UPSTREAM_INVALID_RESPONSE", True, "AI 上游返回内容不完整"
+    print(f"[Gateway] {code} trace_id={trace_id}: {type(exc).__name__}: {exc}")
+    return JSONResponse(
+        status_code=status,
+        content={"message": message, "detail": message, "error": {"code": code, "retryable": retryable, "trace_id": trace_id}},
+    )
+
 # =========================================================
 # MODELS
 # =========================================================
@@ -793,7 +895,7 @@ async def chat_completions(req: Request):
     """
     try:
         body = await req.json()
-        print(f"[Gateway /v1/chat/completions] 收到请求：{body}")
+        print(f"[Gateway /v1/chat/completions] 请求 model={body.get('model', MODEL_NAME)} messages={len(body.get('messages', []))} max_tokens={body.get('max_tokens', 1500)} stream={body.get('stream', False)}")
         
         stream = body.get("stream", False)
         model = body.get("model", MODEL_NAME)
@@ -812,36 +914,25 @@ async def chat_completions(req: Request):
         if body.get("response_format"):
             chat_payload["response_format"] = body["response_format"]
         
-        # 如果有 extra_body 参数，合并进去
-        if body.get("extra_body"):
-            chat_payload["extra_body"] = body["extra_body"]
+        # vLLM 不会读取 OpenAI SDK 内部的 extra_body 字段；Qwen 的开关必须
+        # 放在 chat_template_kwargs。旧写法导致“关闭思考”被静默忽略，模型把
+        # 输出额度耗在 reasoning，最终 content 为空。
+        extra_body = body.get("extra_body") if isinstance(body.get("extra_body"), dict) else {}
+        template_kwargs = dict(body.get("chat_template_kwargs") or {})
+        if "enable_thinking" in extra_body:
+            template_kwargs["enable_thinking"] = bool(extra_body["enable_thinking"])
+        elif "thinking_enabled" in extra_body:
+            template_kwargs["enable_thinking"] = bool(extra_body["thinking_enabled"])
+        if template_kwargs:
+            chat_payload["chat_template_kwargs"] = template_kwargs
         
-        print(f"[Gateway /v1/chat/completions] 转发到 vLLM /v1/chat/completions: {chat_payload}")
-        
-        async with httpx.AsyncClient(timeout=1800) as client:
-            r = await client.post(f"{VLLM_BASE_URL}/v1/chat/completions", json=chat_payload)
-            print(f"[Gateway /v1/chat/completions] vLLM 响应状态码：{r.status_code}")
-            r.raise_for_status()
-            response_data = r.json()
-            print(f"[Gateway /v1/chat/completions] vLLM 响应数据：{response_data}")
-        
+        response_data = await request_vllm_json(chat_payload)
+        print("[Gateway] upstream JSON completed")
+
         # 直接返回 vLLM 的 Chat Completions 格式响应
         return JSONResponse(response_data)
-    except httpx.HTTPStatusError as e:
-        print(f"[Gateway /v1/chat/completions] HTTP 错误：{e}")
-        print(f"[Gateway /v1/chat/completions] 响应内容：{e.response.text}")
-        return JSONResponse(
-            status_code=e.response.status_code,
-            content={"error": f"Gateway 转发失败：{str(e)}", "detail": e.response.text}
-        )
     except Exception as e:
-        print(f"[Gateway /v1/chat/completions] 错误：{e}")
-        import traceback
-        traceback.print_exc()
-        return JSONResponse(
-            status_code=500,
-            content={"error": str(e)}
-        )
+        return gateway_error_response(e)
 
 
 # =========================================================

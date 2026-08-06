@@ -71,19 +71,6 @@ def calculate_file_hash(file_path: str, algorithm: str = "sha256") -> str:
     return hash_obj.hexdigest()
 
 
-def presigned_put_url(oss_key: str, expires: int = 3600) -> str:
-    settings = get_settings()
-    client = get_minio_client()
-    url = client.presigned_put_object(
-        settings.MINIO_BUCKET,
-        oss_key,
-        expires=timedelta(seconds=expires),
-    )
-    internal = f"http://{settings.MINIO_ENDPOINT}"
-    external = settings.MINIO_EXTERNAL_ENDPOINT.rstrip("/")
-    return url.replace(internal, external, 1)
-
-
 def presigned_get_url(oss_key: str, expires: int = 3600, filename: str = None) -> str:
     settings = get_settings()
     client = get_minio_client()

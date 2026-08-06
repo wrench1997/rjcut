@@ -397,53 +397,19 @@ upload_file() {
 
   while [ "$attempt" -le "$max_retries" ]; do
     local err=""
-    local presign_body presign_res upload_id upload_url oss_key confirm_body confirm_res confirmed
+    local upload_res oss_key confirmed
 
-    # 1. 预签名
-    presign_body=$(jq -n \
-      --arg filename "$req_filename" \
-      --arg content_type "$content_type" \
-      --arg purpose "$purpose" \
-      '{filename:$filename, content_type:$content_type, purpose:$purpose}')
-
-    presign_res=$(curl -fsS -X POST "$BASE_URL/v1/uploads/presign" \
+    # 通过系统 API 中转上传，客户端不再接触对象存储地址。
+    upload_res=$(curl -fsS -X POST "$BASE_URL/v1/uploads/relay" \
       -H "Authorization: Bearer $API_KEY" \
-      -H "Content-Type: application/json" \
-      -d "$presign_body") || err="预签名请求失败"
+      -F "file=@${file_path};filename=${req_filename};type=${content_type}" \
+      --form-string "purpose=$purpose") || err="API 中转上传请求失败"
 
     if [ -z "$err" ]; then
-      upload_id=$(echo "$presign_res" | jq -r '.data.upload_id // empty')
-      upload_url=$(echo "$presign_res" | jq -r '.data.upload_url // empty')
-      oss_key=$(echo "$presign_res" | jq -r '.data.oss_key // empty')
-
-      if [ -z "$upload_id" ] || [ -z "$upload_url" ] || [ -z "$oss_key" ]; then
-        err="预签名返回异常：$presign_res"
-      fi
-    fi
-
-    # 2. 上传到 MinIO
-    if [ -z "$err" ]; then
-      if ! curl -fsS -X PUT "$upload_url" \
-        -H "Content-Type: $content_type" \
-        --upload-file "$file_path" >/dev/null; then
-        err="PUT 上传失败"
-      fi
-    fi
-
-    # 3. 确认上传
-    if [ -z "$err" ]; then
-      confirm_body=$(jq -n --arg upload_id "$upload_id" '{upload_id:$upload_id}')
-
-      confirm_res=$(curl -fsS -X POST "$BASE_URL/v1/uploads/confirm" \
-        -H "Authorization: Bearer $API_KEY" \
-        -H "Content-Type: application/json" \
-        -d "$confirm_body") || err="上传确认请求失败"
-
-      if [ -z "$err" ]; then
-        confirmed=$(echo "$confirm_res" | jq -r '.data.confirmed // empty')
-        if [ "$confirmed" != "true" ]; then
-          err="上传确认失败：$confirm_res"
-        fi
+      oss_key=$(echo "$upload_res" | jq -r '.data.oss_key // empty')
+      confirmed=$(echo "$upload_res" | jq -r '.data.confirmed // false')
+      if [ -z "$oss_key" ] || [ "$confirmed" != "true" ]; then
+        err="API 中转上传返回异常：$upload_res"
       fi
     fi
 

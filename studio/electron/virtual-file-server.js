@@ -639,121 +639,79 @@ class VirtualFileSystem {
   // =====================================================
   
   async createDefaultStructure() {
-    const defaultDirs = [
-      '/projects',
-      '/素材',
-      '/草稿',
-      '/配置',
-      '/脚本',
-      '/模板',
-      '/输出',
-      '/音频',
-      '/字幕',
-      '/转录',
-    ]
-    
-    for (const dir of defaultDirs) {
-      await this.mkdir(dir, true)
-    }
-    
-    // 默认配置
-    await this.writeJSON('/配置/default.json', {
-      pipeline: {
-        remove_keyword: '转场',
-        margin: 0.15,
-        min_segment_duration: 0.1,
-      },
-      asr: {
-        model: 'large-v3',
-        device: 'cuda',
-        language: 'zh',
-      },
-      subtitle: {
-        effect: 'ad',
-        font_size: 88,
-      },
-      audio: {
-        bgm_volume: 0.3,
-        original_volume: 1.0,
-      },
-    })
-    
-    // 视频模板
-    await this.writeJSON('/模板/speaking_video.json', {
-      description: '口播视频模板',
-      config: {
-        pipeline: { remove_keyword: '转场，好，那么', margin: 0.2 },
-        subtitle: { effect: 'ad', font_size: 96 },
-      },
-    })
-    
-    await this.writeJSON('/模板/documentary.json', {
-      description: '纪录片风格模板',
-      config: {
-        pipeline: { remove_keyword: '转场', margin: 0.15 },
-        subtitle: { effect: 'classic', font_size: 80 },
-      },
-    })
+    // 项目是唯一的顶层组织单位，子目录按项目使用情况创建。
+    return true
   }
 
   async createVideoProject(projectName, config = {}) {
     // 项目直接创建在根目录下，不需要 /projects 前缀
     const projectPath = `/${projectName}`
     
+    // 目录本身就是项目；文案、场景素材和成片目录在首次使用时按需生成。
     await this.mkdir(projectPath, true)
-    await this.mkdir(`${projectPath}/原始视频`, true)
-    await this.mkdir(`${projectPath}/剪辑视频`, true)
-    await this.mkdir(`${projectPath}/输出`, true)
-    
-    await this.writeJSON(`${projectPath}/project.json`, {
-      name: projectName,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      config: {
-        pipeline: {
-          remove_keyword: '转场',
-          margin: 0.15,
-          min_segment_duration: 0.1,
-        },
-        audio: {
-          bgm_volume: 0.3,
-          original_volume: 1.0,
-        },
-        ...config,
-      },
-      scenes: [],
-    })
     
     return projectPath
   }
 
   async getVideoProjects() {
     const projects = []
-    // 项目直接在根目录下，获取根目录
-    const rootDir = this.getDirectory('/')
-    
-    if (rootDir) {
-      for (const childPath of rootDir.children) {
-        if (this.directories.has(childPath)) {
-          const projectConfig = this.getFile(`${childPath}/project.json`)
-          if (projectConfig) {
-            try {
-              const config = JSON.parse(projectConfig.content)
-              projects.push({
-                name: config.name || childPath.split('/').pop(),
-                path: childPath,
-                config,
-                createdAt: config.createdAt,
-                updatedAt: config.updatedAt,
-              })
-            } catch (e) {
-              // 忽略无效配置
-            }
-          }
-        }
+    const seenPaths = new Set()
+    const now = new Date().toISOString()
+    const excludedFolders = new Set(projectStructure.PROJECT_DISCOVERY_EXCLUDED_FOLDERS || [])
+
+    const latestTimestamp = (values, fallback) => {
+      const valid = values
+        .filter(Boolean)
+        .map(value => ({ value, time: new Date(value).getTime() }))
+        .filter(item => Number.isFinite(item.time))
+        .sort((a, b) => a.time - b.time)
+      return valid.length > 0 ? valid[valid.length - 1].value : fallback
+    }
+
+    const readLegacyConfig = (projectPath) => {
+      const projectConfig = this.getFile(`${projectPath}/project.json`)
+      if (!projectConfig || typeof projectConfig.content !== 'string') return null
+      try {
+        return JSON.parse(projectConfig.content)
+      } catch (e) {
+        return null
       }
     }
-    
+
+    const collectProject = (childPath, isWorkspaceRoot) => {
+      if (seenPaths.has(childPath) || !this.directories.has(childPath)) return
+      const name = childPath.split('/').pop()
+      if (isWorkspaceRoot && excludedFolders.has(name)) return
+
+      const directory = this.getDirectory(childPath)
+      const legacyConfig = readLegacyConfig(childPath)
+      const fileTimestamps = [...this.files.values()]
+        .filter(file => file.path.startsWith(`${childPath}/`))
+        .flatMap(file => [file.updatedAt, file.createdAt])
+      const createdAt = legacyConfig?.createdAt || directory?.createdAt || now
+      const updatedAt = latestTimestamp(
+        [legacyConfig?.updatedAt, directory?.updatedAt, ...fileTimestamps],
+        createdAt,
+      )
+
+      seenPaths.add(childPath)
+      projects.push({
+        name: legacyConfig?.name || name,
+        path: childPath,
+        // 旧项目配置只读不写；新项目不再依赖或生成它。
+        config: legacyConfig || {},
+        createdAt,
+        updatedAt,
+      })
+    }
+
+    const rootDir = this.getDirectory('/')
+    if (rootDir) {
+      for (const childPath of rootDir.children) {
+        collectProject(childPath, true)
+      }
+    }
+
     return projects.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
   }
 
@@ -1217,16 +1175,10 @@ class VirtualFileServer {
       console.log(`  健康检查：       http://localhost:${CONFIG.PORT}/health`)
       console.log('')
       console.log('虚拟目录结构:')
-      console.log('  /projects    - 视频项目')
-      console.log('  /素材        - 原始素材')
-      console.log('  /草稿        - 草稿文件')
-      console.log('  /配置        - 配置文件')
-      console.log('  /脚本        - 脚本文件')
-      console.log('  /模板        - 模板文件')
-      console.log('  /输出        - 输出文件')
-      console.log('  /音频        - 音频文件')
-      console.log('  /字幕        - 字幕文件')
-      console.log('  /转录        - 转录文件')
+      console.log('  /<项目名>          - 项目根目录')
+      console.log('  /<项目名>/文案     - 文案和数字人视频')
+      console.log('  /<项目名>/场景素材 - 模板混剪素材')
+      console.log('  /<项目名>/成片     - 输出视频')
       console.log('=============================================')
     })
     

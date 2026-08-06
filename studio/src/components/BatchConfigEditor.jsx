@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { X, AlertTriangle, Info, CheckCircle, Trash2, FolderOpen, ArrowUp, Lightbulb, Search, Eye, Settings, Wrench, Check, XCircle, Folder, Film, FileText, Music, Book, Clapperboard, Send, Download, RefreshCw } from 'lucide-react'
+import { relayUpload } from '../api/api'
 
 // =====================================================
 // 验证级别标签组件
@@ -1248,54 +1249,8 @@ function BatchConfigValidator({ config, onChange, vfs, className, apiBaseUrl, ap
   
   // 上传文件到 OSS
   const uploadFile = async (fileBlob, filename, purpose = 'input') => {
-    // 1. 获取预签名 URL
-    const presignRes = await fetch(`${apiBaseUrl}/v1/uploads/presign`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        filename: filename,
-        content_type: fileBlob.type || 'application/octet-stream',
-        purpose: purpose,
-      }),
-    })
-    
-    if (!presignRes.ok) {
-      throw new Error('获取上传 URL 失败')
-    }
-    
-    const presignData = await presignRes.json()
-    const { upload_url, oss_key, upload_id } = presignData.data
-    
-    // 2. 上传文件到 OSS
-    const uploadRes = await fetch(upload_url, {
-      method: 'PUT',
-      headers: { 'Content-Type': fileBlob.type || 'application/octet-stream' },
-      body: fileBlob,
-    })
-    
-    if (!uploadRes.ok) {
-      throw new Error('文件上传失败')
-    }
-    
-    // 3. 确认上传
-    const confirmRes = await fetch(`${apiBaseUrl}/v1/uploads/confirm`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ upload_id }),
-    })
-    
-    if (!confirmRes.ok) {
-      throw new Error('确认上传失败')
-    }
-    
-    const confirmData = await confirmRes.json()
-    return confirmData.data.oss_key
+    const payload = await relayUpload(fileBlob, filename, purpose, { apiBaseUrl, apiKey })
+    return payload.data.oss_key
   }
   
   // ✅ 核心修复：正确地将虚拟文件系统文件读取为 Blob

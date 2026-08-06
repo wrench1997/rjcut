@@ -131,6 +131,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   // 获取 MCP 服务器状态
   mcpGetStatus: () => ipcRenderer.invoke('mcp:getStatus'),
+  probeMediaDuration: (filePath) => ipcRenderer.invoke('video:probeDuration', filePath),
+  previewTranscode: (payload) => ipcRenderer.invoke('video:previewTranscode', payload),
+  nativeCompose: (payload) => ipcRenderer.invoke('video:nativeCompose', payload),
   
   // ==================== 平台信息 ====================
   

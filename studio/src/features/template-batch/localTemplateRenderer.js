@@ -1,3 +1,6 @@
+import { normalizeTemplateTimeline } from './templateTimeline.js'
+import { loadSubtitleConfig } from '../../utils/subtitleConfig.js'
+
 function decodeJsonBytes(raw) {
   if (typeof raw === 'string') return JSON.parse(raw)
   return JSON.parse(new TextDecoder().decode(raw))
@@ -25,41 +28,31 @@ function dirname(path) {
   return parts.join('/') || '/'
 }
 
-function normalizeTimeline(timeline) {
-  if (!timeline || typeof timeline !== 'object') throw new Error('timeline.json 无效')
-  if (!Array.isArray(timeline.segments) || timeline.segments.length === 0) {
-    throw new Error('timeline.json 中没有 segments')
-  }
-
-  const segments = timeline.segments.map((segment, index) => {
-    const startMs = Math.round(Number(segment.start_ms ?? Number(segment.start || 0) * 1000))
-    const endMs = Math.round(Number(segment.end_ms ?? Number(segment.end || 0) * 1000))
-    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
-      throw new Error(`第 ${index + 1} 段时间无效：${startMs} - ${endMs}`)
-    }
-    return {
-      ...segment,
-      start_ms: startMs,
-      end_ms: endMs,
-      start: startMs / 1000,
-      end: endMs / 1000,
-      duration_ms: endMs - startMs,
-      duration: (endMs - startMs) / 1000,
-      type: segment.type === 'scene' ? 'scene' : 'human',
-    }
-  })
-
-  return { ...timeline, segments }
-}
-
 export async function renderLocalTemplateTask(task, vfs, onProgress = () => {}) {
   if (!task?.vfsVideoPath) throw new Error('任务缺少数字人视频路径')
   if (!task?.vfsTimelinePath && !task?.vfsScriptPath) throw new Error('任务缺少 timeline.json 路径')
   if (!task?.outputPath) throw new Error('任务缺少唯一 outputPath')
 
   const timelinePath = task.vfsTimelinePath || task.vfsScriptPath
-  const timeline = normalizeTimeline(decodeJsonBytes(await vfs.readFile(timelinePath)))
+  const timeline = normalizeTemplateTimeline(decodeJsonBytes(await vfs.readFile(timelinePath)))
   await ensureDirectory(vfs, dirname(task.outputPath))
+  const quality = task.globalParams?.pipeline?.render_quality || 'balanced'
+  if (typeof window !== 'undefined' && window.electronAPI?.nativeCompose) {
+    onProgress(10, '原生 FFmpeg 后台合成')
+    // 字幕样式以 rjcut_global_params_v1 为唯一来源（与高级剪辑预览、模板混剪
+    // 抽屉里 GlobalParamsVisualEditor 看到的值保持一致）。draft 里的 subtitle
+    // 字段仅作为兜底，作用是兼容老任务（task 仍带旧 draft 的 globalParams，
+    // 且 localStorage 可能还没迁移）。如果两个源都有值，localStorage 优先。
+    const subtitleFromStorage = loadSubtitleConfig()
+    const draftSubtitle = task.globalParams?.subtitle
+    const hasDraftSubtitle = draftSubtitle && Object.keys(draftSubtitle).length > 0
+    const mergedSubtitle = hasDraftSubtitle
+      ? { ...draftSubtitle, ...subtitleFromStorage }
+      : subtitleFromStorage
+    await window.electronAPI.nativeCompose({ videoPath: task.vfsVideoPath, outputPath: task.outputPath, timeline, quality, subtitle: mergedSubtitle })
+    onProgress(100, '原生合成完成')
+    return { outputPath: task.outputPath, renderReportPath: '', outputBytes: 0, transitionCount: timeline.segments.filter((item) => item.type === 'scene').length }
+  }
   onProgress(5, '读取数字人视频')
 
   const digitalHumanBlob = await vfs.readFileAsBlob(task.vfsVideoPath)
@@ -121,6 +114,7 @@ export async function renderLocalTemplateTask(task, vfs, onProgress = () => {}) 
       useTransitions: pipeline.use_transitions ?? false,
       transitionType: pipeline.transition_type || 'fade',
       transitionDuration: pipeline.transition_duration ?? 0.5,
+      renderQuality: pipeline.render_quality || 'balanced',
       bgmFile,
       bgmVolume: task.audioConfig?.bgmVolume ?? 0.3,
       originalVolume: task.audioConfig?.originalVolume ?? 1.0,

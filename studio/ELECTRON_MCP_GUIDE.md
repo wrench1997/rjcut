@@ -134,7 +134,7 @@ curl http://localhost:8001/health
   "params": {
     "name": "fs_read",
     "arguments": {
-      "path": "/projects/my-video/script.json"
+      "path": "/my-video/文案/script.json"
     }
   }
 }

@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">RJCut Studio</title>
+  <desc id="desc">A video editing film strip with a play button</desc>
+  <defs>
+    <linearGradient id="background" x1="120" y1="80" x2="900" y2="944" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2563EB"/>
+      <stop offset="1" stop-color="#7C3AED"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="230" y1="260" x2="780" y2="760" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#172554"/>
+      <stop offset="1" stop-color="#1E1B4B"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="224" fill="#0F172A"/>
+  <rect x="64" y="64" width="896" height="896" rx="192" fill="url(#background)"/>
+  <rect x="152" y="208" width="720" height="608" rx="96" fill="#F8FAFC"/>
+  <rect x="224" y="280" width="576" height="464" rx="52" fill="url(#panel)"/>
+
+  <g fill="#2563EB">
+    <rect x="184" y="276" width="48" height="88" rx="16"/>
+    <rect x="184" y="468" width="48" height="88" rx="16"/>
+    <rect x="184" y="660" width="48" height="88" rx="16"/>
+    <rect x="792" y="276" width="48" height="88" rx="16"/>
+    <rect x="792" y="468" width="48" height="88" rx="16"/>
+    <rect x="792" y="660" width="48" height="88" rx="16"/>
+  </g>
+
+  <circle cx="512" cy="512" r="164" fill="#F8FAFC"/>
+  <path d="M468 394L468 630L670 512L468 394Z" fill="#2563EB"/>
+  <path d="M468 394L468 630L670 512L468 394Z" fill="#60A5FA" opacity=".42"/>
+</svg>

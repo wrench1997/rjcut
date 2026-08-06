@@ -174,7 +174,7 @@ const filePath = await window.electronAPI.openFile({
 })
 if (filePath) {
   // 直接复制到项目目录
-  const destPath = `/projects/my-project/${path.basename(filePath)}`
+  const destPath = `/my-project/文案/${path.basename(filePath)}`
   await window.electronAPI.copy(filePath, destPath)
 }
 ```

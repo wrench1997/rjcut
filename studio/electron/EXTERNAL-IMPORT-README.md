@@ -12,7 +12,7 @@
 > ❌ AI 无法访问本地文件，需要你手动复制粘贴
 
 **现在：**
-> "请分析 C:\Users\admin\Desktop\New folder2 文件夹，然后智能组织到 /projects/我的新项目 中"
+> "请分析 C:\Users\admin\Desktop\New folder2 文件夹，然后智能组织到 /我的新项目 中"
 > 
 > ✅ AI 可以直接分析、分类、导入文件！
 
@@ -125,8 +125,8 @@ await mcpClient.callTool('vfs_import_external', {
 
 | flag 类型 | 说明 | 目标文件夹 |
 |----------|------|-----------|
-| `human` | 数字人出镜视频 | `原始视频/` |
-| `scene` | 场景展示视频 | `剪辑视频/` |
+| `human` | 数字人出镜视频 | `文案/` |
+| `scene` | 场景展示视频 | `场景素材/` |
 
 **其他文件分类规则：**
 | 文件类型 | 扩展名 | 目标文件夹 |
@@ -151,20 +151,20 @@ await mcpClient.callTool('vfs_import_external', {
 // 智能组织到新项目（自动检测 script.json）
 await mcpClient.callTool('vfs_smart_organize', {
   externalPath: 'C:\\Users\\admin\\Desktop\\New folder2',
-  projectPath: '/projects/我的新项目'
+  projectPath: '/我的新项目'
 })
 
 // 导入到现有项目，不创建子文件夹
 await mcpClient.callTool('vfs_smart_organize', {
   externalPath: 'C:\\Users\\admin\\Desktop\\混用素材',
-  projectPath: '/projects/已有项目',
+  projectPath: '/已有项目',
   createSubfolders: false
 })
 
-// 禁用脚本分析（所有视频都放到原始视频）
+// 禁用脚本分析（所有视频都放到文案）
 await mcpClient.callTool('vfs_smart_organize', {
   externalPath: 'C:\\Users\\admin\\Desktop\\素材包',
-  projectPath: '/projects/项目',
+  projectPath: '/项目',
   useScriptAnalysis: false
 })
 ```
@@ -174,7 +174,7 @@ await mcpClient.callTool('vfs_smart_organize', {
 🎯 智能组织完成
 ━━━━━━━━━━━━━━━━━━━━━━
 📥 源路径：C:\Users\admin\Desktop\New folder2
-📤 项目路径：/projects/我的新项目
+📤 项目路径：/我的新项目
 ✅ 检测到脚本文件：C:\...\script.json
    - human 视频（数字人）：2 个
    - scene 视频（场景）：7 个
@@ -182,8 +182,8 @@ await mcpClient.callTool('vfs_smart_organize', {
 📊 总文件数：45
 
 📁 分类结果:
-  🎬 原始视频 (human)：2 个
-  🎬 剪辑视频 (scene)：7 个
+  🎬 文案目录视频 (human)：2 个
+  🎬 场景素材目录视频 (scene)：7 个
   🎵 音频素材：8 个
   🖼️  图片素材：15 个
   📄 文案文档：5 个
@@ -197,11 +197,11 @@ await mcpClient.callTool('vfs_smart_organize', {
 🎯 智能组织完成
 ━━━━━━━━━━━━━━━━━━━━━━
 📥 源路径：C:\Users\admin\Desktop\素材包
-📤 项目路径：/projects/我的新项目
+📤 项目路径：/我的新项目
 📊 总文件数：45
 
 📁 分类结果:
-  🎬 原始视频：12 个    （所有视频默认放这里）
+  🎬 文案目录视频：12 个    （所有视频默认放这里）
   🎵 音频素材：8 个
   🖼️  图片素材：15 个
   📄 文案文档：5 个
@@ -272,13 +272,13 @@ const result = await mcpClient.callTool('vfs_smart_organize', {
 })
 
 // 组织后的项目结构：
-// /projects/鹿茸血带货视频/
+// /鹿茸血带货视频/
 //   ├── script.json          ← 脚本文件放主目录
 //   ├── 背景音乐.mp3         ← 音频放主目录
 //   ├── 字幕.srt             ← 字幕放主目录
-//   ├── 原始视频/
+//   ├── 文案/
 //   │   └── 数字人播报.mp4   ← human 类型
-//   └── 剪辑视频/
+//   └── 场景素材/
 //       ├── 割二杠鹿茸.mp4   ← scene 类型
 //       └── 鹿茸血.mp4       ← scene 类型
 ```
@@ -331,14 +331,14 @@ for (const folder of folders) {
 请帮我处理 C:\Users\admin\Desktop\New folder2 这个文件夹：
 
 1. 先用 vfs_analyze_external 分析一下里面有什么文件
-2. 然后用 vfs_smart_organize 把文件智能组织到 /projects/新视频项目 中
+2. 然后用 vfs_smart_organize 把文件智能组织到 /新视频项目 中
 3. 最后用 vfs_list 查看一下项目结构
 ```
 
 或者更简单的：
 
 ```
-把 C:\Users\admin\Desktop\素材包 里的所有视频和音频文件导入到 /projects/我的项目 中
+把 C:\Users\admin\Desktop\素材包 里的所有视频和音频文件导入到 /我的项目 中
 ```
 
 ---

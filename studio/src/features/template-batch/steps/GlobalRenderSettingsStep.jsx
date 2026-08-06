@@ -2,11 +2,12 @@
  * 模板混剪 - 步骤 4：全局成片设置
  * 整合字幕外观、背景音乐、转场机制、输出与生成设置
  */
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Type, Music, Film, Settings, Check } from 'lucide-react'
 import GlobalParamsVisualEditor from '../../../components/GlobalParamsVisualEditor.jsx'
 import BackgroundMusicPanel from '../BackgroundMusicPanel.jsx'
 import CorrectionDictionaryEditor from '../CorrectionDictionaryEditor.jsx'
+import { STORAGE_KEY as SUBTITLE_STORAGE_KEY } from '../../../utils/subtitleConfig.js'
 
 const TABS = [
   { id: 'subtitle', label: '字幕外观', icon: Type },
@@ -25,6 +26,23 @@ export default function GlobalRenderSettingsStep({
   isGenerating,
 }) {
   const [activeTab, setActiveTab] = useState('subtitle')
+
+  // 与 OutputSettingsDrawer 保持一致：把 draft 旧值一次性迁移到
+  // rjcut_global_params_v1，避免用户切到 GlobalRenderSettingsStep 时仍看到老数据。
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.localStorage) return
+    try {
+      const stored = window.localStorage.getItem(SUBTITLE_STORAGE_KEY)
+      const draftParams = draft?.outputConfig?.globalParams
+      if (!stored && draftParams) {
+        window.localStorage.setItem(SUBTITLE_STORAGE_KEY, JSON.stringify(draftParams))
+        console.log('[GlobalRenderSettingsStep] 已把 draft.globalParams 迁移到 localStorage')
+      }
+    } catch (error) {
+      console.warn('[GlobalRenderSettingsStep] 迁移 draft -> localStorage 失败：', error)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const handleUpdateGlobalParams = (newParams) => {
     updateDraft((d) => ({
@@ -129,10 +147,10 @@ export default function GlobalRenderSettingsStep({
       <div className="bg-white border border-slate-200 border-t-0 rounded-b-xl p-4 min-h-[400px]">
         {activeTab === 'subtitle' && (
           <GlobalParamsVisualEditor
-            value={draft.outputConfig?.globalParams || null}
+            value={null}
             defaultConfig={template?.defaultGlobalParams || null}
-            persist={false}
-            storageKey={null}
+            persist={true}
+            storageKey={SUBTITLE_STORAGE_KEY}
             onChange={handleUpdateGlobalParams}
             className="border-0 shadow-none"
           />
@@ -249,6 +267,22 @@ export default function GlobalRenderSettingsStep({
               </h4>
 
               <div className="space-y-4">
+                <div>
+                  <label className="text-xs font-medium text-slate-600 block mb-2">本地渲染质量</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      ['performance', '性能优先', '最快，适合批量预览'],
+                      ['balanced', '均衡', '速度和清晰度兼顾'],
+                      ['quality', '高质量', '更清晰，但耗时更长'],
+                    ].map(([value, label, hint]) => {
+                      const selected = (draft.outputConfig?.globalParams?.pipeline?.render_quality || 'balanced') === value
+                      return <button key={value} type="button" onClick={() => handleUpdateGlobalParams({ ...draft.outputConfig?.globalParams, pipeline: { ...draft.outputConfig?.globalParams?.pipeline, render_quality: value } })}
+                        className={`p-2 rounded-lg border-2 text-left transition-all ${selected ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-600 hover:border-blue-300'}`}>
+                        <span className="block text-sm font-medium">{label}</span><span className="block text-xs opacity-70 mt-1">{hint}</span>
+                      </button>
+                    })}
+                  </div>
+                </div>
                 {/* 同时生成数量 */}
                 <div>
                   <label className="text-xs font-medium text-slate-600 block mb-2">

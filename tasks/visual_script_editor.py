@@ -22,7 +22,6 @@ from quota import confirm_quota, refund_quota
 from oss import (
     is_oss_key, 
     presigned_get_url, 
-    presigned_put_url, 
     upload_file_to_oss,
     download_file_from_oss,
 )

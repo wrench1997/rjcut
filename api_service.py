@@ -2,7 +2,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from redis import Redis
 from rq import Queue
@@ -13,8 +13,6 @@ from database import get_db
 from models import Merchant, Task, TaskStatus, UploadRecord
 from schemas import (
     AgentComposeRequest,
-    PresignedUploadRequest,
-    UploadConfirmRequest,
     TaskCancelRequest,
     AgentDraftRequest,
     DraftUpdateRequest,
@@ -28,11 +26,9 @@ from quota import check_quota, check_concurrent_limit, reserve_quota, refund_quo
 from oss import (
     ensure_bucket, 
     generate_oss_key, 
-    presigned_put_url, 
     presigned_get_url, 
-    get_object_info,
+    get_minio_client,
     calculate_file_hash,
-    find_existing_file_by_hash,
     delete_expired_files,
     get_storage_stats,
 )
@@ -53,7 +49,7 @@ from batch_validator import BatchTaskValidator, validate_batch_config_file
 
 import json
 from typing import Optional
-from fastapi import FastAPI, Depends, Query, Request
+from fastapi import FastAPI, Depends, File, Form, Query, Request, UploadFile
 from sqlalchemy import cast, String
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -85,6 +81,61 @@ app.include_router(dh_router)
 # 🖼️ 单独注册不需要认证的代理图片接口（在 router 之后注册，覆盖需要认证版本）
 from api_digital_human import proxy_image_no_auth
 app.get("/v1/dh/proxy-image", include_in_schema=False)(proxy_image_no_auth)
+
+
+# ============================================================
+# 蝉镜(数字人) 通用反向代理：/dh/{rest}  ->  CHANJING_BASE_URL/{rest}
+# 公网用户通过已暴露的后端端口(8801)即可访问数字人接口与产物，
+# 无需为内网 8080 单独开 FRP / EIP 端口映射——由后端在 151 本机中转到 8080。
+# 说明：此路由为免认证透传（与 /v1/dh/proxy-image 一致），与本地直连蝉镜的行为相同。
+# 如需防止匿名调用生成接口，可给本路由加 dependencies=[Depends(verify_api_key)]，
+# 并在前端 requestJson 里带 Authorization: Bearer <key>。
+# ============================================================
+import httpx as _httpx
+
+_DH_STRIP = {
+    "host", "content-length", "connection", "transfer-encoding",
+    "keep-alive", "te", "trailers", "proxy-authorization", "proxy-authenticate",
+}
+
+
+@app.api_route(
+    "/dh/{rest:path}",
+    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"],
+    include_in_schema=False,
+)
+async def proxy_to_chanjing(rest: str, request: Request):
+    base = (settings.CHANJING_BASE_URL or "http://192.168.166.151:8080").rstrip("/")
+    target = f"{base}/{rest.lstrip('/')}"
+    if request.url.query:
+        target = f"{target}?{request.url.query}"
+
+    fwd_headers = {k: v for k, v in request.headers.items() if k.lower() not in _DH_STRIP}
+    body = await request.body()
+
+    client = _httpx.AsyncClient(timeout=_httpx.Timeout(connect=30.0, read=1800.0, write=1800.0, pool=30.0))
+    try:
+        upstream_req = client.build_request(
+            request.method, target, headers=fwd_headers, content=body if body else None
+        )
+        upstream = await client.send(upstream_req, stream=True)
+    except Exception as exc:
+        await client.aclose()
+        return JSONResponse(status_code=502, content={"code": 50200, "message": f"数字人代理失败：{exc}", "data": None})
+
+    # 透传响应头（去掉 hop-by-hop 与 content-length，保留 content-encoding 等），
+    # 用 aiter_raw 原样流式透传，由客户端按 content-encoding 自行解压。
+    resp_headers = {k: v for k, v in upstream.headers.items() if k.lower() not in _DH_STRIP}
+
+    async def _stream():
+        try:
+            async for chunk in upstream.aiter_raw():
+                yield chunk
+        finally:
+            await upstream.aclose()
+            await client.aclose()
+
+    return StreamingResponse(_stream(), status_code=upstream.status_code, headers=resp_headers)
 
 
 @app.exception_handler(UnicodeDecodeError)
@@ -246,129 +297,86 @@ def get_merchant_info(
     })
 
 
-@app.post("/v1/uploads/presign")
-def create_presign(
-    req: PresignedUploadRequest,
+@app.post("/v1/uploads/relay")
+async def relay_upload(
+    file: UploadFile = File(...),
+    purpose: str = Form("input"),
     merchant: Merchant = Depends(verify_api_key),
     db: Session = Depends(get_db),
 ):
     """
-    创建预签名上传 URL
-    
-    支持文件 hash 去重：如果同一商户上传过相同 hash 的文件，
-    可直接返回已有文件的下载 URL，无需重复上传。
+    通过 API 地址接收文件并转存到 MinIO。
+
+    桌面端上传不应直接依赖后端生成的 MinIO 外部地址，因为该地址
+    可能无法被用户电脑解析或被系统代理拦截。此接口让客户端只访问
+    系统设置中的 API 基础地址，MinIO 仅由服务端访问。
     """
     settings = get_settings()
-    
-    # 如果提供了文件 hash，先检查是否已存在
-    if req.file_hash and settings.FILE_ENABLE_DEDUPLICATION:
-        existing = find_existing_file_by_hash(db, merchant.id, req.file_hash)
-        if existing:
-            # 文件已存在，直接返回已有文件的下载 URL
-            download_url = presigned_get_url(existing.oss_key, expires=3600, filename=existing.original_filename)
-            return ok({
-                "upload_id": existing.id,
-                "oss_key": existing.oss_key,
-                "download_url": download_url,
-                "is_duplicate": True,
-                "message": "文件已存在，无需重复上传",
-                "original_upload_time": existing.created_at.isoformat(),
-            })
-    
-    # 计算过期时间
-    from datetime import timedelta
-    expires_at = datetime.now(timezone.utc) + timedelta(days=settings.FILE_STORAGE_DAYS)
-    
-    # 生成新的上传 URL
-    oss_key = generate_oss_key(merchant.id, req.purpose, req.filename, req.file_hash)
-    upload_url = presigned_put_url(oss_key, expires=3600)
+    filename = file.filename or "upload.bin"
+    content_type = file.content_type or "application/octet-stream"
 
+    await file.seek(0)
+    file_size = file.size
+    if file_size is None:
+        current_position = file.file.tell()
+        file.file.seek(0, 2)
+        file_size = file.file.tell()
+        file.file.seek(current_position)
+
+    max_file_size = settings.FILE_MAX_SIZE_MB * 1024 * 1024
+    if file_size > max_file_size:
+        await file.close()
+        return fail(
+            41300,
+            f"文件过大 ({file_size / 1024 / 1024:.1f}MB)，限制为 {settings.FILE_MAX_SIZE_MB}MB",
+            status_code=413,
+        )
+
+    oss_key = generate_oss_key(merchant.id, purpose, filename)
+    from datetime import timedelta
     record = UploadRecord(
         merchant_id=merchant.id,
-        original_filename=req.filename,
+        original_filename=filename,
         oss_key=oss_key,
-        content_type=req.content_type,
-        upload_type="presigned",
-        presigned_url=upload_url,
-        file_hash=req.file_hash,  # 记录文件 hash
-        expires_at=expires_at,  # 设置过期时间
+        content_type=content_type,
+        upload_type="api_relay",
+        file_hash=None,
+        expires_at=datetime.now(timezone.utc) + timedelta(days=settings.FILE_STORAGE_DAYS),
     )
     db.add(record)
-    db.commit()
-    db.refresh(record)
 
-    return ok({
-        "upload_id": record.id,
-        "upload_url": upload_url,
-        "oss_key": oss_key,
-        "method": "PUT",
-        "expires_in": 3600,
-        "is_duplicate": False,
-        "storage_expires_at": expires_at.isoformat(),
-    })
-
-
-@app.post("/v1/uploads/confirm")
-def confirm_upload(
-    req: UploadConfirmRequest,
-    merchant: Merchant = Depends(verify_api_key),
-    db: Session = Depends(get_db),
-):
-    """
-    确认上传完成
-    
-    如果上传时未提供 file_hash，这里会计算并检查是否重复。
-    如果是重复文件，会清理新上传的文件并返回已有文件信息。
-    """
-    settings = get_settings()
-    record = (
-        db.query(UploadRecord)
-        .filter(UploadRecord.id == req.upload_id, UploadRecord.merchant_id == merchant.id)
-        .first()
-    )
-    if not record:
-        return fail(40400, "upload record not found", status_code=404)
-
-    info = get_object_info(record.oss_key)
-    if not info:
-        return fail(40401, "uploaded object not found", status_code=404)
-
-    # 🟢 严格限制文件大小
-    MAX_FILE_SIZE = settings.FILE_MAX_SIZE_MB * 1024 * 1024
-    if info["size"] > MAX_FILE_SIZE:
-        # 删除超限文件
-        from oss import get_minio_client
+    uploaded = False
+    client = None
+    try:
+        db.flush()
         client = get_minio_client()
-        client.remove_object(settings.MINIO_BUCKET, record.oss_key)
-        db.delete(record)
+        client.put_object(
+            settings.MINIO_BUCKET,
+            oss_key,
+            data=file.file,
+            length=file_size,
+            content_type=content_type,
+        )
+        uploaded = True
+        record.is_confirmed = True
+        record.size_bytes = file_size
         db.commit()
-        return fail(41300, f"文件过大 ({(info['size']/1024/1024):.1f}MB)，限制为 {settings.FILE_MAX_SIZE_MB}MB", status_code=413)
-
-    # 如果还没有 hash，尝试计算（适用于本地上传场景）
-    # 注意：presigned 上传时文件不在服务器，无法计算 hash
-    # 所以 hash 应该在客户端计算后通过 presign 请求传入
-    record.is_confirmed = True
-    record.size_bytes = info["size"]
-    
-    # 如果记录中没有 hash 且启用了去重，需要检查是否有其他相同 hash 的文件
-    if not record.file_hash and settings.FILE_ENABLE_DEDUPLICATION:
-        # 这种情况理论上不应该发生，因为 hash 应该在 presign 时提供
-        # 但为了兼容旧逻辑，不做处理
-        pass
-    
-    db.add(record)
-    db.commit()
-
-    response_data = {
-        "upload_id": record.id,
-        "oss_key": record.oss_key,
-        "size": record.size_bytes,
-        "confirmed": True,
-        "file_hash": record.file_hash,
-        "expires_at": record.expires_at.isoformat() if record.expires_at else None,
-    }
-
-    return ok(response_data)
+        return ok({
+            "upload_id": record.id,
+            "oss_key": record.oss_key,
+            "size": record.size_bytes,
+            "confirmed": True,
+        })
+    except Exception:
+        db.rollback()
+        if uploaded and client is not None:
+            try:
+                client.remove_object(settings.MINIO_BUCKET, oss_key)
+            except Exception:
+                pass
+        raise
+    finally:
+        await file.close()
 
 
 @app.post("/v1/tasks/agent-compose")
@@ -1361,5 +1369,3 @@ def create_visual_script_editor_task(
         "trace_id": trace_id,
         "estimated_seconds": 300,  # 预计 5 分钟（视频分析需要时间）
     }, trace_id=trace_id)
-
-

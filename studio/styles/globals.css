@@ -541,6 +541,17 @@ body {
   background: #f3f4f6;
 }
 
+.context-menu-item-primary {
+  color: #146fd1;
+  background: #eef6ff;
+  font-weight: 700;
+}
+
+.context-menu-item-primary:hover {
+  color: #0b5db9;
+  background: #dceeff;
+}
+
 .context-menu-item.danger {
   color: #dc2626;
 }

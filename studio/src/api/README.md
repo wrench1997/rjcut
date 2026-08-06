@@ -1,6 +1,6 @@
 # API 模块说明
 
-本模块实现了与后端 API 的完整交互，支持**大文件分片上传**和**任务取消**功能。
+本模块实现了与后端 API 的完整交互，支持通过系统 API 地址中转文件上传和任务取消。
 
 ## 📁 文件结构
 
@@ -15,22 +15,12 @@ src/api/
 
 ## ✨ 核心特性
 
-### 1. 大文件分片上传
+### 1. 文件上传
 
-- **阈值**: 5MB
-- **分片大小**: 5MB
-- **并发控制**: 每个文件最多 3 个分片同时上传
-- **自动合并**: 上传完成后自动调用后端接口合并分片
-
-**工作原理**:
+所有文件统一提交到系统配置的 API 地址，由后端中转到对象存储。前端不再获取预签名上传地址，也不再直接请求对象存储。
 
 ```javascript
-// 小文件 (< 5MB) - 直接上传
-presignUpload → PUT → confirmUpload
-
-// 大文件 (>= 5MB) - 分片上传
-initMultipartUpload → getMultipartPresignedUrls → 
-  [PUT part1, PUT part2, ...] → completeMultipartUpload
+relayUpload(file, filename, purpose)
 ```
 
 ### 2. AbortController 取消任务
@@ -148,11 +138,7 @@ function MyComponent() {
 - `getMerchantInfo()` - 获取商户信息和配额
 
 ### 文件上传
-- `presignUpload(filename, content_type, purpose)` - 获取小文件预签名 URL
-- `confirmUpload(upload_id)` - 确认小文件上传完成
-- `initMultipartUpload(filename, content_type, purpose, parts_count)` - 初始化分片上传
-- `getMultipartPresignedUrls(upload_id, part_numbers)` - 获取分片上传 URLs
-- `completeMultipartUpload(upload_id, parts)` - 完成分片上传
+- `relayUpload(file, filename, purpose)` - 通过系统 API 地址上传文件并返回对象存储 key
 
 ### 任务管理
 - `createDraftTask(payload)` - 创建草稿任务
@@ -164,18 +150,6 @@ function MyComponent() {
 - `getTaskList(limit)` - 获取任务列表
 
 ## 🔧 配置项
-
-### CHUNK_SIZE (BatchTaskRunner.js)
-分片大小，默认 5MB
-```javascript
-const CHUNK_SIZE = 5 * 1024 * 1024;
-```
-
-### CHUNK_CONCURRENCY (BatchTaskRunner.js)
-单个文件分片并发数，默认 3
-```javascript
-const CHUNK_CONCURRENCY = 3;
-```
 
 ### 轮询间隔 (BatchTaskRunner.js)
 任务状态轮询间隔，默认 3000ms
@@ -202,9 +176,8 @@ const interval = setInterval(async () => {
 
 1. **API Key 管理**: 使用 `setApiKey(apiKey)` 设置 API Key，不要硬编码在代码中
 2. **错误处理**: 所有错误都会在任务卡片中显示
-3. **内存管理**: 大文件使用 `Blob.slice()` 切割，不会导致 OOM
-4. **浏览器限制**: Chrome 同一域名最多 6 个 HTTP 连接，已通过 `pLimit` 控制并发
-5. **配额保护**: 取消任务时会通知后端，保护商户 Quota
+3. **内存管理**: 上传请求使用浏览器的 `File`/`Blob` 流程，不在前端构造对象存储上传地址
+4. **配额保护**: 取消任务时会通知后端，保护商户 Quota
 
 ## 🛠️ 依赖
 

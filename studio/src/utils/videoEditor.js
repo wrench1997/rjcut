@@ -3,12 +3,11 @@
  * 使用 @ffmpeg/ffmpeg 和 @ffmpeg/util 进行客户端视频处理
  */
 
-import { FFmpeg } from '@ffmpeg/ffmpeg'
-import { fetchFile, toBlobURL } from '@ffmpeg/util'
-
 class VideoEditor {
   constructor() {
-    this.ffmpeg = null
+    this.worker = null
+    this.pending = new Map()
+    this.nextId = 1
     this.loaded = false
     this.onProgress = null
   }
@@ -19,28 +18,31 @@ class VideoEditor {
   async load() {
     if (this.loaded) return
 
-    const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm'
+    // 核心文件随应用放在 public/wasm 中；禁止在运行时依赖 CDN。
+    const assetPath = '/wasm/ffmpeg-core'
+    // Electron 的 module Worker 会把以 / 开头的动态 import 当作 Node 路径。
+    // 传完整 HTTP URL 才能稳定加载 Next 提供的本地静态文件。
+    const baseURL = typeof window !== 'undefined' && window.location?.origin
+      ? `${window.location.origin}${assetPath}`
+      : assetPath
 
-    this.ffmpeg = new FFmpeg()
-
-    // 监听日志
-    this.ffmpeg.on('log', ({ message }) => {
-      console.log('[FFmpeg]', message)
-    })
-
-    // 监听进度
-    this.ffmpeg.on('progress', ({ progress, time }) => {
-      console.log('[FFmpeg Progress]', progress, time)
-      if (this.onProgress) {
-        this.onProgress(progress, time)
-      }
-    })
+    this.worker = new Worker(`${baseURL}/ffmpeg-worker.js`)
+    this.worker.onmessage = ({ data }) => {
+      if (data.type === 'progress') { this.onProgress?.(data.data.progress, data.data.time); return }
+      if (data.type === 'log') { console.log('[FFmpeg]', data.data.message); return }
+      const pending = this.pending.get(data.id)
+      if (!pending) return
+      this.pending.delete(data.id)
+      data.type === 'error' ? pending.reject(new Error(data.data.message)) : pending.resolve(data.data)
+    }
 
     // 加载核心
-    await this.ffmpeg.load({
-      coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-      wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
-    })
+    try {
+      await this._send('load', { coreURL: `${baseURL}/ffmpeg-core.js`, wasmURL: `${baseURL}/ffmpeg-core.wasm` })
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      throw new Error(`离线 FFmpeg 核心加载失败（${baseURL}）：${detail}`)
+    }
 
     this.loaded = true
     console.log('[VideoEditor] FFmpeg loaded')
@@ -58,7 +60,8 @@ class VideoEditor {
    */
   async writeFile(name, data) {
     if (!this.loaded) await this.load()
-    await this.ffmpeg.writeFile(name, await fetchFile(data))
+    const bytes = data instanceof Uint8Array ? data : new Uint8Array(await data.arrayBuffer())
+    await this._send('write', { path: name, file: bytes }, [bytes.buffer])
   }
 
   /**
@@ -66,7 +69,7 @@ class VideoEditor {
    */
   async readFile(name, type = 'blob') {
     if (!this.loaded) await this.load()
-    const data = await this.ffmpeg.readFile(name)
+    const data = await this._send('read', { path: name })
     if (type === 'blob') {
       return new Blob([data.buffer], { type: 'video/mp4' })
     }
@@ -79,10 +82,19 @@ class VideoEditor {
   async deleteFile(name) {
     if (!this.loaded) await this.load()
     try {
-      await this.ffmpeg.deleteFile(name)
+      await this._send('delete', { path: name })
     } catch (e) {
       console.warn('[VideoEditor] deleteFile error:', e)
     }
+  }
+
+  /** 执行一条原始 FFmpeg 参数数组命令。 */
+  async exec(args) {
+    if (!this.loaded) await this.load()
+    if (!Array.isArray(args) || args.some((arg) => typeof arg !== 'string')) {
+      throw new Error('FFmpeg 命令参数必须是字符串数组')
+    }
+    return this._send('exec', { args })
   }
 
   /**
@@ -263,15 +275,23 @@ class VideoEditor {
    * 清理资源
    */
   async cleanup() {
-    if (this.ffmpeg) {
+    if (this.worker) {
       try {
-        await this.ffmpeg.terminate()
+        this.worker.terminate()
       } catch (e) {
         console.warn('[VideoEditor] cleanup error:', e)
       }
-      this.ffmpeg = null
+      this.worker = null
       this.loaded = false
     }
+  }
+
+  _send(type, data, transfer = []) {
+    return new Promise((resolve, reject) => {
+      const id = this.nextId++
+      this.pending.set(id, { resolve, reject })
+      this.worker.postMessage({ id, type, data }, transfer)
+    })
   }
 }
 

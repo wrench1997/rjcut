@@ -1,6 +1,6 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { getCommonPersons, getCustomPersons, getCommonPersonDetail, getCustomPersonDetail, getVoices, getImageProxyUrl, getBaseUrl } from '../api/api'
+import { getCommonPersons, getCustomPersons, getCommonPersonDetail, getCustomPersonDetail, getVoices, getDigitalHumanImageUrl } from '../api/api'
 import { getVFS } from '../utils/vfsClient'
 import { PROJECT_FOLDERS, buildVFSPath } from '../utils/project-structure'
 import { User, Mic, Check, X, Film, Download, AlertCircle, Loader2, Book, Inbox, Folder, AlertTriangle, Rocket, Settings, Sliders, Volume2, Type, Image, ChevronDown, ChevronUp, Maximize, Sparkles, Wand2, Store, FileText, Lightbulb, Package } from 'lucide-react'
@@ -43,15 +43,9 @@ function AvatarPicker({ persons, voices, selectedPerson, onSelectPerson, selecte
             >
               {person.cover_url ? (
                 <img 
-                  src={person.cover_url.startsWith('/v1/dh/proxy-image') ? `${getBaseUrl()}${person.cover_url}` : (getImageProxyUrl(person.cover_url) || person.cover_url)} 
+                  src={getDigitalHumanImageUrl(person.cover_url)}
                   alt={person.name} 
                   className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110" 
-                  onError={(e) => {
-                    // 如果代理失败，尝试使用原始 URL 作为远程 HTTP 地址（如果有）
-                    if (person.cover_url.startsWith('http://') || person.cover_url.startsWith('https://')) {
-                      e.target.src = person.cover_url;
-                    }
-                  }}
                 />
               ) : (
                 <div className="w-full h-full bg-gradient-to-br from-slate-200 to-slate-300 flex items-center justify-center text-slate-400">
@@ -827,13 +821,13 @@ function SavePathConfig({ selectedProject, setSelectedProject, projects, onGener
           <p className="text-[10px] text-slate-500 mt-1">选择要保存数字人视频的项目</p>
         </div>
         {onNavigateToFiles && selectedProject && (
-          <Tooltip tip={`跳转到文件浏览器查看：${selectedProject.path}/剪辑视频`} delay={1000}>
+          <Tooltip tip={`跳转到文件浏览器查看：${selectedProject.path}/${PROJECT_FOLDERS.EDITED_VIDEO}`} delay={1000}>
             <button
               onClick={() => onNavigateToFiles(`${selectedProject.path}/${PROJECT_FOLDERS.EDITED_VIDEO}`)}
               className="text-xs bg-blue-100 text-blue-700 px-2.5 py-1.5 rounded-md hover:bg-blue-200 transition-colors flex items-center gap-1"
             >
               <Folder size={12} />
-              查看：{selectedProject.path}/剪辑视频
+              查看：{selectedProject.path}/{PROJECT_FOLDERS.EDITED_VIDEO}
             </button>
           </Tooltip>
         )}
@@ -849,7 +843,7 @@ function SavePathConfig({ selectedProject, setSelectedProject, projects, onGener
             <div className="text-xs text-slate-500 p-2">加载中...</div>
           ) : projects.length === 0 ? (
             <div className="text-xs text-amber-600 p-2 bg-amber-50 rounded border border-amber-200" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <AlertTriangle size={12} /> 暂无项目，请先在文件浏览器中创建视频项目
+              <AlertTriangle size={12} /> 暂无项目，请先在“项目”中创建项目
             </div>
           ) : (
             <select
@@ -882,14 +876,14 @@ function SavePathConfig({ selectedProject, setSelectedProject, projects, onGener
             <li>选择数字人和声音</li>
             <li>输入批量文案</li>
             <li>选择要保存到的项目</li>
-            <li>点击生成，视频保存到项目 剪辑视频 目录</li>
+            <li>点击生成，视频保存到项目 场景素材 目录</li>
             <li>前往【批量处理】进行后期合成</li>
           </ol>
         </div>
       </div>
 
       <div className="p-4 border-t border-slate-100 bg-slate-50">
-        <Tooltip tip="开始生成数字人视频，视频将保存到所选项目的剪辑视频目录" delay={1000}>
+        <Tooltip tip="开始生成数字人视频，视频将保存到所选项目的场景素材目录" delay={1000}>
           <button
             onClick={onGenerate}
             disabled={isGenerating || !selectedProject}
@@ -906,7 +900,7 @@ function SavePathConfig({ selectedProject, setSelectedProject, projects, onGener
           </button>
         </Tooltip>
         <p className="text-[10px] text-slate-400 text-center mt-2">
-          视频将保存到所选项目的 剪辑视频 目录
+          视频将保存到所选项目的 场景素材 目录
         </p>
       </div>
     </div>
@@ -1014,7 +1008,7 @@ function PipelineProgress({ tasks, generatedVideos, onClose, onMinimize, onPrevi
         {allDone && (
           <div className="p-4 border-t border-slate-100 bg-green-50">
             <p className="text-sm text-green-700 text-center">
-              ✓ 所有视频已生成完成，已保存到项目的 <strong>剪辑视频</strong> 目录
+              ✓ 所有视频已生成完成，已保存到项目的 <strong>场景素材</strong> 目录
             </p>
           </div>
         )}
@@ -1249,7 +1243,7 @@ function AIScriptForm({ template, productInfo, setProductInfo, onSubmit, onCance
 请直接输出完整口播文案。
 请按自然语义分段；禁止把导演口令写进口播。
 剪辑意图由结构化 segments 表达；不要在 spoken_text 中写镜头说明。
-全文控制在 450～650 字。
+全文控制在 300 字。
 语言必须口语化，像真人一镜到底口播，节奏要快，句子不要太长。
 
 ## 产品信息
@@ -2064,9 +2058,12 @@ const [cRes, pRes, vRes] = [commonPersonsRes, customPersonsRes, voicesRes]
       const apiKey = localStorage.getItem('rjcut_api_key')
       const vfs = getVFS()
       
-      // 使用所选项目的 剪辑视频 目录作为保存路径
-      const projectName = selectedProject.name || selectedProject.path.replace('/projects/', '').split('/')[0]
-      const savePath = buildVFSPath(projectName, PROJECT_FOLDERS.EDITED_VIDEO)
+      // 以用户选择的 VFS 项目实际路径为准。
+      const projectName = selectedProject.name || '未命名项目'
+      const selectedProjectPath = String(selectedProject.path || '').replace(/\/+$/, '')
+      const savePath = selectedProjectPath
+        ? `${selectedProjectPath}/${PROJECT_FOLDERS.EDITED_VIDEO}`
+        : buildVFSPath(projectName, PROJECT_FOLDERS.EDITED_VIDEO)
       
       console.log('[DigitalHumanStudio] 开始生成流程，保存路径:', savePath)
       
@@ -2408,5 +2405,3 @@ const [cRes, pRes, vRes] = [commonPersonsRes, customPersonsRes, voicesRes]
     </div>
   )
 }
-
-

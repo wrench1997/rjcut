@@ -4,8 +4,9 @@
  */
 import { useState, useCallback, useEffect } from 'react'
 import { getTemplateById } from '../templateRegistry.js'
-import { CirclePlus, X, Play, Trash2, Upload, FileVideo, Sparkles, Loader2, ArrowUp, WandSparkles, BadgeCheck, AlertTriangle, Layers, Film, FolderOpen } from 'lucide-react'
+import { CirclePlus, X, Play, Trash2, Upload, FileVideo, Sparkles, Loader2, ArrowUp, WandSparkles, BadgeCheck, AlertTriangle, Layers, Film, FolderOpen, House } from 'lucide-react'
 import { aiSuggestSlotFiles } from '../aiAssistant.js'
+import { getSceneMaterialsPathFromVideo } from '../../../utils/project-structure.js'
 
 export default function FillTemplateSlotsStep({ draft, updateDraft, vfs }) {
   const template = getTemplateById(draft.templateId)
@@ -186,6 +187,7 @@ export default function FillTemplateSlotsStep({ draft, updateDraft, vfs }) {
       {showFolderPicker && (
         <VfsFolderPicker
           vfs={vfs}
+          initialPath={getSceneMaterialsPathFromVideo(draft.avatarVideo?.path) || '/'}
           onSelect={handleFolderSelected}
           onCancel={() => setShowFolderPicker(false)}
         />
@@ -458,7 +460,9 @@ function VfsFileBrowser({ vfs, currentPath, onSelect, onClose, acceptTypes }) {
                     className="flex items-center gap-3 p-3 hover:bg-slate-50 rounded-lg"
                     onDoubleClick={() => item.isDirectory && loadDirectory(item.path)}
                   >
-                    <span className="text-lg">{item.isDirectory ? '📁' : '📄'}</span>
+                    {item.isDirectory
+                      ? <FolderOpen size={20} className="text-amber-500 shrink-0" />
+                      : <FileVideo size={20} className="text-violet-500 shrink-0" />}
                     <span className="flex-1 text-sm text-slate-700">{item.name}</span>
                     {!item.isDirectory && item.size && (
                       <span className="text-xs text-slate-400">{(item.size / 1024 / 1024).toFixed(1)} MB</span>
@@ -557,8 +561,10 @@ function VideoPreviewModal({ videoPath, vfs, onClose }) {
 }/**
  * VFS 文件夹选择器弹窗（简化版文件浏览器）
  */
-function VfsFolderPicker({ vfs, onSelect, onCancel }) {
-  const [currentPath, setCurrentPath] = useState('/')
+function VfsFolderPicker({ vfs, initialPath, onSelect, onCancel }) {
+  const materialRoot = initialPath || '/'
+  const isProjectMaterialsRoot = materialRoot !== '/'
+  const [currentPath, setCurrentPath] = useState(materialRoot)
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(false)
   const [videoCount, setVideoCount] = useState(0)
@@ -594,12 +600,20 @@ function VfsFolderPicker({ vfs, onSelect, onCancel }) {
     }
   }
 
+  useEffect(() => {
+    // 有数字人视频时从其项目的“场景素材”进入，否则从项目根目录选择。
+    vfs.mkdir(materialRoot, true).then(() => loadDirectory(materialRoot)).catch((error) => {
+      console.error('[VfsFolderPicker] 初始化素材库失败:', error)
+      loadDirectory(materialRoot)
+    })
+  }, [vfs, materialRoot])
+
   const handleSelect = () => {
     onSelect(currentPath)
   }
 
   const goUp = () => {
-    if (currentPath !== '/') {
+    if (currentPath !== materialRoot) {
       const parentPath = currentPath.substring(0, currentPath.lastIndexOf('/')) || '/'
       navigateTo(parentPath)
     }
@@ -619,29 +633,17 @@ function VfsFolderPicker({ vfs, onSelect, onCancel }) {
         <div className="mb-4">
           <div className="flex items-center gap-2 mb-2">
             <button
-              className="px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded transition-colors"
-              onClick={() => navigateTo('/projects')}
+              className="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors inline-flex items-center gap-1.5"
+              onClick={() => navigateTo(materialRoot)}
             >
-              📁 项目
-            </button>
-            <button
-              className="px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded transition-colors"
-              onClick={() => navigateTo('/drafts')}
-            >
-              📁 草稿
-            </button>
-            <button
-              className="px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded transition-colors"
-              onClick={() => navigateTo('/')}
-            >
-              🏠 根目录
+              <House size={14} /> {isProjectMaterialsRoot ? '当前项目场景素材' : '项目根目录'}
             </button>
           </div>
           <div className="flex items-center gap-2 p-2 bg-slate-50 rounded-lg border border-slate-200">
             <button
               className="p-1 hover:bg-slate-200 rounded disabled:opacity-30"
               onClick={goUp}
-              disabled={currentPath === '/'}
+              disabled={currentPath === materialRoot}
             >
               <ArrowUp size={16} />
             </button>

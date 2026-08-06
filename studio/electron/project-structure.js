@@ -5,10 +5,11 @@
  * 
  * 项目目录结构：
  * C:\Users\admin\Documents\剪辑工作室\项目名\
- * ├── project.json          # 项目配置文件
- * ├── 原始视频/             # human 类型视频（数字人出镜）
- * ├── 剪辑视频/             # scene 类型视频（场景展示）
- * └── 输出/                 # 渲染输出文件
+ * ├── 文案/                 # 文案、数字人生成视频等输入（按需创建）
+ * ├── 场景素材/             # 模板混剪使用的场景素材（按需创建）
+ * └── 成片/                 # 渲染输出文件（按需创建）
+ *
+ * 目录本身就是项目，不再生成 project.json 项目标记文件。
  */
 
 const path = require('path')
@@ -17,17 +18,25 @@ const path = require('path')
  * 项目子目录名称常量
  */
 const PROJECT_FOLDERS = {
-  RAW_VIDEO: '原始视频',    // human 类型视频（数字人出镜）
-  EDITED_VIDEO: '剪辑视频', // scene 类型视频（场景展示）
-  OUTPUT: '输出',           // 渲染输出文件
+  RAW_VIDEO: '文案',        // 文案、数字人生成视频等输入
+  EDITED_VIDEO: '场景素材', // 模板混剪使用的场景素材
+  OUTPUT: '成片',           // 渲染输出文件
 }
 
+// 根目录下这些目录属于素材库或历史容器，不应被识别为视频项目。
+const PROJECT_DISCOVERY_EXCLUDED_FOLDERS = [
+  '素材库', '素材', '草稿', '配置', '脚本', '模板', '输出', '音频', '字幕', '转录',
+  '项目', 'projects', '回收站', '文案', '场景素材', '成片',
+]
+
 /**
- * 项目必需文件
+ * 旧项目文件名，仅用于兼容和界面隐藏；不是新项目的必需文件。
  */
 const PROJECT_FILES = {
-  CONFIG: 'project.json',   // 项目配置文件
+  CONFIG: 'project.json',
 }
+
+const PROJECT_METADATA_FILES = Object.values(PROJECT_FILES)
 
 /**
  * 获取项目文件夹名称列表
@@ -40,7 +49,7 @@ function getProjectFolderNames() {
  * 获取项目必需文件列表
  */
 function getProjectFileNames() {
-  return Object.values(PROJECT_FILES)
+  return []
 }
 
 /**
@@ -71,8 +80,8 @@ function buildProjectSubPath(baseRoot, projectName, folderType) {
 /**
  * 构建 VFS 虚拟路径
  * @param {string} projectName - 项目名称
- * @param {string} subPath - 可选的子路径（例如 '原始视频' 或 '剪辑视频/xxx.mp4'）
- * @returns {string} VFS 虚拟路径（例如 /项目名/原始视频）
+ * @param {string} subPath - 可选的子路径（例如 '文案' 或 '场景素材/xxx.mp4'）
+ * @returns {string} VFS 虚拟路径（例如 /项目名/场景素材）
  */
 function buildVFSPath(projectName, subPath = '') {
   // 项目直接在根目录下，不需要 /projects 前缀
@@ -91,13 +100,16 @@ function buildVFSPath(projectName, subPath = '') {
  * @returns {string|null} 项目名称，如果路径无效则返回 null
  */
 function parseProjectNameFromVFS(vfsPath) {
-  if (!vfsPath || vfsPath === '/' || vfsPath.startsWith('/projects/')) {
+  if (!vfsPath || vfsPath === '/') {
     return null
   }
   // 移除前导斜杠，获取剩余部分
   const remaining = vfsPath.replace(/^\//, '')
   // 获取第一个路径段作为项目名
   const projectName = remaining.split('/')[0]
+  if (['项目', 'projects'].includes(projectName)) {
+    return null
+  }
   return projectName || null
 }
 
@@ -112,7 +124,7 @@ function validateVFSProjectPath(vfsPath) {
   if (!projectName) {
     return {
       isValid: false,
-      error: '路径必须以 /项目名 格式开头，不能是 /projects/ 前缀',
+      error: '路径必须以 /项目名 格式开头',
     }
   }
   
@@ -140,7 +152,7 @@ function validateVFSProjectPath(vfsPath) {
 
 /**
  * 将 VFS 项目路径转换为物理路径
- * @param {string} vfsPath - VFS 路径（例如 /项目名/原始视频）
+ * @param {string} vfsPath - VFS 路径（例如 /项目名/场景素材）
  * @param {string} baseRoot - 基础根目录（例如 C:\Users\admin\Documents\剪辑工作室）
  * @returns {string} 物理路径
  */
@@ -160,7 +172,9 @@ function vfsToPhysicalPath(vfsPath, baseRoot) {
 module.exports = {
   // 常量
   PROJECT_FOLDERS,
+  PROJECT_DISCOVERY_EXCLUDED_FOLDERS,
   PROJECT_FILES,
+  PROJECT_METADATA_FILES,
   
   // 工具函数
   getProjectFolderNames,

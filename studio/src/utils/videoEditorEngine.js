@@ -8,6 +8,7 @@
 
 import initFfmpeg, * as Ffmpeg from '../../wasm/ffmpeg-bridge/pkg/ffmpeg_bridge.js'
 import initVideoEngine, * as VideoEngine from '../../wasm/video-engine/pkg/video_engine.js'
+import { videoEditor } from './videoEditor.js'
 
 class VideoEditorEngine {
   constructor() {
@@ -73,14 +74,13 @@ class VideoEditorEngine {
     task.add_input_file('input.mp4', fileData)
 
     // 构建命令
-    const cmd = Ffmpeg.build_trim_command(
+    const args = this._buildTrimArgs(
       'input.mp4',
       'output.mp4',
       startTime,
       duration,
-      useStreamCopy
+      useStreamCopy,
     )
-    const args = JSON.parse(cmd).args
     task.set_args_json(JSON.stringify(args))
     task.set_output_file('output.mp4')
 
@@ -95,7 +95,7 @@ class VideoEditorEngine {
    * @param {Array<File|Blob>} videoFiles - 视频文件列表
    * @returns {Promise<Blob>} - 合并后的视频
    */
-  async mergeVideos(videoFiles, width = 1920, height = 1080, fps = 30) {
+  async mergeVideos(videoFiles, width = 1920, height = 1080, fps = 30, duration = 0) {
     const task = new Ffmpeg.FfmpegTask('merge_' + Date.now(), 0)
 
     // 添加所有输入文件
@@ -107,18 +107,24 @@ class VideoEditorEngine {
       fileNames.push(fileName)
     }
 
-    // 生成 concat 列表
-    const concatList = Ffmpeg.generate_concat_list(JSON.stringify(fileNames))
-    const concatFileName = 'concat_list.txt'
-    task.add_input_file(concatFileName, new TextEncoder().encode(concatList))
-
-    // 按 timeline 的真实画布参数合并，避免竖屏视频被强制成横屏。
-    const cmd = Ffmpeg.build_concat_command(
-      concatFileName,
-      'output.mp4',
-      width, height, fps, 5000, 192
-    )
-    const args = JSON.parse(cmd).args
+    // 不使用 concat demuxer：各段来自不同裁切/场景编码，原始 PTS 与
+    // time_base 可能不同，直接拼接会把中间段跳过或错位。先把每路 PTS
+    // 归零，再用 concat 滤镜按画面与音频一起拼接。
+    const normalizedInputs = fileNames.map((_, index) =>
+      `[${index}:v:0]setpts=PTS-STARTPTS[v${index}];[${index}:a:0]asetpts=PTS-STARTPTS[a${index}]`,
+    ).join(';')
+    const concatInputs = fileNames.map((_, index) => `[v${index}][a${index}]`).join('')
+    const args = [
+      ...fileNames.flatMap((fileName) => ['-i', fileName]),
+      '-filter_complex', `${normalizedInputs};${concatInputs}concat=n=${fileNames.length}:v=1:a=1[outv][outa]`,
+      '-map', '[outv]',
+      '-map', '[outa]',
+      '-c:v', 'libx264', ...this._encodingArgs(),
+      '-pix_fmt', 'yuv420p', '-r', String(fps),
+      '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart',
+      ...(Number.isFinite(Number(duration)) && Number(duration) > 0 ? ['-t', String(duration)] : []),
+      '-y', 'output.mp4',
+    ]
     task.set_args_json(JSON.stringify(args))
     task.set_output_file('output.mp4')
 
@@ -151,14 +157,14 @@ class VideoEditorEngine {
       const task = new Ffmpeg.FfmpegTask(`cut_${i}_${Date.now()}`, 0)
       task.add_input_file('input.mp4', fileData)
 
-      const cmd = Ffmpeg.build_trim_command(
+      const args = this._buildTrimArgs(
         'input.mp4',
         `output_${i}.mp4`,
         startTime,
         duration,
-        false
+        false,
+        true,
       )
-      const args = JSON.parse(cmd).args
       task.set_args_json(JSON.stringify(args))
       task.set_output_file(`output_${i}.mp4`)
 
@@ -194,6 +200,7 @@ class VideoEditorEngine {
       bgmVolume = 0.3,
       originalVolume = 1.0
     } = options
+    this.renderQuality = options.renderQuality || 'balanced'
 
     const segments = timeline.segments || []
     const videoInfo = timeline.video_info || {}
@@ -254,7 +261,11 @@ class VideoEditorEngine {
         fps
       )
     } else {
-      mergedVideo = await this.mergeVideos(renderClips, width, height, fps)
+      const timelineDuration = segments.reduce((max, segment) => {
+        const end = Number(segment.end ?? Number(segment.end_ms) / 1000)
+        return Number.isFinite(end) ? Math.max(max, end) : max
+      }, 0)
+      mergedVideo = await this.mergeVideos(renderClips, width, height, fps, timelineDuration)
     }
 
     // 3. 添加背景音乐（如果提供）
@@ -288,12 +299,10 @@ class VideoEditorEngine {
       '-i', 'scene.mp4',
       '-i', 'audio.mp4',
       '-t', duration.toFixed(4),
-      '-vf', `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black,fps=${fps},format=yuv420p`,
+      '-vf', `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black,fps=${fps},setpts=N/(${fps}*TB),format=yuv420p`,
       '-map', '0:v',
       '-map', '1:a',
-      '-c:v', 'libx264',
-      '-preset', 'fast',
-      '-crf', '18',
+      '-c:v', 'libx264', ...this._encodingArgs(),
       '-c:a', 'aac',
       '-b:a', '192k',
       '-ar', '44100',
@@ -303,7 +312,10 @@ class VideoEditorEngine {
       'output.mp4'
     ]
 
-    task.set_args_json(JSON.stringify({ args }))
+    // ffmpeg-bridge 的 Rust 侧反序列化目标是 Vec<String>，必须传纯数组。
+    // 传 { args } 会在执行场景替换时变成无效参数，最终报
+    // "expected a string argument, found undefined"。
+    task.set_args_json(JSON.stringify(args))
     task.set_output_file('output.mp4')
 
     return await this._runTask(task)
@@ -331,7 +343,7 @@ class VideoEditorEngine {
       fps
     )
 
-    task.set_args_json(JSON.stringify({ args }))
+    task.set_args_json(JSON.stringify(args))
     task.set_output_file('output.mp4')
 
     return await this._runTask(task)
@@ -348,15 +360,16 @@ class VideoEditorEngine {
       args.push('-i', `clip_${i}.mp4`)
     }
 
-    const concatInputs = Array.from({ length: clipCount }, (_, index) => `[${index}:v][${index}:a]`).join('')
+    const normalizedInputs = Array.from({ length: clipCount }, (_, index) =>
+      `[${index}:v:0]setpts=PTS-STARTPTS[v${index}];[${index}:a:0]asetpts=PTS-STARTPTS[a${index}]`,
+    ).join(';')
+    const concatInputs = Array.from({ length: clipCount }, (_, index) => `[v${index}][a${index}]`).join('')
     args.push(
       '-filter_complex',
-      `${concatInputs}concat=n=${clipCount}:v=1:a=1[outv][outa]`,
+      `${normalizedInputs};${concatInputs}concat=n=${clipCount}:v=1:a=1[outv][outa]`,
       '-map', '[outv]',
       '-map', '[outa]',
-      '-c:v', 'libx264',
-      '-preset', 'fast',
-      '-crf', '18',
+      '-c:v', 'libx264', ...this._encodingArgs(),
       '-pix_fmt', 'yuv420p',
       '-c:a', 'aac',
       '-b:a', '192k',
@@ -392,7 +405,7 @@ class VideoEditorEngine {
       'output.mp4'
     ]
 
-    task.set_args_json(JSON.stringify({ args }))
+    task.set_args_json(JSON.stringify(args))
     task.set_output_file('output.mp4')
 
     return await this._runTask(task)
@@ -678,62 +691,93 @@ class VideoEditorEngine {
   }
 
   /**
+   * 构建裁切参数。
+   * build_trim_command 当前返回的是 FfmpegCommand 描述对象，和其他
+   * build_*_command 返回的 { args } 包装格式不一致；直接读取 .args 会得到
+   * undefined，并在 wasm-bindgen 边界报 "expected a string argument"。
+   */
+  _buildTrimArgs(inputName, outputName, startTime, duration, useStreamCopy = false, loopInput = false) {
+    const start = Number(startTime)
+    const length = Number(duration)
+    if (!Number.isFinite(start) || start < 0 || !Number.isFinite(length) || length <= 0) {
+      throw new Error(`无效的裁切范围：${startTime} - ${duration}`)
+    }
+
+    return [
+      ...(loopInput ? ['-stream_loop', '-1'] : []),
+      '-ss', start.toFixed(6),
+      '-i', String(inputName),
+      '-t', length.toFixed(6),
+      '-c:v', useStreamCopy ? 'copy' : 'libx264',
+      ...(useStreamCopy ? [] : this._encodingArgs()),
+      '-c:a', useStreamCopy ? 'copy' : 'aac',
+      '-movflags', '+faststart',
+      '-avoid_negative_ts', 'make_zero',
+      '-y', String(outputName),
+    ]
+  }
+
+  _encodingArgs() {
+    const profiles = {
+      performance: ['-preset', 'ultrafast', '-crf', '28'],
+      balanced: ['-preset', 'veryfast', '-crf', '23'],
+      quality: ['-preset', 'medium', '-crf', '18'],
+    }
+    return profiles[this.renderQuality] || profiles.balanced
+  }
+
+  /**
    * 运行 FFmpeg 任务
    */
   async _runTask(task) {
-    return new Promise((resolve, reject) => {
-      const maxIterations = 10000
-      let iterations = 0
+    // FfmpegTask 只负责生成状态机消息；之前这里未实际派发消息给 Worker，
+    // 导致任务永远停在 Initializing，最终误报 Task timeout。
+    await videoEditor.load()
+    let outputData = null
+    let guard = 0
 
-      const runLoop = () => {
-        iterations++
-        if (iterations > maxIterations) {
-          reject(new Error('Task timeout'))
-          return
+    while (task.state !== Ffmpeg.TaskState.Done) {
+      if (task.state === Ffmpeg.TaskState.Failed) throw new Error(task.get_error() || 'FFmpeg 执行失败')
+      if (task.state === Ffmpeg.TaskState.Cancelled) throw new Error('FFmpeg 任务已取消')
+      if (++guard > 128) throw new Error('FFmpeg 状态机异常，未能完成任务')
+
+      const rawMessage = task.next_message()
+      if (!rawMessage) throw new Error('FFmpeg 状态机等待了未处理的响应')
+      const message = JSON.parse(rawMessage)
+      const payload = message.payload || {}
+
+      if (message.type === 'init') {
+        task.handle_message(JSON.stringify({ type: 'ready' }))
+      } else if (message.type === 'write_file') {
+        const data = task.get_input_file_data(payload.file_index)
+        if (!(data instanceof Uint8Array)) throw new Error(`FFmpeg 输入文件读取失败：${payload.name}`)
+        await videoEditor.writeFile(payload.name, data)
+        task.handle_message(JSON.stringify({ type: 'file_written', payload: { name: payload.name } }))
+      } else if (message.type === 'exec') {
+        const exitCode = await videoEditor.exec(payload.args)
+        task.handle_message(JSON.stringify({ type: 'exec_done', payload: { exit_code: exitCode } }))
+      } else if (message.type === 'read_file') {
+        outputData = await videoEditor.readFile(payload.name, 'uint8array')
+        if (!(outputData instanceof Uint8Array) || outputData.length === 0) {
+          throw new Error(`FFmpeg 未生成输出文件：${payload.name}`)
         }
-
-        try {
-          // 获取下一步消息
-          const message = task.next_message()
-          
-          if (task.state === Ffmpeg.TaskState.Done) {
-            // 任务完成，获取输出
-            const outputData = task.get_input_file_data(0)
-            if (outputData) {
-              const blob = new Blob([outputData], { type: 'video/mp4' })
-              resolve(blob)
-            } else {
-              reject(new Error('No output data'))
-            }
-            return
-          }
-
-          if (task.state === Ffmpeg.TaskState.Failed) {
-            reject(new Error(task.get_error() || 'Task failed'))
-            return
-          }
-
-          if (task.state === Ffmpeg.TaskState.Cancelled) {
-            reject(new Error('Task cancelled'))
-            return
-          }
-
-          // 获取进度
-          if (this.onProgress) {
-            const progressJson = task.progress_json()
-            const progress = JSON.parse(progressJson)
-            this.onProgress(progress)
-          }
-
-          // 模拟异步执行
-          setTimeout(runLoop, 10)
-        } catch (err) {
-          reject(err)
-        }
+        task.handle_message(JSON.stringify({ type: 'file_data', payload: { name: payload.name, size: outputData.length } }))
+      } else if (message.type === 'delete_files') {
+        await Promise.all((payload.names || []).map((name) => videoEditor.deleteFile(name)))
+      } else {
+        throw new Error(`不支持的 FFmpeg 状态机消息：${message.type}`)
       }
 
-      runLoop()
-    })
+      if (this.onProgress) {
+        const progress = JSON.parse(task.progress_json())
+        this.onProgress(progress.percent ? progress.percent / 100 : 0)
+      }
+    }
+
+    if (!(outputData instanceof Uint8Array) || outputData.length === 0) {
+      throw new Error('FFmpeg 未返回输出数据')
+    }
+    return new Blob([outputData], { type: 'video/mp4' })
   }
 
   /**
@@ -755,6 +799,8 @@ export default videoEditorEngine// =============================================
 // 后端 API 辅助函数（字幕识别等）
 // =====================================================
 
+import { getApiKey, getBaseUrl } from '../api/api'
+
 /**
  * 调用后端字幕识别 API
  * @param {string} videoUrl - 视频 URL
@@ -766,8 +812,8 @@ export async function transcribeVideo(videoUrl, options = {}) {
     modelSize = 'medium',
     language = 'zh',
     device = 'cuda',
-    apiKey = '',
-    baseUrl = 'http://localhost:8000'
+    apiKey = getApiKey(),
+    baseUrl = getBaseUrl()
   } = options
   
   const response = await fetch(`${baseUrl}/v1/dh/transcribe`, {

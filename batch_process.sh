@@ -64,18 +64,12 @@ upload_file() {
   local attempt=1
 
   while [ "$attempt" -le "$max_retries" ]; do
-    local presign_body presign_res upload_id upload_url oss_key
+    local upload_res oss_key confirmed
 
-    presign_body=$(jq -n \
-      --arg filename "$req_filename" \
-      --arg content_type "$content_type" \
-      --arg purpose "$purpose" \
-      '{filename:$filename, content_type:$content_type, purpose:$purpose}')
-
-    presign_res=$(curl -fsS -X POST "$BASE_URL/v1/uploads/presign" \
+    upload_res=$(curl -fsS -X POST "$BASE_URL/v1/uploads/relay" \
       -H "Authorization: Bearer $API_KEY" \
-      -H "Content-Type: application/json" \
-      -d "$presign_body" 2>/dev/null) || {
+      -F "file=@${file_path};filename=${req_filename};type=${content_type}" \
+      --form-string "purpose=$purpose" 2>/dev/null) || {
       if [ "$attempt" -lt "$max_retries" ]; then
         sleep $((attempt * 2))
         attempt=$((attempt + 1))
@@ -85,11 +79,10 @@ upload_file() {
       fi
     }
 
-    upload_id=$(echo "$presign_res" | jq -r '.data.upload_id // empty')
-    upload_url=$(echo "$presign_res" | jq -r '.data.upload_url // empty')
-    oss_key=$(echo "$presign_res" | jq -r '.data.oss_key // empty')
+    oss_key=$(echo "$upload_res" | jq -r '.data.oss_key // empty')
+    confirmed=$(echo "$upload_res" | jq -r '.data.confirmed // false')
 
-    if [ -z "$upload_id" ] || [ -z "$upload_url" ] || [ -z "$oss_key" ]; then
+    if [ -z "$oss_key" ] || [ "$confirmed" != "true" ]; then
       if [ "$attempt" -lt "$max_retries" ]; then
         sleep $((attempt * 2))
         attempt=$((attempt + 1))
@@ -99,38 +92,8 @@ upload_file() {
       fi
     fi
 
-    curl -fsS -X PUT "$upload_url" \
-      -H "Content-Type: $content_type" \
-      --upload-file "$file_path" >/dev/null 2>&1 || {
-      if [ "$attempt" -lt "$max_retries" ]; then
-        sleep $((attempt * 2))
-        attempt=$((attempt + 1))
-        continue
-      else
-        return 1
-      fi
-    }
-
-    local confirm_body confirm_res confirmed
-    confirm_body=$(jq -n --arg upload_id "$upload_id" '{upload_id:$upload_id}')
-    confirm_res=$(curl -fsS -X POST "$BASE_URL/v1/uploads/confirm" \
-      -H "Authorization: Bearer $API_KEY" \
-      -H "Content-Type: application/json" \
-      -d "$confirm_body" 2>/dev/null) || {
-      if [ "$attempt" -lt "$max_retries" ]; then
-        sleep $((attempt * 2))
-        attempt=$((attempt + 1))
-        continue
-      else
-        return 1
-      fi
-    }
-
-    confirmed=$(echo "$confirm_res" | jq -r '.data.confirmed // empty')
-    if [ "$confirmed" == "true" ]; then
-      echo "$oss_key"
-      return 0
-    fi
+    echo "$oss_key"
+    return 0
 
     attempt=$((attempt + 1))
     sleep $((attempt * 2))

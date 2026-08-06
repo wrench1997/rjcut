@@ -4,6 +4,8 @@
  * 提供 AI 推荐模板、AI 生成文案、AI 素材建议等功能
  */
 
+import { getApiKey, getBaseUrl } from '../../api/api'
+
 /**
  * 默认模板定义
  */
@@ -104,13 +106,8 @@ export function getTemplateConfig(templateId) {
  */
 export async function aiRecommendTemplates(productKeyword, category = '', templates = null) {
   // 使用 api 客户端调用后端 AI 推荐接口（自动携带 Authorization header）
-  const apiBaseUrl = typeof localStorage !== 'undefined' 
-    ? localStorage.getItem('rjcut_api_base_url') || 'http://192.168.166.151:8000'
-    : 'http://192.168.166.151:8000'
-  
-  const apiKey = typeof localStorage !== 'undefined'
-    ? localStorage.getItem('rjcut_api_key') || 'rjk_oG3u1bRu10myprstb5o2AYVW6v9HipNT33ALuJTmFxaqemUC'
-    : 'rjk_oG3u1bRu10myprstb5o2AYVW6v9HipNT33ALuJTmFxaqemUC'
+  const apiBaseUrl = getBaseUrl()
+  const apiKey = getApiKey()
   
   const requestBody = {
     product_keyword: productKeyword,
@@ -222,9 +219,8 @@ export async function aiGenerateScript({
   callToAction = '点击下方链接/评论区留言',
 }) {
   // 调用后端 AI 文案生成接口
-  const baseUrl = typeof localStorage !== 'undefined' 
-    ? localStorage.getItem('rjcut_api_base_url') || 'http://192.168.166.151:8000'
-    : 'http://192.168.166.151:8000'
+  const baseUrl = getBaseUrl()
+  const apiKey = getApiKey()
   
   try {
     const requestBody = {
@@ -253,7 +249,7 @@ export async function aiGenerateScript({
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer rjk_oG3u1bRu10myprstb5o2AYVW6v9HipNT33ALuJTmFxaqemUC',
+        'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify(requestBody),
     })
@@ -261,12 +257,16 @@ export async function aiGenerateScript({
     console.log('[AI 生成文案] 响应状态:', response.status)
     
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}))
+      const rawError = await response.text().catch(() => '')
+      let errorData = {}
+      try { errorData = rawError ? JSON.parse(rawError) : {} } catch (_) { errorData = { detail: rawError } }
       console.error('[AI 生成文案] 错误响应:', errorData)
       const detailMessage = typeof errorData.detail === 'string'
         ? errorData.detail
-        : errorData.detail?.message
-      throw new Error(errorData.message || detailMessage || `HTTP ${response.status}`)
+        : errorData.detail?.message || errorData.error?.message
+      const gatewayCode = errorData.error?.code ? `（${errorData.error.code}）` : ''
+      const traceId = errorData.error?.trace_id ? `，追踪号：${errorData.error.trace_id}` : ''
+      throw new Error(`${errorData.message || detailMessage || `HTTP ${response.status}`}${gatewayCode}${traceId}`)
     }
 
     const result = await response.json()
@@ -321,9 +321,8 @@ export async function aiGenerateTemplate({
   fileNames = [],  // 新增：文件名参考列表
 }) {
   // 调用后端 AI 接口
-  const baseUrl = typeof localStorage !== 'undefined' 
-    ? localStorage.getItem('rjcut_api_base_url') || 'http://192.168.166.151:8000'
-    : 'http://192.168.166.151:8000'
+  const baseUrl = getBaseUrl()
+  const apiKey = getApiKey()
   
   // 验证必填参数
   if (!productName || !productName.trim()) {
@@ -349,7 +348,7 @@ export async function aiGenerateTemplate({
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer rjk_oG3u1bRu10myprstb5o2AYVW6v9HipNT33ALuJTmFxaqemUC',
+        'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify(requestBody),
     })
@@ -425,13 +424,8 @@ async function getVideoDuration(file, vfs) {
  */
 export async function aiSuggestSlotFiles(files, slots, vfs = null) {
   // 调用后端 AI 接口分析视频内容
-  const apiBaseUrl = typeof localStorage !== 'undefined' 
-    ? localStorage.getItem('rjcut_api_base_url') || 'http://192.168.166.151:8000'
-    : 'http://192.168.166.151:8000'
-  
-  const apiKey = typeof localStorage !== 'undefined'
-    ? localStorage.getItem('rjcut_api_key') || 'rjk_oG3u1bRu10myprstb5o2AYVW6v9HipNT33ALuJTmFxaqemUC'
-    : 'rjk_oG3u1bRu10myprstb5o2AYVW6v9HipNT33ALuJTmFxaqemUC'
+  const apiBaseUrl = getBaseUrl()
+  const apiKey = getApiKey()
   
   // 准备请求数据 - 获取视频时长
   const videoFiles = await Promise.all(files.map(async (f) => {
@@ -575,14 +569,14 @@ export async function aiAutoCreateScene(template, availableFiles, vfs = null) {
     const slot = template.slots.find((s) => s.id === suggestion.slotId)
     if (!slot) return
 
-    bindings[suggestion.slotId] = {
+      bindings[suggestion.slotId] = {
       order: slot.order,
       title: slot.title,
-      files: suggestion.files.map((f) => ({
-        path: f.path,
-        name: f.name,
-        durationSeconds: null,
-      })),
+        files: suggestion.files.map((f) => ({
+          path: f.path,
+          name: f.name,
+          durationSeconds: f.durationSeconds ?? f.duration ?? null,
+        })),
     }
 
     if (suggestion.files.length > 0) {
@@ -600,4 +594,3 @@ export async function aiAutoCreateScene(template, availableFiles, vfs = null) {
     bindings,
   }
 }
-

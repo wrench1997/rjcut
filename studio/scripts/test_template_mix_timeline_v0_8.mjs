@@ -51,7 +51,7 @@ const project = buildDigitalHumanProject({
     char_timings: charTimings,
   },
   copywritingPlan: plan,
-  videoPath: '/12344/剪辑视频/test.mp4',
+  videoPath: '/12344/场景素材/test.mp4',
 })
 
 if (project.schema !== 'rjcut.digital-human-project/v2') {
@@ -89,7 +89,7 @@ const runA = pathModule.createTemplateRunId(1000)
 const runB = pathModule.createTemplateRunId(1000)
 if (runA === runB) throw new Error('runId must be unique')
 const taskPaths = pathModule.buildTemplateTaskPaths({
-  avatarVideoPath: '/12344/剪辑视频/avatar.mp4',
+  avatarVideoPath: '/12344/场景素材/avatar.mp4',
   templateId: 'deer',
   runId: runA,
   sceneId: 'scene_1',

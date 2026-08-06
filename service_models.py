@@ -33,7 +33,7 @@ class SubtitleConfig(BaseModel):
     highlight_color: str = "gold"
     font_url: Optional[str] = None
     font_size: int = 88
-    max_chars_per_line: int = 18
+    max_chars_per_line: int = 15
     position: str = "bottom"
     margin_v: int = 50
     margin_l: int = 10

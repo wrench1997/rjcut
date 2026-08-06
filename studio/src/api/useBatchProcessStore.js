@@ -1,7 +1,6 @@
 import { create } from 'zustand'
 import { getVFS } from '../utils/vfsClient'
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8001'
+import { getBaseUrl, relayUpload } from './api'
 
 const useBatchProcessStore = create((set, get) => ({
   tasks: [],
@@ -71,6 +70,7 @@ const useBatchProcessStore = create((set, get) => ({
     const vfs = getVFS()
 await vfs.init()
     const apiKey = localStorage.getItem('rjcut_api_key')
+    const apiBaseUrl = getBaseUrl()
     const abortSignal = get().abortController.signal
 
     let index = 0
@@ -81,7 +81,7 @@ await vfs.init()
       while (index < tasksQueue.length && !abortSignal.aborted) {
         const currentIndex = index++
         const task = tasksQueue[currentIndex]
-        await get().processTask(task, vfs, apiKey, abortSignal, globalParams)
+        await get().processTask(task, vfs, apiKey, abortSignal, globalParams, apiBaseUrl)
       }
     }
 
@@ -99,7 +99,7 @@ await vfs.init()
   },
 
   // 处理单个任务流程
-  processTask: async (task, vfs, apiKey, abortSignal, globalParams = null) => {
+  processTask: async (task, vfs, apiKey, abortSignal, globalParams = null, apiBaseUrl = getBaseUrl()) => {
     const { updateTask } = get()
     const taskId = task.id
 
@@ -140,7 +140,7 @@ await vfs.init()
       updateTask(taskId, { stage: 'uploading', progress: 5 })
 
       // ==========================================
-      // 内部助手函数：通用文件上传（基于后端预签名直传）
+      // 内部助手函数：通用文件上传（通过系统配置的 API relay）
       // ==========================================
       const uploadVfsFile = async (path, purpose) => {
         if (!path) return null
@@ -155,52 +155,18 @@ await vfs.init()
 
         const filename = path.split('/').pop()
 
-        // 1. 请求预签名上传 URL
-        const presignRes = await fetch(`${API_BASE_URL}/v1/uploads/presign`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${apiKey}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ 
-            filename, 
-            content_type: blob.type || 'application/octet-stream', 
-            purpose 
-          })
+        const payload = await relayUpload(blob, filename, purpose, {
+          signal: abortSignal,
+          apiBaseUrl,
+          apiKey,
         })
-        
-        if (!presignRes.ok) throw new Error(`获取上传链接失败: ${filename}`)
-        const presignData = await presignRes.json()
-        const { upload_url, oss_key, upload_id } = presignData.data
-
-        // 2. 将文件直接 PUT 到对象存储
-        const uploadRes = await fetch(upload_url, {
-          method: 'PUT',
-          headers: { 'Content-Type': blob.type || 'application/octet-stream' },
-          body: blob
-        })
-        
-        if (!uploadRes.ok) throw new Error(`文件上传失败: ${filename}`)
-
-        // 3. 通知后端确认上传
-        const confirmRes = await fetch(`${API_BASE_URL}/v1/uploads/confirm`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${apiKey}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ upload_id })
-        })
-        
-        if (!confirmRes.ok) throw new Error(`确认上传失败: ${filename}`)
-
-        return oss_key
+        return payload.data.oss_key
       }
 
       if (abortSignal.aborted) throw new Error('Aborted')
 
       // 获取商户 ID（用于场景 URL）
-      const merchantRes = await fetch(`${API_BASE_URL}/v1/merchant/info`, {
+      const merchantRes = await fetch(`${apiBaseUrl}/v1/merchant/info`, {
         headers: { 'Authorization': `Bearer ${apiKey}` }
       })
       if (!merchantRes.ok) throw new Error('获取商户信息失败')
@@ -237,7 +203,7 @@ await vfs.init()
         timeout_seconds: 1800
       }
 
-      const draftRes = await fetch(`${API_BASE_URL}/v1/tasks/agent-draft`, {
+      const draftRes = await fetch(`${apiBaseUrl}/v1/tasks/agent-draft`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${apiKey}`,
@@ -258,7 +224,7 @@ await vfs.init()
       // 轮询等待 Draft 任务完成 (40% - 70%)
       await get().pollTask(draftTaskId, apiKey, abortSignal, (prog) => {
         updateTask(taskId, { progress: 40 + (prog * 0.3) }) 
-      })
+      }, apiBaseUrl)
 
       if (abortSignal.aborted) throw new Error('Aborted')
 
@@ -301,14 +267,17 @@ await vfs.init()
           subtitle: {
             // 🎨 使用用户在 GlobalParamsVisualEditor 中配置的实际参数
             effect: taskGlobalParams?.subtitle?.effect || "ad",
-            font_size: taskGlobalParams?.subtitle?.font_size || 72,
+            font_family: taskGlobalParams?.subtitle?.font_family || "Microsoft YaHei",
+            font_weight: taskGlobalParams?.subtitle?.font_weight || "bold",
+            font_size: taskGlobalParams?.subtitle?.font_size || 68,
             position: taskGlobalParams?.subtitle?.position || "bottom",
             x_offset: taskGlobalParams?.subtitle?.x_offset || 0,
             y_offset: taskGlobalParams?.subtitle?.y_offset || -80,
             position_x: taskGlobalParams?.subtitle?.position_x ?? null,
             position_y: taskGlobalParams?.subtitle?.position_y ?? null,
             use_relative_pos: taskGlobalParams?.subtitle?.use_relative_pos ?? false,
-            color: taskGlobalParams?.subtitle?.color || "#FFFF00",
+            color: taskGlobalParams?.subtitle?.color || "#FFFFFF",
+            highlight_color: taskGlobalParams?.subtitle?.highlight_color || "#FFD400",
             stroke_color: taskGlobalParams?.subtitle?.stroke_color || "#000000",
             stroke_width: taskGlobalParams?.subtitle?.stroke_width || 3,
             background_color: taskGlobalParams?.subtitle?.background_color || "rgba(0, 0, 0, 0.4)",
@@ -316,7 +285,7 @@ await vfs.init()
             background_radius: taskGlobalParams?.subtitle?.background_radius || 8,
             line_spacing: taskGlobalParams?.subtitle?.line_spacing || 1.3,
             max_width: taskGlobalParams?.subtitle?.max_width || 95,
-            max_chars_per_line: taskGlobalParams?.subtitle?.max_chars_per_line || 18,  // 🎨 每行最大字符数（自动换行）
+            max_chars_per_line: taskGlobalParams?.subtitle?.max_chars_per_line || 15,  // 🎨 每行最大字符数（自动换行）
             word_by_word_highlight: taskGlobalParams?.subtitle?.word_by_word_highlight ?? true,  // 🎨 逐字高亮显示开关
             font_url: fontOssKey || taskGlobalParams?.subtitle?.font_url || null,  // 🎨 自定义字体文件上传
           },
@@ -338,7 +307,7 @@ await vfs.init()
           composeReq.audio.bgm_url = bgmOssKey
         }
 
-        const composeRes = await fetch(`${API_BASE_URL}/v1/tasks/compose-from-draft`, {
+        const composeRes = await fetch(`${apiBaseUrl}/v1/tasks/compose-from-draft`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${apiKey}`,
@@ -358,8 +327,8 @@ await vfs.init()
 
         // 轮询等待 Compose 任务完成 (70% - 100%)
         await get().pollTask(composeTaskId, apiKey, abortSignal, (prog) => {
-          updateTask(taskId, { progress: 70 + (prog * 0.3) }) 
-        })
+          updateTask(taskId, { progress: 70 + (prog * 0.3) })
+        }, apiBaseUrl)
 
         if (abortSignal.aborted) throw new Error('Aborted')
 
@@ -367,16 +336,24 @@ await vfs.init()
       }
 
     } catch (e) {
-      if (e.message !== 'Aborted') {
-        updateTask(taskId, { stage: 'failed', error: e.message })
+      const errorMessage = e instanceof Error
+        ? e.message
+        : (typeof e === 'string' ? e : JSON.stringify(e) || '本地渲染发生未知错误')
+      console.error('[BatchProcess] 任务失败', { taskId, error: e, errorMessage })
+      if (errorMessage !== 'Aborted') {
+        updateTask(taskId, {
+          stage: 'failed',
+          stageLabel: '本地渲染失败',
+          error: errorMessage,
+        })
       }
     }
   },
 
   // 轮询查询后端任务执行状态
-  pollTask: async (taskId, apiKey, abortSignal, onProgress) => {
+  pollTask: async (taskId, apiKey, abortSignal, onProgress, apiBaseUrl = getBaseUrl()) => {
     while (!abortSignal.aborted) {
-      const res = await fetch(`${API_BASE_URL}/v1/tasks/${taskId}`, {
+      const res = await fetch(`${apiBaseUrl}/v1/tasks/${taskId}`, {
         headers: { 'Authorization': `Bearer ${apiKey}` }
       })
       

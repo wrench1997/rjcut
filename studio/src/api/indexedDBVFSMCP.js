@@ -623,7 +623,7 @@ export class IndexedDBVFSMCP {
     // 16. 创建视频项目
     mcpServer.registerTool({
       name: 'vfs_create_video_project',
-      description: '创建新的视频项目，包含标准目录结构',
+      description: '创建新的视频项目（目录即项目，标准子目录按需生成）',
       inputSchema: {
         type: 'object',
         properties: {
@@ -633,7 +633,7 @@ export class IndexedDBVFSMCP {
           },
           config: {
             type: 'object',
-            description: '项目配置（可选）',
+            description: '兼容旧调用，当前不写入项目配置文件',
             properties: {
               pipeline: {
                 type: 'object',
@@ -910,15 +910,15 @@ export class IndexedDBVFSMCP {
               text: `请帮我初始化一个名为"${projectName}"的${projectType}视频项目。
               
 我需要：
-1. 创建标准的项目目录结构
-2. 准备项目配置文件
+1. 创建项目目录
+2. 按需准备文案、场景素材和成片目录
 3. 了解需要哪些素材
 
 项目将包含：
-- /原始视频：存放原始素材
-- /剪辑视频：存放剪辑后的片段
-- /输出：存放最终成片
-- project.json：项目配置`
+- /文案：存放文案和数字人输入
+- /场景素材：存放模板混剪素材
+- /成片：存放最终输出
+（以上目录在实际使用时按需生成）`
             }
           }
         ]

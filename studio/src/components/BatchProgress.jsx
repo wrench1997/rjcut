@@ -35,8 +35,9 @@ export function TailwindProgressBar({ progress, status }) {
 export function MinimizedProgress({ tasks, onExpand, onClose }) {
   if (tasks.length === 0) return null
 
-  const runningCount = tasks.filter(t => t.stage !== 'done' && t.stage !== 'failed' && t.stage !== 'cancelled').length
-  const successCount = tasks.filter(t => t.stage === 'done').length
+  const terminalStages = ['succeeded', 'failed', 'cancelled']
+  const runningCount = tasks.filter(t => !terminalStages.includes(t.stage)).length
+  const successCount = tasks.filter(t => t.stage === 'succeeded').length
   const failedCount = tasks.filter(t => t.stage === 'failed').length
   const allDone = runningCount === 0
 
@@ -74,6 +75,47 @@ export function MinimizedProgress({ tasks, onExpand, onClose }) {
         )}
         <div className="absolute top-full right-4 mt-1 border-4 border-transparent border-t-slate-800"></div>
       </div>
+    </div>
+  )
+}
+
+// 主布局中的统一任务进度条。任务页卸载后仍从 Zustand 读取同一批任务，
+// 因此切换到素材库、项目或高级剪辑时不会丢失进度反馈。
+export function GlobalTaskProgress({ tasks, onOpen, onClose }) {
+  if (!tasks?.length) return null
+
+  const terminalStages = ['succeeded', 'failed', 'cancelled']
+  const runningCount = tasks.filter((task) => !terminalStages.includes(task.stage)).length
+  const succeededCount = tasks.filter((task) => task.stage === 'succeeded').length
+  const failedCount = tasks.filter((task) => task.stage === 'failed').length
+  const overallProgress = Math.round(
+    tasks.reduce((total, task) => total + Math.min(100, Math.max(0, Number(task.progress) || 0)), 0) / tasks.length,
+  )
+  const isComplete = runningCount === 0
+
+  return (
+    <div className="fixed bottom-5 right-5 z-[60] w-[min(360px,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-slate-200 bg-white/95 shadow-2xl backdrop-blur-md">
+      <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-4 py-3">
+        <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left">
+          <div className="flex items-center justify-between gap-2">
+            <span className="truncate text-sm font-semibold text-slate-800">模板混剪任务</span>
+            <span className={`shrink-0 text-xs font-bold ${isComplete ? 'text-emerald-600' : 'text-blue-600'}`}>
+              {isComplete ? '已结束' : `${overallProgress}%`}
+            </span>
+          </div>
+          <div className="mt-1 text-xs text-slate-500">
+            {isComplete
+              ? `${succeededCount} 个成功${failedCount ? `，${failedCount} 个失败` : ''}`
+              : `${runningCount} 个任务处理中，点击查看详情`}
+          </div>
+        </button>
+        <button type="button" onClick={onClose} className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700" title="隐藏进度条">
+          <X size={15} />
+        </button>
+      </div>
+      <button type="button" onClick={onOpen} className="block w-full px-4 pb-4 pt-3 text-left">
+        <TailwindProgressBar progress={overallProgress} status={isComplete ? (failedCount ? 'failed' : 'succeeded') : 'composing'} />
+      </button>
     </div>
   )
 }

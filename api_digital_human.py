@@ -2,9 +2,11 @@
 import uuid
 import logging
 import os
+import time
 import urllib.parse
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from rq import Queue
 
@@ -13,7 +15,7 @@ from models import Merchant, Task, TaskStatus, ApiKey
 from auth import verify_api_key
 from quota import check_quota, check_concurrent_limit, reserve_quota
 from config import get_settings
-from chanjing_api_v2 import create_chanjing_api_v2, ChanjingStatusCode
+from chanjing_api_v2 import create_chanjing_api_v2, ChanjingStatusCode, APIError
 from schemas import DhGenerateVideoRequest
 from schemas import DhCreateCustomPersonRequest
 from models import DhCustomPerson # 引入模型
@@ -31,6 +33,7 @@ def get_chanjing_api():
     
     if _chanjing_api_instance is None:
         settings = get_settings()
+        base_url = (settings.CHANJING_BASE_URL or "http://192.168.166.151:8080").rstrip("/")
         _chanjing_api_instance = create_chanjing_api_v2(
             app_id=settings.CHANJING_APP_ID,
             secret_key=settings.CHANJING_SECRET_KEY,
@@ -40,9 +43,8 @@ def get_chanjing_api():
                 "enable_cache": True,
                 "enable_stats": True,
                 "auto_auth": False,
-                # 🐳 Docker 容器内使用宿主机 IP 直接访问本地 API 服务（更稳定）
-                # 优先从环境变量读取 CHANJING_BASE_URL，默认使用 host.docker.internal:8080
-                "base_url": os.getenv("CHANJING_BASE_URL", "http://host.docker.internal:8080"),
+                # 🐳 统一使用 Settings 读取地址，确保 .env 和 Docker environment 不会被忽略。
+                "base_url": base_url,
             }
         )
         logger = logging.getLogger("chanjing")
@@ -52,6 +54,79 @@ def get_chanjing_api():
 
 def ok(data=None): return {"code": 0, "message": "ok", "data": data}
 def fail(code, msg, status_code=400): return {"code": code, "message": msg}
+
+
+def _upstream_error_response(operation: str, exc: Exception, logger):
+    """把上游故障变成可观测的 502，而不是让前端误显示为空列表。"""
+    if isinstance(exc, APIError):
+        upstream_code = exc.code
+        detail = exc.message or str(exc)
+        error_type = exc.error_type.value
+        endpoint = exc.endpoint
+        logger.error(
+            "数字人上游失败 operation=%s type=%s code=%s endpoint=%s detail=%r",
+            operation,
+            error_type,
+            upstream_code,
+            endpoint,
+            detail,
+        )
+        message = f"{operation}失败：{detail}"
+    else:
+        upstream_code = None
+        logger.exception("数字人上游异常 operation=%s", operation)
+        message = f"{operation}失败：{str(exc) or '未知服务器异常'}"
+
+    content = {
+        "code": 50200,
+        "message": message,
+        "data": None,
+        "upstream_code": upstream_code,
+    }
+    return JSONResponse(status_code=502, content=content)
+
+
+@router.get("/health")
+def digital_human_health(_: Merchant = Depends(verify_api_key)):
+    """探测数字人上游和 token 链路，供部署探针或人工排障使用。"""
+    logger = logging.getLogger("uvicorn.error")
+    started_at = time.perf_counter()
+    try:
+        api = get_chanjing_api()
+        result = api.list_common_digital_persons(page=1, size=1, use_cache=False)
+        latency_ms = round((time.perf_counter() - started_at) * 1000, 2)
+        upstream_code = result.get("code") if isinstance(result, dict) else None
+        if upstream_code not in (None, 0):
+            logger.error(
+                "数字人健康探测失败 code=%s msg=%r latency_ms=%s",
+                upstream_code,
+                result.get("msg") or result.get("message"),
+                latency_ms,
+            )
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "code": 50301,
+                    "message": "数字人上游返回异常",
+                    "data": {
+                        "status": "degraded",
+                        "latency_ms": latency_ms,
+                        "upstream_code": upstream_code,
+                    },
+                },
+            )
+
+        persons = (result.get("data") or {}).get("list", []) if isinstance(result, dict) else []
+        return ok({
+            "status": "ok",
+            "upstream": "ok",
+            "latency_ms": latency_ms,
+            "sample_count": len(persons) if isinstance(persons, list) else 0,
+        })
+    except APIError as e:
+        return _upstream_error_response("数字人健康探测", e, logger)
+    except Exception as e:
+        return _upstream_error_response("数字人健康探测", e, logger)
 
 # ----- 1. 获取基础资源接口 (透传蝉镜API) -----
 
@@ -79,12 +154,21 @@ def list_common_persons(merchant: Merchant = Depends(verify_api_key)):
         if api_code is not None and api_code != 0:
             error_msg = res.get('msg', '获取数字人列表失败')
             logger.error(f"蝉镜 API 返回错误：{error_msg} (code: {api_code})")
-            return {"code": 50000, "message": f"蝉镜 API 错误：{error_msg}", "data": None}
+            return JSONResponse(
+                status_code=502,
+                content={
+                    "code": 50201,
+                    "message": f"蝉镜 API 错误：{error_msg}",
+                    "data": None,
+                    "upstream_code": api_code,
+                },
+            )
         elif api_code is None:
             logger.warning(f"蝉镜 API 返回 code=None，但继续处理（可能是旧版 API）")
+    except APIError as e:
+        return _upstream_error_response("获取公共数字人", e, logger)
     except Exception as e:
-        logger.error(f"获取公共数字人列表异常：{e}")
-        return {"code": 50000, "message": f"服务器错误：{str(e)}", "data": None}
+        return _upstream_error_response("获取公共数字人", e, logger)
     
     persons = res.get("data", {}).get("list", [])
     logger.info(f"🔍 提取到公共数字人数量：{len(persons)}")
@@ -419,8 +503,11 @@ def get_custom_person_detail(
     # 在更新本地数据库记录时，添加 audio_man_id 的同步
     if local_person:
         chanjing_status = data.get('status', 0)
-        # 根据 chanjing_api.py 定义：1=制作中，2=成功，4=失败
-        local_status = 30 if chanjing_status == 2 else (40 if chanjing_status in (4, 40, -1) else 10)
+        # 映射蝉镜状态到本地状态，与 worker (tasks/chanjing_video.py:413) 判定保持一致：
+        # 1=已完成, 2=已完成(实际 API 返回，需配合 progress=100) → 30
+        # 4/40/-1 → 40 失败；其余(含 0 定制中) → 10 训练中
+        # 注意：原注释“1=制作中”是错误的，蝉镜 OpenAPI 文档定义 1=已完成
+        local_status = 30 if chanjing_status in (1, 2) else (40 if chanjing_status in (4, 40, -1) else 10)
         
         local_person.status = local_status
         # 🎬 不要覆盖本地封面！本地存储的是从源视频第一帧提取的封面，比蝉镜的默认头像更有意义
@@ -481,7 +568,12 @@ def sync_custom_persons(
     all_persons = []
     
     while True:
-        resp = api.list_customised_persons(page=page, page_size=page_size, source=0, use_cache=True)
+        try:
+            resp = api.list_customised_persons(page=page, page_size=page_size, source=0, use_cache=True)
+        except APIError as e:
+            return _upstream_error_response("同步自定义数字人", e, logger)
+        except Exception as e:
+            return _upstream_error_response("同步自定义数字人", e, logger)
         if not ChanjingStatusCode.is_success(resp.get('code')):
             break
         
@@ -605,8 +697,11 @@ def sync_custom_persons(
         
         audio_man_id = person_data.get('audio_man_id')  # 🆕 获取声音 ID
         
-        # 映射蝉镜状态到本地状态 (根据 chanjing_api.py：1=制作中，2=成功，4=失败)
-        local_status = 30 if chanjing_status == 2 else (40 if chanjing_status in (4, 40, -1) else 10)
+        # 映射蝉镜状态到本地状态，与 worker (tasks/chanjing_video.py:413) 判定保持一致：
+        # 1=已完成, 2=已完成(实际 API 返回，需配合 progress=100) → 30
+        # 4/40/-1 → 40 失败；其余(含 0 定制中) → 10 训练中
+        # 注意：原注释“1=制作中”是错误的，蝉镜 OpenAPI 文档定义 1=已完成
+        local_status = 30 if chanjing_status in (1, 2) else (40 if chanjing_status in (4, 40, -1) else 10)
         
         # 检查是否已存在
         existing = (
@@ -975,8 +1070,7 @@ async def proxy_image(
                 )
         elif path.startswith('/files/'):
             # 蝉镜文件服务器路径：通过 HTTP 请求文件服务器
-            # 使用 CHANJING_BASE_URL 配置，优先从环境变量读取
-            files_base_url = os.getenv("CHANJING_FILES_URL", "http://host.docker.internal:8080/files")
+            files_base_url = (get_settings().CHANJING_FILES_URL or "http://192.168.166.151:8080/files").rstrip("/")
             # 移除路径开头的 /files/，拼接成完整 URL
             file_subpath = path[7:]  # 移除 '/files/'
             file_url = f"{files_base_url}/{file_subpath}"
@@ -1112,8 +1206,7 @@ async def proxy_image_no_auth(
                 )
         elif path.startswith('/files/'):
             # 蝉镜文件服务器路径：通过 HTTP 请求文件服务器
-            # 使用 CHANJING_BASE_URL 配置，优先从环境变量读取
-            files_base_url = os.getenv("CHANJING_FILES_URL", "http://host.docker.internal:8080/files")
+            files_base_url = (get_settings().CHANJING_FILES_URL or "http://192.168.166.151:8080/files").rstrip("/")
             # 移除路径开头的 /files/，拼接成完整 URL
             file_subpath = path[7:]  # 移除 '/files/'
             file_url = f"{files_base_url}/{file_subpath}"

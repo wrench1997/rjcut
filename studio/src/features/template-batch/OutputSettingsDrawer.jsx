@@ -2,7 +2,7 @@
  * 模板混剪 - 成片设置抽屉
  * 整合字幕样式、背景音乐、字幕纠错、输出与转场设置
  */
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { X, Type, Music, BookOpen, Film, Settings } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -10,6 +10,7 @@ import GlobalParamsVisualEditor from '../../components/GlobalParamsVisualEditor.
 import BackgroundMusicPanel from './BackgroundMusicPanel.jsx'
 import CorrectionDictionaryEditor from './CorrectionDictionaryEditor.jsx'
 import FontSelector from './FontSelector.jsx'
+import { STORAGE_KEY as SUBTITLE_STORAGE_KEY } from '../../utils/subtitleConfig.js'
 
 const TABS = [
   { id: 'subtitle', label: '字幕样式', icon: Type },
@@ -17,6 +18,17 @@ const TABS = [
   { id: 'correction', label: '字幕纠错', icon: BookOpen },
   { id: 'output', label: '输出与转场', icon: Film },
 ]
+
+function readStoredGlobalParams() {
+  if (typeof window === 'undefined' || !window.localStorage) return {}
+  try {
+    const raw = window.localStorage.getItem(SUBTITLE_STORAGE_KEY)
+    return raw ? JSON.parse(raw) : {}
+  } catch (error) {
+    console.warn('[OutputSettingsDrawer] 读取 localStorage 失败：', error)
+    return {}
+  }
+}
 
 export default function OutputSettingsDrawer({
   isOpen,
@@ -28,6 +40,43 @@ export default function OutputSettingsDrawer({
   template,
 }) {
   const [activeTab, setActiveTab] = useState('subtitle')
+  // 开发者选项的 JSON 预览要跟 GlobalParamsVisualEditor / 原生合成看到的
+  // 完全一致，所以读 localStorage 而不是 draft。
+  const [storedGlobalParams, setStoredGlobalParams] = useState(() => readStoredGlobalParams())
+
+  // 把"模板混剪 draft.outputConfig.globalParams"作为唯一来源是历史方案，会导致：
+  //   - OutputSettingsDrawer 调整后只写 draft，不写 rjcut_global_params_v1
+  //   - nativeCompose / advanced preview / 用户在 BatchProcessor 改的值相互看不见
+  // 这里做一次性的"draft -> localStorage"迁移：localStorage 为空时把 draft 的
+  // globalParams 提升为全局默认。这样后续所有读取都从 rjcut_global_params_v1 拿。
+  useEffect(() => {
+    if (!isOpen) return
+    if (typeof window === 'undefined' || !window.localStorage) return
+    try {
+      const stored = window.localStorage.getItem(SUBTITLE_STORAGE_KEY)
+      const draftParams = draft?.outputConfig?.globalParams
+      if (!stored && draftParams) {
+        window.localStorage.setItem(SUBTITLE_STORAGE_KEY, JSON.stringify(draftParams))
+        console.log('[OutputSettingsDrawer] 已把 draft.globalParams 迁移到 localStorage')
+      }
+      setStoredGlobalParams(readStoredGlobalParams())
+    } catch (error) {
+      console.warn('[OutputSettingsDrawer] 迁移 draft -> localStorage 失败：', error)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen])
+
+  // 监听 storage 事件，让开发者选项的 JSON 预览和其他 tab 看到的字幕值实时同步
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const refresh = () => setStoredGlobalParams(readStoredGlobalParams())
+    window.addEventListener('storage', refresh)
+    const interval = window.setInterval(refresh, 1000)
+    return () => {
+      window.removeEventListener('storage', refresh)
+      window.clearInterval(interval)
+    }
+  }, [])
 
   const handleUpdateGlobalParams = (newParams) => {
     updateDraft((d) => ({
@@ -81,12 +130,13 @@ export default function OutputSettingsDrawer({
               onChange={handleUpdateFont}
             />
 
-            {/* 字幕样式编辑器 */}
+            {/* 字幕样式编辑器 - 始终从 rjcut_global_params_v1 读取，写入时也同步到
+                draft + localStorage，确保原生合成/高级剪辑预览/模板混剪看到同一份配置 */}
             <GlobalParamsVisualEditor
-              value={draft.outputConfig?.globalParams || null}
+              value={null}
               defaultConfig={template?.defaultGlobalParams || null}
-              persist={false}
-              storageKey={null}
+              persist={true}
+              storageKey={SUBTITLE_STORAGE_KEY}
               onChange={handleUpdateGlobalParams}
               className="border-0 shadow-none"
             />
@@ -175,11 +225,15 @@ export default function OutputSettingsDrawer({
                 </p>
                 <textarea
                   className="w-full h-40 px-3 py-2 text-xs font-mono border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500"
-                  value={JSON.stringify(draft.outputConfig?.globalParams || {}, null, 2)}
+                  value={JSON.stringify(storedGlobalParams || {}, null, 2)}
                   onChange={(e) => {
                     try {
                       const parsed = JSON.parse(e.target.value)
                       handleUpdateGlobalParams(parsed)
+                      if (typeof window !== 'undefined' && window.localStorage) {
+                        window.localStorage.setItem(SUBTITLE_STORAGE_KEY, JSON.stringify(parsed))
+                        setStoredGlobalParams(parsed)
+                      }
                     } catch (err) {
                       // 忽略解析错误
                     }

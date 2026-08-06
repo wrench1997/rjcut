@@ -496,56 +496,8 @@ export class ElectronFileSystem {
    * 创建默认目录结构
    */
   async createDefaultStructure() {
-    const defaultDirs = [
-      '/projects',
-      '/素材',
-      '/草稿',
-      '/配置',
-      '/脚本',
-      '/模板',
-      '/输出',
-      '/音频',
-      '/字幕',
-      '/转录',
-    ]
-    
-    for (const dir of defaultDirs) {
-      try {
-        await this.mkdir(dir, true)
-      } catch (e) {
-        console.warn(`创建目录失败：${dir}`, e)
-      }
-    }
-    
-    // 创建默认配置文件
-    try {
-      await this.writeJSON('/配置/default.json', {
-        pipeline: {
-          remove_keyword: '转场',
-          margin: 0.15,
-          min_segment_duration: 0.1,
-        },
-        asr: {
-          model: 'large-v3',
-          device: 'cuda',
-          language: 'zh',
-        },
-        subtitle: {
-          effect: 'ad',
-          font_size: 88,
-        },
-        audio: {
-          bgm_volume: 0.3,
-          original_volume: 1.0,
-          bgm_start_time: 0.0,
-          bgm_loop: true,
-          fade_in_duration: 0.5,
-          fade_out_duration: 0.5,
-        },
-      })
-    } catch (e) {
-      console.warn('创建默认配置文件失败', e)
-    }
+    // 项目是唯一的顶层组织单位，子目录按项目使用情况创建。
+    return true
   }
 }
 

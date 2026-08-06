@@ -855,7 +855,7 @@ function AIScriptForm({ template, productInfo, setProductInfo, onSubmit, onCance
 请直接输出完整口播文案。
 不要在口播文案中输出"转场"两个字；新版转场由后端 timeline 自动处理。
 不要写镜头说明、不要写标题、不要写分段名称、不要解释创作思路。
-全文控制在 450～650 字。
+全文控制在 300 字。
 语言必须口语化，像真人一镜到底口播，节奏要快，句子不要太长。
 
 ## 产品信息

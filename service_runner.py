@@ -171,9 +171,9 @@ def convert_subtitle_params(subtitle: dict, video_width: int = 1920, video_heigh
     # 6. offset_y 设为 0，因为垂直位置已经通过 margin_v 精确计算（前端 y_offset → topPercent → margin_v）
     offset_y = 0
 
-    # 7. color → highlight_color (前端 HEX → 后端 ASS 格式)
-    color = subtitle.get("color", "#FFFF00")
-    highlight_color = hex_to_ass_color(color)
+    # 7. 前端基础色与当前字高亮色分离，保持渲染端与前端预览一致
+    color = subtitle.get("color", "#FFFFFF")
+    highlight_color = hex_to_ass_color(subtitle.get("highlight_color", "#FFD400"))
 
     # 8. stroke_color: 前端 HEX → ASS 格式
     stroke_color_raw = subtitle.get("stroke_color", "#000000")
@@ -193,7 +193,8 @@ def convert_subtitle_params(subtitle: dict, video_width: int = 1920, video_heigh
         "x_offset": offset_x,  # 水平偏移像素（前端 x_offset 转换）
         "y_offset": 0,  # 垂直位置已通过 margin_v 精确计算，此处设为 0
         "highlight_color": highlight_color,
-        "font_size": int(subtitle.get("font_size", 72)),
+        "font_size": int(subtitle.get("font_size", 68)),
+        "color": color,
         "effect": subtitle.get("effect", "ad"),
         # 🎨 传递字幕样式参数到后端（已转换为 ASS 格式）
         "stroke_color": stroke_color,
@@ -364,7 +365,8 @@ def run_agent_compose_task(task_id: str, payload: dict, trace_id: str):
                 font_file=font_path,
                 font_size=subtitle_params["font_size"],
                 highlight_color=subtitle_params["highlight_color"],
-                max_chars_per_line=int(subtitle.get("max_chars_per_line", 18)),
+                max_chars_per_line=int(subtitle.get("max_chars_per_line", 15)),
+                color=subtitle_params["color"],
                 alignment=subtitle_params["alignment"],
                 margin_v=subtitle_params["margin_v"],
                 margin_l=subtitle_params["margin_l"],

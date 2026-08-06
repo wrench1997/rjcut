@@ -4,35 +4,44 @@
  * 统一项目目录结构定义，确保前端组件使用与 Electron 后端相同的路径规则
  * 
  * 项目目录结构：
- * C:\Users\admin\Documents\RJCut\projects\项目名\
- * ├── project.json          # 项目配置文件
- * ├── 原始视频/             # human 类型视频（数字人出镜）
- * ├── 剪辑视频/             # scene 类型视频（场景展示）
- * └── 输出/                 # 渲染输出文件
+ * C:\Users\admin\Documents\剪辑工作室\项目名\
+ * ├── 文案/                 # 文案、数字人生成视频等输入（按需创建）
+ * ├── 场景素材/             # 模板混剪使用的场景素材（按需创建）
+ * └── 成片/                 # 渲染输出文件（按需创建）
+ *
+ * 目录本身就是项目，不再生成 project.json 项目标记文件。
  */
 
 /**
  * 项目子目录名称常量
  */
 export const PROJECT_FOLDERS = {
-  RAW_VIDEO: '原始视频',    // human 类型视频（数字人出镜）
-  EDITED_VIDEO: '剪辑视频', // scene 类型视频（场景展示）
-  OUTPUT: '输出',           // 渲染输出文件
+  RAW_VIDEO: '文案',
+  EDITED_VIDEO: '场景素材',
+  OUTPUT: '成片',
 }
+
+// 根目录下这些目录属于素材库或历史容器，不应被识别为视频项目。
+export const PROJECT_DISCOVERY_EXCLUDED_FOLDERS = [
+  '素材库', '素材', '草稿', '配置', '脚本', '模板', '输出', '音频', '字幕', '转录',
+  '项目', 'projects', '回收站', '文案', '场景素材', '成片',
+]
 
 /**
  * 项目根目录路径前缀
- * 设置为空字符串表示项目直接在根目录下，例如 /项目名/剪辑视频
- * 设置为 '/projects' 表示项目在 projects 子目录下，例如 /projects/项目名/剪辑视频
+ * 项目直接位于根目录，例如 /12344/场景素材。
+ * 不再使用公共素材库或项目容器前缀。
  */
-export const PROJECT_ROOT_PREFIX = '' // 修改为空字符串，项目直接在根目录
+export const PROJECT_ROOT_PREFIX = ''
 
 /**
- * 项目必需文件
+ * 旧项目文件名，仅用于兼容和界面隐藏；不是新项目的必需文件。
  */
 export const PROJECT_FILES = {
-  CONFIG: 'project.json',   // 项目配置文件
+  CONFIG: 'project.json',
 }
+
+export const PROJECT_METADATA_FILES = Object.values(PROJECT_FILES)
 
 /**
  * 获取项目文件夹名称列表
@@ -45,14 +54,14 @@ export function getProjectFolderNames() {
  * 获取项目必需文件列表
  */
 export function getProjectFileNames() {
-  return Object.values(PROJECT_FILES)
+  return []
 }
 
 /**
  * 构建 VFS 虚拟路径
  * @param {string} projectName - 项目名称
- * @param {string} subPath - 可选的子路径（例如 '原始视频' 或 '剪辑视频/xxx.mp4'）
- * @returns {string} VFS 虚拟路径（例如 /项目名/原始视频）
+ * @param {string} subPath - 可选的子路径（例如 '文案' 或 '场景素材/xxx.mp4'）
+ * @returns {string} VFS 虚拟路径（例如 /项目名/场景素材）
  */
 export function buildVFSPath(projectName, subPath = '') {
   const base = PROJECT_ROOT_PREFIX ? `${PROJECT_ROOT_PREFIX}/${projectName}` : `/${projectName}`
@@ -74,23 +83,11 @@ export function parseProjectNameFromVFS(vfsPath) {
     return null
   }
   
-  // 根据 PROJECT_ROOT_PREFIX 解析路径
-  if (PROJECT_ROOT_PREFIX) {
-    // 有前缀的情况：/projects/项目名/xxx
-    if (!vfsPath.startsWith(`${PROJECT_ROOT_PREFIX}/`)) {
-      return null
-    }
-    const remaining = vfsPath.replace(`${PROJECT_ROOT_PREFIX}/`, '')
-    const projectName = remaining.split('/')[0]
-    return projectName || null
-  } else {
-    // 无前缀的情况：/项目名/xxx
-    const parts = vfsPath.split('/').filter(p => p) // 移除空字符串
-    if (parts.length === 0) {
-      return null
-    }
-    return parts[0]
+  const parts = vfsPath.split('/').filter(Boolean)
+  if (parts.length === 0 || ['项目', 'projects'].includes(parts[0])) {
+    return null
   }
+  return parts[0]
 }
 
 /**
@@ -104,12 +101,12 @@ export function validateVFSProjectPath(vfsPath) {
   if (!projectName) {
     return {
       isValid: false,
-      error: '路径必须以 /projects/项目名 格式开头',
+      error: '路径必须以 /项目名 格式开头',
     }
   }
   
   // 获取子路径（如果有）
-  const subPath = vfsPath.replace(`/projects/${projectName}`, '')
+  const subPath = vfsPath.replace(`${PROJECT_ROOT_PREFIX}/${projectName}`, '')
   
   // 检查是否是项目根目录或有效的子目录
   if (!subPath || subPath === '' || subPath === '/') {
@@ -142,6 +139,25 @@ export function buildProjectSubVFSPath(projectName, folderType) {
     throw new Error(`无效的目录类型：${folderType}。有效类型：raw_video, edited_video, output`)
   }
   return buildVFSPath(projectName, folderName)
+}
+
+/**
+ * 根据数字人视频路径推导当前项目的场景素材目录。
+ * 非项目路径返回 null，调用方应要求用户先选择项目。
+ */
+export function getSceneMaterialsPathFromVideo(videoPath) {
+  const normalizedPath = String(videoPath || '').replace(/\\/g, '/').replace(/\/+/g, '/')
+  const parts = normalizedPath.split('/').filter(Boolean)
+  const firstPart = parts[0]
+  const projectName = firstPart
+  if (
+    !projectName ||
+    PROJECT_DISCOVERY_EXCLUDED_FOLDERS.includes(firstPart) ||
+    PROJECT_DISCOVERY_EXCLUDED_FOLDERS.includes(projectName)
+  ) {
+    return null
+  }
+  return `/${projectName}/${PROJECT_FOLDERS.EDITED_VIDEO}`
 }
 
 /**

@@ -2,7 +2,7 @@
  * 视频编辑器时间轴状态管理
  * 使用简单的发布订阅模式，不依赖外部库
  */
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
 // 媒体文件注册表 - 存储原始 File/Blob 对象
 export const mediaFileRegistry = new Map()
@@ -71,8 +71,18 @@ const saveToHistory = (actionType) => {
   console.log(`[History] 保存状态: ${actionType}, 历史栈大小: ${historyStack.length}`)
 }
 
-// 通知所有监听器
-const notify = () => {
+// 通知所有监听器。播放头更新不复制大对象，避免每个播放 tick 触发整页重渲染；
+// 素材/片段发生结构变化时复制容器，让 selector 订阅能正确感知变化。
+const notify = (structural = true) => {
+  if (structural) {
+    state = {
+      ...state,
+      clips: [...state.clips],
+      mediaFiles: { ...state.mediaFiles },
+      tracks: { ...state.tracks },
+      transitions: { ...state.transitions },
+    }
+  }
   listeners.forEach(listener => listener(state))
 }
 
@@ -748,17 +758,17 @@ export const timelineStore = {
   // 播放控制
   play: () => {
     state.isPlaying = true
-    notify()
+    notify(false)
   },
   
   pause: () => {
     state.isPlaying = false
-    notify()
+    notify(false)
   },
   
   seek: (time_ms) => {
     state.currentTime_ms = Math.max(0, Math.min(time_ms, state.totalDuration_ms))
-    notify()
+    notify(false)
   },
   
   // 获取媒体文件
@@ -773,16 +783,40 @@ export const timelineStore = {
 }
 
 // React Hook 支持
-export const useTimelineStore = () => {
-  const [localState, setLocalState] = useState(state)
-  
+function shallowEqual(left, right) {
+  if (Object.is(left, right)) return true
+  if (!left || !right || typeof left !== 'object' || typeof right !== 'object') return false
+  const leftKeys = Object.keys(left)
+  const rightKeys = Object.keys(right)
+  if (leftKeys.length !== rightKeys.length) return false
+  return leftKeys.every((key) => Object.is(left[key], right[key]))
+}
+
+/**
+ * 支持按字段订阅，避免播放头每次 seek 都让整个编辑器重渲染。
+ * 不传 selector 时保持旧的完整状态接口；传 selector 时只在选中字段变化时更新。
+ */
+export const useTimelineStore = (selector = null) => {
+  const selectorRef = useRef(selector)
+  selectorRef.current = selector
+  const [localState, setLocalState] = useState(() => (
+    selector ? selector(state) : state
+  ))
+
   useEffect(() => {
     const unsubscribe = timelineStore.subscribe((newState) => {
-      setLocalState({ ...newState })
+      setLocalState((previous) => {
+        const next = selectorRef.current
+          ? selectorRef.current(newState)
+          : { ...newState }
+        return selectorRef.current && shallowEqual(previous, next) ? previous : next
+      })
     })
     return unsubscribe
   }, [])
-  
+
+  if (selector) return localState
+
   return {
     ...localState,
     // 暴露方法

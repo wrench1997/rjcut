@@ -79,6 +79,11 @@ class APIError(Exception):
     endpoint: str
     retry_after: Optional[int] = None  # 建议重试时间（秒）
     original_response: Optional[Dict] = None
+
+    def __str__(self) -> str:
+        """让日志和上层接口能看到真正的错误，而不是空字符串。"""
+        details = self.message or "未知错误"
+        return f"{details} (code={self.code}, endpoint={self.endpoint})"
     
     def is_retryable(self) -> bool:
         """判断是否可重试"""
@@ -324,6 +329,7 @@ class ChanjingAPIV2:
     ENDPOINT_ACCESS_TOKEN = "/access_token"
     ENDPOINT_COMMON_PERSONS = "/list_common_dp"                    # ✅ 公共数字人列表
     ENDPOINT_COMMON_AUDIO = "/list_common_audio"                   # ✅ 公共声音列表
+    ENDPOINT_CUSTOM_PERSONS = "/list_customised_person"            # 自定义数字人列表
     ENDPOINT_CUSTOM_PERSON_STATUS = "/customised_person/detail"    # ✅ 自定义数字人详情
     ENDPOINT_VIDEO_STATUS = "/video"                               # ✅ 视频状态
     
@@ -363,7 +369,7 @@ class ChanjingAPIV2:
         """
         # 🆕 先初始化基础配置（在自动认证之前）
         # 优先使用传入的 base_url，其次从环境变量读取，最后使用默认值
-        self.base_url = base_url if base_url else os.getenv("CHANJING_BASE_URL", "http://host.docker.internal:8080")
+        self.base_url = base_url if base_url else os.getenv("CHANJING_BASE_URL", "http://192.168.166.151:8080")
         self.timeout = timeout
         self.auto_auth = auto_auth
         
@@ -440,7 +446,7 @@ class ChanjingAPIV2:
         self._request_logger.info(f"🔵 [网络诊断] base_url={self.base_url}")
         self._request_logger.info(f"🔵 [网络诊断] app_id={self.app_id}")
         self._request_logger.info(f"🔵 [网络诊断] timeout={self.timeout}s, max_retries={self.max_retries}")
-        self._request_logger.info(f"🔵 [网络诊断] Docker 部署使用 host.docker.internal，本地运行使用 localhost")
+        self._request_logger.info(f"🔵 [网络诊断] 使用已配置的蝉镜服务地址: {self.base_url}")
     
     # ============================================================
     # 🆕 V2 新增：自动认证兼容层
@@ -523,7 +529,19 @@ class ChanjingAPIV2:
                 data = response.json()
                 if data.get("code") == 0 or data.get("code") is None:
                     self._access_token = data.get("data", {}).get("access_token")
+                    if not self._access_token:
+                        raise APIError(
+                            code=502,
+                            message="蝉镜 access_token 响应缺少 token",
+                            error_type=APIErrorType.AUTH_ERROR,
+                            endpoint=self.ENDPOINT_ACCESS_TOKEN,
+                            original_response=data,
+                        )
                     expires_in = data.get("data", {}).get("expires_in", 7200)
+                    try:
+                        expires_in = max(int(expires_in), 60)
+                    except (TypeError, ValueError):
+                        expires_in = 7200
                     self._token_expires_at = datetime.now() + timedelta(seconds=expires_in - 60)
                     self._request_logger.info("✅ 获取 access_token 成功")
                     return self._access_token
@@ -552,6 +570,35 @@ class ChanjingAPIV2:
                 error_type=APIErrorType.NETWORK_ERROR,
                 endpoint=self.ENDPOINT_ACCESS_TOKEN
             )
+
+    def _invalidate_access_token(self):
+        """清理可能已失效的 token，下一次请求会重新认证。"""
+        self._access_token = None
+        self._token_expires_at = None
+        self._request_logger.warning("⚠️ 已清理缓存的蝉镜 access_token，将重新获取")
+
+    @staticmethod
+    def _is_auth_failure_response(result: Any) -> bool:
+        """识别蝉镜返回的 token/授权失败（有些版本仍使用 HTTP 200）。"""
+        if not isinstance(result, dict):
+            return False
+
+        code = result.get("code")
+        if code in {401, 403, 40100, 40101, 40300, 40301}:
+            return True
+
+        message = str(result.get("msg") or result.get("message") or "").lower()
+        auth_markers = (
+            "token",
+            "access_token",
+            "unauthorized",
+            "unauthorised",
+            "认证",
+            "授权",
+            "鉴权",
+            "过期",
+        )
+        return any(marker in message for marker in auth_markers)
     
     # ============================================================
     # 统计方法
@@ -708,6 +755,38 @@ class ChanjingAPIV2:
             # 解析响应
             if response.status_code == 200:
                 result = response.json()
+
+                # 部分蝉镜版本在 token 失效时仍返回 HTTP 200，必须清理旧 token
+                # 并只自动重试一次，否则前端会一直看到一个笼统的空列表。
+                if self._is_auth_failure_response(result):
+                    auth_code = result.get("code", 401) if isinstance(result, dict) else 401
+                    auth_message = (
+                        result.get("msg") or result.get("message") or "蝉镜授权失败"
+                        if isinstance(result, dict)
+                        else "蝉镜授权失败"
+                    )
+                    self._invalidate_access_token()
+                    if retry:
+                        self._request_logger.warning(
+                            f"⚠️ 蝉镜接口返回授权失败，刷新 token 后重试：{endpoint}"
+                        )
+                        retry_params = dict(params or {})
+                        retry_params.pop("access_token", None)
+                        return self._request(
+                            method,
+                            endpoint,
+                            params=retry_params,
+                            data=data,
+                            headers=headers,
+                            retry=False,
+                        )
+                    raise APIError(
+                        code=auth_code,
+                        message=str(auth_message),
+                        error_type=APIErrorType.AUTH_ERROR,
+                        endpoint=endpoint,
+                        original_response=result if isinstance(result, dict) else None,
+                    )
                 
                 # 🔴 添加详细日志，诊断返回结果
                 self._request_logger.info(
@@ -731,10 +810,30 @@ class ChanjingAPIV2:
             else:
                 # HTTP 错误
                 error_msg = f"HTTP {response.status_code}: {response.text}"
+                error_type = (
+                    APIErrorType.AUTH_ERROR
+                    if response.status_code in (401, 403)
+                    else APIErrorType.SERVER_ERROR
+                )
+                if response.status_code in (401, 403) and retry:
+                    self._invalidate_access_token()
+                    self._request_logger.warning(
+                        f"⚠️ 蝉镜接口 HTTP {response.status_code} 授权失败，刷新 token 后重试：{endpoint}"
+                    )
+                    retry_params = dict(params or {})
+                    retry_params.pop("access_token", None)
+                    return self._request(
+                        method,
+                        endpoint,
+                        params=retry_params,
+                        data=data,
+                        headers=headers,
+                        retry=False,
+                    )
                 raise APIError(
                     code=response.status_code,
                     message=error_msg,
-                    error_type=APIErrorType.SERVER_ERROR,
+                    error_type=error_type,
                     endpoint=endpoint
                 )
                 
@@ -803,6 +902,64 @@ class ChanjingAPIV2:
     # ============================================================
     # 公共 API 方法
     # ============================================================
+
+    def upload_file(self, file_path: str, service: str = "customised_person") -> str:
+        """通过 V2 服务的 multipart 接口上传文件，返回 file_id。"""
+        file_name = os.path.basename(file_path)
+        content_type = "video/mp4" if file_name.lower().endswith(".mp4") else "application/octet-stream"
+        for attempt in range(2):
+            access_token = self._get_access_token()
+            with open(file_path, "rb") as file_handle:
+                upload_response = requests_lib.post(
+                    f"{self.base_url}/upload_file",
+                    params={"access_token": access_token},
+                    files={"file": (file_name, file_handle, content_type)},
+                    data={"service": service},
+                    timeout=self.timeout,
+                )
+            if upload_response.status_code in (401, 403) and attempt == 0:
+                self._invalidate_access_token()
+                continue
+            if upload_response.status_code != 200:
+                raise Exception(f"上传素材到蝉镜失败：HTTP {upload_response.status_code} {upload_response.text[:500]}")
+            response = upload_response.json()
+            if not ChanjingStatusCode.is_success(response.get("code")):
+                raise Exception(f"上传素材到蝉镜失败：{response}")
+            file_id = (response.get("data") or {}).get("file_id")
+            if not file_id:
+                raise Exception(f"蝉镜上传响应缺少 file_id：{response}")
+            break
+        else:
+            raise Exception("上传素材到蝉镜失败：授权重试后仍未成功")
+        self._request_logger.info(f"蝉镜素材上传成功：{file_name} -> {file_id}")
+        return file_id
+
+    def create_customised_person(
+        self,
+        name: str,
+        file_id: str,
+        train_type: str = "both",
+        language: str = "cn",
+        error_skip: bool = False,
+        resolution_rate: int = 0,
+        callback: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """提交自定义数字人训练任务。"""
+        data = {
+            "name": name,
+            "video_file_id": file_id,
+            "train_type": train_type,
+            "language": language,
+            "error_skip": error_skip,
+            "resolution_rate": resolution_rate,
+        }
+        if callback:
+            data["callback"] = callback
+        return self._request("POST", "/create_customised_person", data=data)
+
+    def delete_customised_person(self, person_id: str) -> Dict[str, Any]:
+        """删除自定义数字人。"""
+        return self._request("POST", "/delete_customised_person", data={"id": person_id})
     
     def list_common_digital_persons(self, page: int = 1, size: int = 20, use_cache: bool = True) -> Dict[str, Any]:
         """
@@ -875,6 +1032,37 @@ class ChanjingAPIV2:
             self._cache_set_v2(cache_key, response, ttl=300)
         
         return response
+
+    def list_customised_persons(
+        self,
+        page: int = 1,
+        page_size: int = 20,
+        source: Optional[int] = None,
+        use_cache: bool = True,
+    ) -> Dict[str, Any]:
+        """获取自定义数字人列表，兼容同步接口使用的 page_size/source 参数。"""
+        cache_key = f"v2:list_customised_persons:{page}:{page_size}:{source}"
+
+        if use_cache:
+            cached = self._cache_get_v2(cache_key)
+            if cached is not None:
+                if self._stats:
+                    self._stats.total_requests += 1
+                    self._stats.successful_requests += 1
+                return cached
+
+        params = {
+            "page": page,
+            "size": page_size,
+        }
+        if source is not None:
+            params["source"] = source
+
+        response = self._request("GET", self.ENDPOINT_CUSTOM_PERSONS, params=params)
+        api_code = response.get("code")
+        if use_cache and (api_code is None or api_code == 0):
+            self._cache_set_v2(cache_key, response, ttl=60)
+        return response
     
     def get_customised_person_status(self, person_id: str, use_cache: bool = True) -> Dict[str, Any]:
         """
@@ -897,9 +1085,7 @@ class ChanjingAPIV2:
                     self._stats.successful_requests += 1
                 return cached
         
-        params = {
-            "person_id": person_id
-        }
+        params = {"id": person_id}
         
         response = self._request("GET", self.ENDPOINT_CUSTOM_PERSON_STATUS, params=params)
         
@@ -1065,7 +1251,7 @@ def create_chanjing_api_v2(
         api = create_chanjing_api_v2(config={"timeout": 60, "max_retries": 5})
     """
     default_config = {
-        "base_url": "http://127.0.0.1:8080",  # 默认本地 API 服务
+        "base_url": os.getenv("CHANJING_BASE_URL", "http://192.168.166.151:8080"),
         "timeout": 30,
         "max_retries": 3,
         "enable_cache": True,

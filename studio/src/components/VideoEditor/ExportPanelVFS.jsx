@@ -3,7 +3,67 @@ import { useTimelineStore, mediaFileRegistry } from '../../stores/timelineStore'
 import { Rocket, CheckCircle, AlertCircle, Settings, Download, Layers } from 'lucide-react'
 import { videoEditorEngine } from '../../utils/videoEditorEngine'
 import { PROJECT_FOLDERS, buildVFSPath } from '../../utils/project-structure'
+import { loadSubtitleConfig, readGlobalParams } from '../../utils/subtitleConfig'
 import FadeControl from './FadeControl'
+import { getApiKey, getBaseUrl } from '../../api/api'
+
+function buildComposePlan(clips, mediaFiles, sceneFilesMap) {
+  const sourceClips = clips
+    .filter((clip) => ['human', 'video'].includes(clip.type))
+    .sort((a, b) => a.start_ms - b.start_ms)
+  const sceneClips = clips
+    .filter((clip) => clip.type === 'scene')
+    .sort((a, b) => a.start_ms - b.start_ms)
+
+  const segments = []
+  const partFiles = []
+  sourceClips.forEach((clip, index) => {
+    const startMs = Math.max(0, Number(clip.start_ms) || 0)
+    const durationMs = Math.max(1, Number(clip.duration_ms) || 1)
+    const endMs = startMs + durationMs
+    const sceneClip = sceneClips.find((candidate) => (
+      candidate.start_ms <= startMs
+      && candidate.start_ms + candidate.duration_ms >= endMs
+    ))
+    const sourceBlob = mediaFileRegistry.get(clip.mediaId)
+    if (!sourceBlob) return
+
+    const sceneMedia = sceneClip ? mediaFiles[sceneClip.mediaId] : null
+    const sceneBlob = sceneClip ? mediaFileRegistry.get(sceneClip.mediaId) : null
+    const scenePath = sceneMedia?.vfsPath || sceneMedia?.name || sceneClip?.scene_vfs_path || sceneClip?.scene_file || ''
+    if (sceneClip && sceneBlob && scenePath && sceneFilesMap) {
+      sceneFilesMap[scenePath] = sceneBlob
+      if (sceneMedia?.name) sceneFilesMap[sceneMedia.name] = sceneBlob
+    }
+
+    segments.push({
+      id: clip.id || `compose_segment_${index + 1}`,
+      type: sceneClip && sceneBlob ? 'scene' : 'human',
+      start_ms: startMs,
+      end_ms: endMs,
+      duration_ms: durationMs,
+      start: startMs / 1000,
+      end: endMs / 1000,
+      duration: durationMs / 1000,
+      scene_vfs_path: sceneClip && sceneBlob ? scenePath : null,
+      scene_file: sceneClip && sceneBlob ? (sceneMedia?.name || scenePath) : null,
+      source_segment_id: clip.source_segment_id || null,
+      char_start: clip.char_start,
+      char_end: clip.char_end,
+    })
+    partFiles.push(sourceBlob)
+  })
+
+  return {
+    timeline: {
+      schema: 'rjcut.advanced-compose/v1',
+      duration_ms: segments.reduce((max, segment) => Math.max(max, segment.end_ms), 0),
+      video_info: { width: 1080, height: 1920, fps: 30 },
+      segments,
+    },
+    partFiles,
+  }
+}
 
 /**
  * 导出面板 - 将剪辑完成的视频导出并保存到 VFS
@@ -18,9 +78,17 @@ import FadeControl from './FadeControl'
 export default function ExportPanelVFS({ 
   vfs, 
   sceneFilesMap = {},
-  onTranscribeRequest = null 
+  onTranscribeRequest = null,
+  onExportComplete = null
 }) {
-  const { clips, mediaFiles, totalDuration_ms, fps, width, height } = useTimelineStore()
+  const { clips, mediaFiles, totalDuration_ms, fps, width, height } = useTimelineStore((snapshot) => ({
+    clips: snapshot.clips,
+    mediaFiles: snapshot.mediaFiles,
+    totalDuration_ms: snapshot.totalDuration_ms,
+    fps: snapshot.fps,
+    width: snapshot.width,
+    height: snapshot.height,
+  }))
   const [status, setStatus] = useState('idle') // idle, processing, complete, error
   const [progress, setProgress] = useState(0)
   const [exportSettings, setExportSettings] = useState({
@@ -51,6 +119,7 @@ export default function ExportPanelVFS({
     return sizeMB.toFixed(1)
   }, [totalDuration_ms, exportSettings.quality])
 
+
   // 导出处理
   const handleExport = async () => {
     if (clips.length === 0) {
@@ -63,6 +132,18 @@ export default function ExportPanelVFS({
     setErrorMessage('')
 
     try {
+      // 🎨 成片全局参数：读取当前生效的全部全局参数（含模板混剪字体配置等），
+      // 稍后整体落盘到旁车 JSON，供二次加工进入高级剪辑时整体还原。
+      const subtitleConfig = loadSubtitleConfig()
+      const globalParams = readGlobalParams()
+      const sourceVideoVfsPaths = [...new Set(
+        clips
+          .filter((c) => ['human', 'video'].includes(c.type))
+          .map((c) => mediaFiles[c.mediaId]?.vfsPath)
+          .filter(Boolean)
+      )]
+      const primarySourceVideoVfsPath = sourceVideoVfsPaths[0] || ''
+
       // 获取所有需要的媒体文件
       const requiredMediaIds = [...new Set(clips.map(c => c.mediaId))]
       const mediaBlobs = {}
@@ -145,7 +226,33 @@ export default function ExportPanelVFS({
           
           // 写入 rjcut 的 VFS
           await vfs.writeFile(savePath, blob)
-          
+
+          // 🎨 把本成片使用的全部全局参数落盘到旁车 JSON（<成片名>.rjcut-global.json），
+          // 供二次加工进入高级剪辑时整体还原同一套全局参数（含模板混剪字体配置等）。
+          try {
+            const stem = savePath.replace(/\.[^./\\]+$/u, '')
+            const globalConfigPath = `${stem}.rjcut-global.json`
+            const globalConfig = {
+              schema: 'rjcut.export-global/v1',
+              generated_at: new Date().toISOString(),
+              global_params: globalParams,
+              source_video_vfs_path: primarySourceVideoVfsPath,
+            }
+            await vfs.writeFile(globalConfigPath, new TextEncoder().encode(JSON.stringify(globalConfig, null, 2)))
+          } catch (globalErr) {
+            console.warn('[ExportPanelVFS] 全局参数 JSON 写入失败（不影响成片）:', globalErr)
+          }
+
+          // 🎨 通知父组件（高级剪辑）随导出一起把"加工后的项目数据"也落盘到 JSON，
+          // 使点一次"导出视频"即同时完成：重新生成视频 + 保存加工后数据，便于下一轮二次加工。
+          if (onExportComplete) {
+            try {
+              await onExportComplete({ savePath, primarySourceVideoVfsPath })
+            } catch (cbErr) {
+              console.warn('[ExportPanelVFS] onExportComplete 回调异常（不影响成片）:', cbErr)
+            }
+          }
+
           setStatus('complete')
           setProgress(100)
           
@@ -184,21 +291,29 @@ export default function ExportPanelVFS({
       
       if (hasHumanOrSceneClips) {
         // 数字人视频合成模式（对应 lip_sync.py）
+        const composePlan = buildComposePlan(clips, mediaFiles, sceneFilesMap)
+        if (!composePlan.timeline.segments.length || composePlan.partFiles.length !== composePlan.timeline.segments.length) {
+          throw new Error('没有找到可连续合成的源视频片段')
+        }
         console.log('[ExportPanelVFS] 使用 composeFromTimeline 模式', {
-          segmentCount: clips.length,
+          segmentCount: composePlan.timeline.segments.length,
           sceneFilesCount: Object.keys(sceneFilesMap).length
         })
-        
+
+        // 🎨 字幕配置：复用上面已读取的 subtitleConfig（与模板混剪共用同一份
+        // DEFAULT_SUBTITLE_CONFIG，保证传统剪辑导出与模板混剪成片完全一致）。
+
         worker.postMessage({
           type: 'composeFromTimeline',
-          timeline: timeline,
-          partFiles: Object.values(mediaBlobs),
+          timeline: composePlan.timeline,
+          partFiles: composePlan.partFiles,
           sceneFiles: sceneFilesMap, // 🎬 使用父组件传入的场景文件
           options: {
             useTransitions: false,
             transitionType: 'fade',
             transitionDuration: 0.5,
             resyncSubtitle: true,
+            subtitle: subtitleConfig, // 🎨 传递完整字幕配置
           }
         })
       } else {

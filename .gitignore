@@ -19,3 +19,8 @@ __pycache__/
 .next/
 studio/out/*
 studio/release/*
+
+# FFmpeg 大二进制为构建产物，由 copy-native-ffmpeg.mjs / copy-ffmpeg-core.mjs 自动恢复，不入库
+studio/electron/bin/*.exe
+studio/public/wasm/ffmpeg-core/ffmpeg-core.js
+studio/public/wasm/ffmpeg-core/ffmpeg-core.wasm

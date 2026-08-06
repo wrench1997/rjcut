@@ -486,33 +486,8 @@ async function createVideoProject(projectName, config = {}) {
   // allowedRoots[0] 已经是 剪辑工作室 目录，直接创建项目文件夹
   const projectPath = path.join(allowedRoots[0] || app.getPath('documents'), projectName)
   
-  await fs.mkdir(path.join(projectPath, '原始视频'), { recursive: true })
-  await fs.mkdir(path.join(projectPath, '剪辑视频'), { recursive: true })
-  await fs.mkdir(path.join(projectPath, '输出'), { recursive: true })
-  
-  const projectConfig = {
-    name: projectName,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    config: {
-      pipeline: {
-        remove_keyword: '转场',
-        margin: 0.15,
-        min_segment_duration: 0.1,
-      },
-      audio: {
-        bgm_volume: 0.3,
-        original_volume: 1.0,
-      },
-      ...config,
-    },
-    scenes: [],
-  }
-  
-  await fs.writeFile(
-    path.join(projectPath, 'project.json'),
-    JSON.stringify(projectConfig, null, 2)
-  )
+  // 目录本身就是项目；文案、场景素材和成片目录在首次使用时按需生成。
+  await fs.mkdir(projectPath, { recursive: true })
   
   return projectPath
 }
@@ -525,29 +500,77 @@ async function getVideoProjects() {
   const projectsRoot = allowedRoots[0] || app.getPath('documents')
   
   try {
-    const items = await fs.readdir(projectsRoot, { withFileTypes: true })
     const projects = []
-    
-    for (const item of items) {
-      if (item.isDirectory()) {
-        const projectConfigPath = path.join(projectsRoot, item.name, 'project.json')
+    const seenPaths = new Set()
+    const excludedFolders = new Set(projectStructure.PROJECT_DISCOVERY_EXCLUDED_FOLDERS || [])
+
+    const readLegacyConfig = async (projectPath) => {
+      try {
+        const content = await fs.readFile(path.join(projectPath, 'project.json'), 'utf-8')
+        return JSON.parse(content)
+      } catch (e) {
+        return null
+      }
+    }
+
+    const latestTimestamp = (values, fallback) => {
+      const valid = values
+        .filter(Boolean)
+        .map(value => ({ value, time: new Date(value).getTime() }))
+        .filter(item => Number.isFinite(item.time))
+        .sort((a, b) => a.time - b.time)
+      return valid.length > 0 ? valid[valid.length - 1].value : fallback
+    }
+
+    const scanRoot = async (rootPath, isWorkspaceRoot) => {
+      let items
+      try {
+        items = await fs.readdir(rootPath, { withFileTypes: true })
+      } catch (e) {
+        return
+      }
+
+      for (const item of items) {
+        if (!item.isDirectory()) continue
+        if (isWorkspaceRoot && excludedFolders.has(item.name)) continue
+
+        const projectPath = path.join(rootPath, item.name)
+        const virtualPath = toVirtualPath(projectPath)
+        if (seenPaths.has(virtualPath)) continue
+
+        const legacyConfig = await readLegacyConfig(projectPath)
         try {
-          const configContent = await fs.readFile(projectConfigPath, 'utf-8')
-          const config = JSON.parse(configContent)
-          // 使用 toVirtualPath 转换项目路径为虚拟路径格式（如 /项目名）
-          const virtualPath = toVirtualPath(path.join(projectsRoot, item.name))
+          const stat = await fs.stat(projectPath)
+          const createdAt = legacyConfig?.createdAt || stat.birthtime.toISOString()
+          const updatedAt = latestTimestamp([
+            legacyConfig?.updatedAt,
+            stat.mtime.toISOString(),
+          ], createdAt)
+          seenPaths.add(virtualPath)
           projects.push({
-            name: config.name || item.name,
+            name: legacyConfig?.name || item.name,
             path: virtualPath,
-            config,
-            createdAt: config.createdAt,
-            updatedAt: config.updatedAt,
+            // 旧项目配置只读不写；新项目不再依赖或生成它。
+            config: legacyConfig || {},
+            createdAt,
+            updatedAt,
           })
         } catch (e) {
-          // 忽略无效的项目配置
+          // 目录已经是项目，即使读取元数据失败也不让项目从列表消失。
+          seenPaths.add(virtualPath)
+          projects.push({
+            name: legacyConfig?.name || item.name,
+            path: virtualPath,
+            config: legacyConfig || {},
+            createdAt: legacyConfig?.createdAt || new Date().toISOString(),
+            updatedAt: legacyConfig?.updatedAt || new Date().toISOString(),
+          })
         }
       }
     }
+
+    // 根目录下的文件夹就是项目。
+    await scanRoot(projectsRoot, true)
     
     return projects.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
   } catch (e) {
@@ -679,14 +702,14 @@ async function importExternalFolder(externalPath, vfsTargetPath, options = {}) {
   const documentsPath = app.getPath('documents')
   const studioRoot = path.join(documentsPath, '剪辑工作室')
   
-  // 解析 vfsTargetPath（支持 VFS 路径格式 /项目名/xxx）
+  // 解析项目路径（支持 VFS 路径格式 /项目名/xxx）
   let resolvedTargetPath
-  if (vfsTargetPath && vfsTargetPath.startsWith('/') && !vfsTargetPath.startsWith('/projects/')) {
-    // VFS 路径格式，项目直接在根目录下
-    resolvedTargetPath = path.join(studioRoot, vfsTargetPath)
-  } else if (vfsTargetPath && vfsTargetPath.startsWith('/projects/')) {
-    // 旧的 /projects/ 格式，拒绝
-    throw new Error(`❌ 无效的导入路径格式：${vfsTargetPath}。导入路径必须是 /项目名/xxx 格式，例如 /我的视频项目/原始视频（不再使用/projects/前缀）`)
+  if (vfsTargetPath && vfsTargetPath.startsWith('/')) {
+    resolvedTargetPath = path.normalize(path.join(studioRoot, vfsTargetPath))
+    const normalizedRoot = path.normalize(studioRoot)
+    if (!resolvedTargetPath.startsWith(normalizedRoot + path.sep)) {
+      throw new Error(`❌ 导入路径必须在 ${studioRoot} 目录下。当前路径：${resolvedTargetPath}`)
+    }
   } else {
     // 绝对路径，验证是否在 剪辑工作室 目录下
     const normalizedTarget = path.normalize(vfsTargetPath)
@@ -827,16 +850,12 @@ async function smartOrganizeToProject(externalPath, projectPath, options = {}) {
   // 解析 projectPath（支持 VFS 路径格式 /项目名）
   let resolvedProjectPath
   let projectName
-  if (projectPath && projectPath.startsWith('/') && !projectPath.startsWith('/projects/')) {
-    // VFS 路径格式，项目直接在根目录下
-    projectName = projectPath.split('/')[1] // 获取 /项目名 中的项目名
+  if (projectPath && projectPath.startsWith('/')) {
+    projectName = projectPath.split('/').filter(Boolean)[0]
     if (!projectName) {
       throw new Error(`❌ 无效的项目路径格式：${projectPath}。项目路径必须是 /项目名 格式，例如 /我的视频项目`)
     }
     resolvedProjectPath = path.join(studioRoot, projectName)
-  } else if (projectPath && projectPath.startsWith('/projects/')) {
-    // 旧的 /projects/ 格式，拒绝
-    throw new Error(`❌ 无效的项目路径格式：${projectPath}。项目路径必须是 /项目名 格式，例如 /我的视频项目（不再使用/projects/前缀）`)
   } else {
     // 绝对路径，验证是否在 剪辑工作室 目录下
     const normalizedProject = path.normalize(projectPath)
@@ -856,8 +875,8 @@ async function smartOrganizeToProject(externalPath, projectPath, options = {}) {
     useScriptAnalysis,
     scriptFound: false,
     organized: {
-      video: [],        // 原始视频（human 类型）
-      edited: [],       // 剪辑视频（scene 类型）
+      video: [],        // 文案目录视频（human 类型）
+      edited: [],       // 场景素材目录视频（scene 类型）
       audio: [],
       image: [],
       document: [],
@@ -872,12 +891,12 @@ async function smartOrganizeToProject(externalPath, projectPath, options = {}) {
     errors: [],
   }
   
-  // 项目目录结构 - 只允许三个标准目录（原始视频、剪辑视频、输出）
-// 注意：smartOrganizeToProject 只使用原始视频和剪辑视频两个目录来分类视频
+  // 项目目录结构 - 三个标准目录按需生成（文案、场景素材、成片）
+  // smartOrganizeToProject 只使用文案和场景素材两个目录来分类视频。
 // 其他文件类型（音频、图片、文档等）直接放到项目根目录，不再创建额外的子目录
 const projectFolders = {
-    video: projectStructure.PROJECT_FOLDERS.RAW_VIDEO,    // 原始视频（human 类型）
-    edited: projectStructure.PROJECT_FOLDERS.EDITED_VIDEO, // 剪辑视频（scene 类型）
+    video: projectStructure.PROJECT_FOLDERS.RAW_VIDEO,    // 文案目录（human 类型）
+    edited: projectStructure.PROJECT_FOLDERS.EDITED_VIDEO, // 场景素材目录（scene 类型）
   }
   
   const typePatterns = {
@@ -890,7 +909,7 @@ const projectFolders = {
     json: /\.json$/i,
   }
   
-  // 确保项目目录存在，并创建三个标准子目录（原始视频、剪辑视频、输出）
+  // 确保项目目录存在；分类目标目录在实际导入时按需创建。
   await fs.mkdir(resolvedProjectPath, { recursive: true })
   await fs.mkdir(path.join(resolvedProjectPath, projectStructure.PROJECT_FOLDERS.RAW_VIDEO), { recursive: true })
   await fs.mkdir(path.join(resolvedProjectPath, projectStructure.PROJECT_FOLDERS.EDITED_VIDEO), { recursive: true })
@@ -960,7 +979,7 @@ const projectFolders = {
    */
   function getVideoTargetFolder(fileName) {
     if (!useScriptAnalysis || !scriptSegments) {
-      return projectFolders.video  // 默认放到原始视频
+      return projectFolders.video  // 默认放到文案目录
     }
     
     const lowerName = fileName.toLowerCase()
@@ -969,17 +988,17 @@ const projectFolders = {
     if (result.scriptAnalysis.sceneVideos.some(sceneFile => 
       lowerName.includes(sceneFile.toLowerCase()) || sceneFile.toLowerCase().includes(lowerName)
     )) {
-      return projectFolders.edited  // 剪辑视频
+      return projectFolders.edited  // 场景素材目录
     }
     
     // 检查是否是 human 类型视频
     if (result.scriptAnalysis.humanVideos.some(humanFile => 
       lowerName.includes(humanFile.toLowerCase()) || humanFile.toLowerCase().includes(lowerName)
     )) {
-      return projectFolders.video  // 原始视频
+      return projectFolders.video  // 文案目录
     }
     
-    // 无法匹配，默认放到原始视频
+    // 无法匹配，默认放到文案目录
     return projectFolders.video
   }
   
@@ -999,7 +1018,7 @@ const projectFolders = {
       }
       
       // 确定目标目录
-      // 注意：项目目录结构只允许三个标准子目录（原始视频、剪辑视频、输出）
+      // 注意：项目目录结构只允许三个标准子目录（文案、场景素材、成片）
       // 其他文件（音频、图片、文档、字幕等）直接放到项目根目录
       let targetDir = resolvedProjectPath
       
@@ -1007,7 +1026,7 @@ const projectFolders = {
       if (fileName.toLowerCase() === 'script.json') {
         targetDir = resolvedProjectPath
       }
-      // 特殊处理：视频文件根据脚本分析分类到原始视频或剪辑视频
+        // 特殊处理：视频文件根据脚本分析分类到文案或场景素材
       else if (fileType === 'video' && useScriptAnalysis && scriptSegments) {
         targetDir = path.join(resolvedProjectPath, getVideoTargetFolder(fileName))
       }
@@ -1028,7 +1047,7 @@ const projectFolders = {
       
       // 记录到对应的分类
       if (fileType === 'video') {
-        // 根据实际目标文件夹判断是原始视频还是剪辑视频
+        // 根据实际目标文件夹判断是文案还是场景素材
         if (targetDir.includes(projectStructure.PROJECT_FOLDERS.EDITED_VIDEO)) {
           result.organized.edited.push({
             source: filePath,
@@ -1079,8 +1098,8 @@ const projectFolders = {
   
   // 生成摘要
   result.summary = {
-    humanVideoCount: result.organized.video.length,    // human 类型（原始视频）
-    sceneVideoCount: result.organized.edited.length,   // scene 类型（剪辑视频）
+    humanVideoCount: result.organized.video.length,    // human 类型（文案目录）
+    sceneVideoCount: result.organized.edited.length,   // scene 类型（场景素材目录）
     audioCount: result.organized.audio.length,
     imageCount: result.organized.image.length,
     documentCount: result.organized.document.length,

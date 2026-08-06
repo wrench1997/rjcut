@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { User, Trash2, RefreshCw, Sparkles, AlertCircle, History, X, Upload, CheckCircle, Folder, Film, Play, HardDrive, ArrowUpToLine, FileText, ChevronRight, ArrowUp } from 'lucide-react'
+import { User, Users, UserPlus, Trash2, RefreshCw, Sparkles, AlertCircle, History, X, Upload, CheckCircle, Folder, Film, Play, HardDrive, ArrowUpToLine, FileText, ChevronRight, ArrowUp, Minus, Maximize2 } from 'lucide-react'
 import FileBrowser from './FileBrowser'
 import useStudioStore from '../store/studioStore'
 import {
@@ -9,13 +9,40 @@ import {
   syncCustomPersons,
   deleteCustomPerson,
   getVoices,
-  presignUpload,
-  confirmUpload,
   createDhPersonTask,
   getTaskStatus,
   getDhTaskList,
-  getDhVideoUrl
+  getDhVideoUrl,
+  getDigitalHumanImageUrl,
+  getBaseUrl,
+  relayUpload,
 } from '../api/api'
+
+function PersonCover({ person, iconSize = 32, alt }) {
+  const [failed, setFailed] = useState(false)
+  const imageUrl = getDigitalHumanImageUrl(person?.cover_url)
+
+  useEffect(() => {
+    setFailed(false)
+  }, [imageUrl])
+
+  if (imageUrl && !failed) {
+    return (
+      <img
+        src={imageUrl}
+        alt={alt || person?.name || '数字人'}
+        className="w-full h-full object-cover"
+        onError={() => setFailed(true)}
+      />
+    )
+  }
+
+  return (
+    <div className="w-full h-full flex items-center justify-center text-slate-300" aria-label="暂无数字人封面">
+      <User size={iconSize} strokeWidth={1.5} />
+    </div>
+  )
+}
 
 // =====================================================
 // 数字人预览组件 - 显示该数字人生成的示例视频
@@ -77,13 +104,7 @@ function PersonPreview({ person, apiKey }) {
       {/* 数字人信息卡片 */}
       <div className="flex items-center gap-4 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border border-blue-200">
         <div className="w-20 h-20 rounded-lg overflow-hidden flex-shrink-0 bg-slate-100">
-          {person.cover_url ? (
-            <img src={person.cover_url} alt={person.name} className="w-full h-full object-cover" />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center text-slate-400">
-              <User size={32} />
-            </div>
-          )}
+          <PersonCover person={person} iconSize={32} />
         </div>
         <div className="flex-1">
           <h4 className="font-bold text-slate-800 text-lg">{person.name}</h4>
@@ -169,7 +190,7 @@ function PersonPreview({ person, apiKey }) {
 // =====================================================
 // 训练数字人弹窗组件
 // =====================================================
-function TrainPersonDialog({ onClose, onTrainingComplete, apiKey, vfs }) {
+function TrainPersonDialog({ onClose, onTrainingComplete, apiKey, apiBaseUrl, vfs }) {
   const [step, setStep] = useState('upload') // upload, training, done
   const [file, setFile] = useState(null)
   const [uploading, setUploading] = useState(false)
@@ -184,6 +205,7 @@ function TrainPersonDialog({ onClose, onTrainingComplete, apiKey, vfs }) {
   const [sourceType, setSourceType] = useState('vfs') // 'vfs' = 从文件管理选择，'upload' = 上传文件
   const [selectedVfsPath, setSelectedVfsPath] = useState('')
   const [showFileBrowser, setShowFileBrowser] = useState(false)
+  const [isMinimized, setIsMinimized] = useState(false)
   
   // VFS 简化文件浏览器状态
   const [vfsBrowserPath, setVfsBrowserPath] = useState('/')
@@ -191,6 +213,15 @@ function TrainPersonDialog({ onClose, onTrainingComplete, apiKey, vfs }) {
   const [vfsBrowserLoading, setVfsBrowserLoading] = useState(false)
   
   const fileInputRef = useRef(null)
+  const pollTimerRef = useRef(null)
+  const mountedRef = useRef(true)
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false
+      if (pollTimerRef.current) clearTimeout(pollTimerRef.current)
+    }
+  }, [])
   
   // 加载 VFS 目录（简化版）
   const loadVfsBrowserDirectory = useCallback(async (path) => {
@@ -220,56 +251,32 @@ function TrainPersonDialog({ onClose, onTrainingComplete, apiKey, vfs }) {
 
   // 上传文件到 OSS
   const uploadFile = async (file) => {
-    const apiBaseUrl = localStorage.getItem('rjcut_api_base_url') || process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8001'
+    const configuredApiBaseUrl = (apiBaseUrl || getBaseUrl()).replace(/\/$/, '')
     
     try {
       setUploading(true)
       setUploadProgress(10)
       
-      // 1. 获取预签名 URL
-      const presignRes = await fetch(`${apiBaseUrl}/v1/uploads/presign`, {
+      // 直接走系统设置中的 API 地址，由后端转存 MinIO。
+      const formData = new FormData()
+      formData.append('file', file, file.name)
+      formData.append('purpose', 'dh_person_source')
+
+      const uploadRes = await fetch(`${configuredApiBaseUrl}/v1/uploads/relay`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          filename: file.name,
-          content_type: file.type || 'video/mp4',
-          purpose: 'dh_person_source',
-        }),
+        body: formData,
       })
       
-      if (!presignRes.ok) throw new Error('获取上传 URL 失败')
-      const presignData = await presignRes.json()
-      const { upload_url, upload_id } = presignData.data
-      setUploadProgress(30)
-      
-      // 2. 上传文件
-      const uploadRes = await fetch(upload_url, {
-        method: 'PUT',
-        headers: { 'Content-Type': file.type || 'video/mp4' },
-        body: file,
-      })
-      
-      if (!uploadRes.ok) throw new Error('文件上传失败')
-      setUploadProgress(80)
-      
-      // 3. 确认上传
-      const confirmRes = await fetch(`${apiBaseUrl}/v1/uploads/confirm`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ upload_id }),
-      })
-      
-      if (!confirmRes.ok) throw new Error('确认上传失败')
-      const confirmData = await confirmRes.json()
+      const uploadData = await uploadRes.json().catch(() => ({}))
+      if (!uploadRes.ok || uploadData.code !== 0 || !uploadData.data?.oss_key) {
+        throw new Error(uploadData.message || `文件上传失败（HTTP ${uploadRes.status}）`)
+      }
       setUploadProgress(100)
       
-      return confirmData.data.oss_key
+      return uploadData.data.oss_key
     } catch (err) {
       console.error('上传失败:', err)
       throw err
@@ -321,35 +328,15 @@ function TrainPersonDialog({ onClose, onTrainingComplete, apiKey, vfs }) {
         const uploadedKey = await uploadFile(file)
         ossKey = uploadedKey
       } else if (sourceType === 'vfs' && selectedVfsPath) {
-        // 从 VFS 选择文件 - 需要转换为 OSS key
-        // 这里假设 VFS 路径可以直接作为 OSS key 使用，或者需要调用 API 转换
-        const apiBaseUrl = localStorage.getItem('rjcut_api_base_url') || process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8001'
-        
-        // 调用 API 将 VFS 路径转换为可访问的 OSS key
-        const convertRes = await fetch(`${apiBaseUrl}/v1/vfs/to-oss`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            vfs_path: selectedVfsPath,
-            purpose: 'dh_person_source',
-          }),
+        // VFS 文件先读成 Blob，再与本地文件使用同一条系统 API 上传链路。
+        if (!vfs?.readFileAsBlob) throw new Error('当前文件系统不支持读取视频文件')
+        const fileBlob = await vfs.readFileAsBlob(selectedVfsPath)
+        const filename = selectedVfsPath.split('/').pop() || 'digital-human-source.mp4'
+        const uploadPayload = await relayUpload(fileBlob, filename, 'dh_person_source', {
+          apiBaseUrl,
+          apiKey,
         })
-        
-        if (convertRes.ok) {
-          const convertData = await convertRes.json()
-          if (convertData.data?.oss_key) {
-            ossKey = convertData.data.oss_key
-          } else {
-            // 如果 API 不支持转换，直接使用 VFS 路径作为标识
-            ossKey = `vfs:${selectedVfsPath}`
-          }
-        } else {
-          // 降级方案：直接使用 VFS 路径
-          ossKey = `vfs:${selectedVfsPath}`
-        }
+        ossKey = uploadPayload.data.oss_key
       }
       
       // 2. 创建训练任务
@@ -369,6 +356,7 @@ function TrainPersonDialog({ onClose, onTrainingComplete, apiKey, vfs }) {
       const newTaskId = taskRes.data.data.task_id
       setTaskId(newTaskId)
       setStep('training')
+      setIsMinimized(false)
       
       // 3. 开始轮询任务状态
       pollTaskStatus(newTaskId)
@@ -382,25 +370,57 @@ function TrainPersonDialog({ onClose, onTrainingComplete, apiKey, vfs }) {
     const poll = async () => {
       try {
         const res = await getTaskStatus(taskId)
+        if (!mountedRef.current) return
         const task = res.data.data
-        
-        setTrainingProgress(task.progress || 0)
+        const status = String(task.status || '').toLowerCase()
+        const progress = Number(task.progress)
+        setTrainingProgress(Number.isFinite(progress) ? Math.max(0, Math.min(100, progress)) : 0)
         setTrainingStage(task.stage || '训练中')
         
-        if (task.status === 'success') {
+        if (['success', 'succeeded', 'completed', 'done'].includes(status)) {
+          setIsMinimized(false)
           setStep('done')
           onTrainingComplete?.(task)
-        } else if (task.status === 'failed') {
-          setError(task.error || '训练失败')
+        } else if (['failed', 'cancelled', 'timeout'].includes(status)) {
+          setIsMinimized(false)
+          setError(task.error || (status === 'cancelled' ? '训练已取消' : '训练失败'))
         } else {
-          setTimeout(poll, 3000)
+          pollTimerRef.current = setTimeout(poll, 3000)
         }
       } catch (err) {
         console.error('轮询状态失败:', err)
-        setTimeout(poll, 3000)
+        if (mountedRef.current) pollTimerRef.current = setTimeout(poll, 3000)
       }
     }
     poll()
+  }
+
+  if (isMinimized && step === 'training') {
+    return (
+      <div className="fixed right-6 bottom-6 z-[120] w-80 rounded-xl border border-blue-200 bg-white p-4 shadow-2xl">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center justify-between gap-3 text-sm font-semibold text-slate-800">
+              <span className="truncate">数字人训练中</span>
+              <span className="shrink-0 text-blue-600">{trainingProgress}%</span>
+            </div>
+            <p className="mt-1 truncate text-xs text-slate-500">{trainingStage || '排队中'}</p>
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
+            <button onClick={() => setIsMinimized(false)} className="rounded-lg p-1.5 text-slate-500 hover:bg-blue-50 hover:text-blue-600" title="展开进度">
+              <Maximize2 size={16} />
+            </button>
+            <button onClick={onClose} className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-500" title="关闭窗口（任务继续运行）">
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+        <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200">
+          <div className="h-full rounded-full bg-blue-600 transition-all duration-500" style={{ width: `${trainingProgress}%` }} />
+        </div>
+        <p className="mt-2 truncate text-[11px] text-slate-400">任务 ID：{taskId}</p>
+      </div>
+    )
   }
 
   return (
@@ -408,9 +428,16 @@ function TrainPersonDialog({ onClose, onTrainingComplete, apiKey, vfs }) {
       <div className="modal modal-large" onClick={(e) => e.stopPropagation()}>
         <div className="flex justify-between items-center mb-6">
           <h3 className="modal-title text-xl font-bold text-slate-800">训练新数字人</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition-colors">
-            <X size={20} />
-          </button>
+          <div className="flex items-center gap-1">
+            {step === 'training' && (
+              <button onClick={() => setIsMinimized(true)} className="rounded-lg p-1.5 text-slate-400 hover:bg-blue-50 hover:text-blue-600 transition-colors" title="最小化进度">
+                <Minus size={20} />
+              </button>
+            )}
+            <button onClick={onClose} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors" title="关闭">
+              <X size={20} />
+            </button>
+          </div>
         </div>
 
         {/* 步骤指示器 */}
@@ -790,13 +817,9 @@ function DigitalPersonCard({ person, isCustom, onSelect, onCreateVideo, onDelete
           }}
           title="点击使用此数字人创作视频"
         >
-          {person.cover_url ? (
-            <img src={person.cover_url} alt={person.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center text-slate-300">
-              <User size={64} strokeWidth={1.5} />
-            </div>
-          )}
+          <div className="w-full h-full transition-transform duration-500 group-hover:scale-105">
+            <PersonCover person={person} iconSize={64} />
+          </div>
           
           {/* 悬停时显示操作按钮 - 上下分布 */}
           <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex flex-col items-center justify-center gap-2">
@@ -875,12 +898,35 @@ function DigitalPersonCard({ person, isCustom, onSelect, onCreateVideo, onDelete
 
 
 // 主组件
-export default function DigitalHumanManager({ apiKey, vfs, onCreateVideo }) {
+const getPersonList = (response) => {
+  const payload = response?.data?.data
+  if (Array.isArray(payload)) return payload
+  if (Array.isArray(payload?.list)) return payload.list
+  if (Array.isArray(payload?.items)) return payload.items
+  if (Array.isArray(payload?.persons)) return payload.persons
+  return []
+}
+
+const getListErrorMessage = (reason, fallback) => {
+  const message =
+    reason?.responseData?.detail?.message ||
+    reason?.responseData?.detail ||
+    reason?.responseData?.message ||
+    reason?.message
+  const code = reason?.code ? `（错误码：${reason.code}）` : ''
+  return `${message || fallback}${code}`
+}
+
+const uniquePersons = (persons) =>
+  Array.from(new Map(persons.filter(Boolean).map((person) => [person.id, person])).values())
+
+export default function DigitalHumanManager({ apiKey, apiBaseUrl, vfs, onCreateVideo }) {
   const [activeTab, setActiveTab] = useState('common')
   const [commonPersons, setCommonPersons] = useState([])
   const [customPersons, setCustomPersons] = useState([])
   const [voices, setVoices] = useState([])
   const [loading, setLoading] = useState(false)
+  const [loadErrors, setLoadErrors] = useState({ common: '', custom: '', voices: '' })
   const [showTrainDialog, setShowTrainDialog] = useState(false)
   
   // 使用 props 回调
@@ -906,41 +952,59 @@ export default function DigitalHumanManager({ apiKey, vfs, onCreateVideo }) {
     hasLoadedDataRef.current = true
     
     setLoading(true)
-    try {
-      const commonRes = await getCommonPersons()
-      if (commonRes.data.code === 0 && isMountedRef.current) {
-        const commonData = commonRes.data.data || []
-        // 去重：确保每个 id 只出现一次
-        const uniqueCommon = Array.from(new Map(commonData.map(p => [p.id, p])).values())
-        setCommonPersons(uniqueCommon)
-      }
-      
-      const customRes = await getCustomPersons()
-      if (customRes.data.code === 0 && isMountedRef.current) {
-        const customData = customRes.data.data || []
-        // 去重：确保每个 id 只出现一次
-        const uniqueCustom = Array.from(new Map(customData.map(p => [p.id, p])).values())
-        setCustomPersons(uniqueCustom)
-      }
-      
-      const voicesRes = await getVoices()
-      if (voicesRes.data.code === 0 && isMountedRef.current) {
-        setVoices(voicesRes.data.data || [])
-      }
-    } catch (err) {
-      console.error('加载数据失败:', err)
-      // 显示后端返回的详细错误信息
-      const backendMsg = err.responseData?.message || err.message || '未知错误'
-      const errorCode = err.code ? ` (错误码：${err.code})` : ''
-      alert('加载数据失败：' + backendMsg + errorCode)
-    } finally {
-      if (isMountedRef.current) setLoading(false)
+    setLoadErrors({ common: '', custom: '', voices: '' })
+
+    const results = await Promise.allSettled([
+      getCommonPersons(),
+      getCustomPersons(),
+      getVoices(),
+    ])
+
+    if (!isMountedRef.current) return
+
+    const nextErrors = { common: '', custom: '', voices: '' }
+    const [commonResult, customResult, voicesResult] = results
+
+    if (commonResult.status === 'fulfilled' && commonResult.value?.data?.code === 0) {
+      setCommonPersons(uniquePersons(getPersonList(commonResult.value)))
+    } else {
+      const reason = commonResult.status === 'rejected' ? commonResult.reason : commonResult.value?.data
+      nextErrors.common = getListErrorMessage(reason, '公共数字人加载失败')
+      console.error('[DigitalHumanManager] 公共数字人加载失败:', reason)
     }
+
+    if (customResult.status === 'fulfilled' && customResult.value?.data?.code === 0) {
+      setCustomPersons(uniquePersons(getPersonList(customResult.value)))
+    } else {
+      const reason = customResult.status === 'rejected' ? customResult.reason : customResult.value?.data
+      nextErrors.custom = getListErrorMessage(reason, '自定义数字人加载失败')
+      console.error('[DigitalHumanManager] 自定义数字人加载失败:', reason)
+    }
+
+    if (voicesResult.status === 'fulfilled' && voicesResult.value?.data?.code === 0) {
+      setVoices(getPersonList(voicesResult.value))
+    } else {
+      const reason = voicesResult.status === 'rejected' ? voicesResult.reason : voicesResult.value?.data
+      nextErrors.voices = getListErrorMessage(reason, '声音列表加载失败')
+      console.error('[DigitalHumanManager] 声音列表加载失败:', reason)
+    }
+
+    setLoadErrors(nextErrors)
+    setLoading(false)
   }, [])
 
   useEffect(() => {
+    isMountedRef.current = true
     loadData()
-  }, [])
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [loadData])
+
+  const reloadData = useCallback(() => {
+    hasLoadedDataRef.current = false
+    return loadData()
+  }, [loadData])
 
   const handleSync = async () => {
     setLoading(true)
@@ -948,7 +1012,7 @@ export default function DigitalHumanManager({ apiKey, vfs, onCreateVideo }) {
       const res = await syncCustomPersons()
       if (res.data.code === 0) {
         alert(`已同步 ${res.data.data.synced_count} 个数字人`)
-        loadData()
+        await reloadData()
       }
     } catch (err) {
       alert(`同步失败：${err.message}`)
@@ -963,9 +1027,8 @@ export default function DigitalHumanManager({ apiKey, vfs, onCreateVideo }) {
 
   const handleTrainingComplete = useCallback(() => {
     // 训练完成后重新加载自定义数字人列表
-    hasLoadedDataRef.current = false
-    loadData()
-  }, [loadData])
+    reloadData()
+  }, [reloadData])
 
   return (
     <div className="space-y-6">
@@ -975,6 +1038,20 @@ export default function DigitalHumanManager({ apiKey, vfs, onCreateVideo }) {
           <p className="text-sm text-slate-500 mt-1">管理、训练和使用您的数字人模型</p>
         </div>
       </div>
+
+      {loadErrors.voices && (
+        <div className="flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <AlertCircle size={18} />
+          <span>声音列表暂时不可用：{loadErrors.voices}</span>
+          <button
+            className="ml-auto rounded-md px-3 py-1 font-medium text-amber-900 hover:bg-amber-100"
+            onClick={reloadData}
+            disabled={loading}
+          >
+            重试
+          </button>
+        </div>
+      )}
 
       {/* 现代化 Tab 切换 */}
       <div className="flex bg-white p-1 rounded-xl shadow-sm border border-slate-200 w-fit">
@@ -1019,9 +1096,23 @@ export default function DigitalHumanManager({ apiKey, vfs, onCreateVideo }) {
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 min-h-[500px]">
         {activeTab === 'common' && (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
-            {commonPersons.length === 0 ? (
+            {loadErrors.common ? (
+              <div className="col-span-full flex flex-col items-center justify-center py-12 text-red-600">
+                <AlertCircle size={36} className="mb-4" />
+                <p className="font-medium">公共数字人加载失败</p>
+                <p className="mt-2 max-w-xl text-center text-sm text-slate-500">{loadErrors.common}</p>
+                <button
+                  className="mt-4 inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                  onClick={reloadData}
+                  disabled={loading}
+                >
+                  <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+                  {loading ? '重试中' : '重新加载'}
+                </button>
+              </div>
+            ) : commonPersons.length === 0 ? (
               <div className="col-span-full flex flex-col items-center justify-center py-12 text-slate-500">
-                <span className="text-4xl mb-4">📭</span>
+                <Users size={42} strokeWidth={1.5} className="mb-4 text-slate-300" aria-hidden="true" />
                 <p>暂无公共数字人</p>
               </div>
             ) : (
@@ -1067,9 +1158,23 @@ export default function DigitalHumanManager({ apiKey, vfs, onCreateVideo }) {
                 我的数字人
                 <span className="px-2 py-0.5 bg-slate-100 text-slate-500 text-xs rounded-full">{customPersons.length}</span>
               </h4>
-              {customPersons.length === 0 ? (
+              {loadErrors.custom ? (
+                <div className="flex flex-col items-center justify-center py-12 text-red-600 bg-red-50 rounded-xl border border-red-100">
+                  <AlertCircle size={32} className="mb-3" />
+                  <p className="font-medium">自定义数字人加载失败</p>
+                  <p className="mt-2 max-w-xl text-center text-sm text-slate-500">{loadErrors.custom}</p>
+                  <button
+                    className="mt-4 inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                    onClick={reloadData}
+                    disabled={loading}
+                  >
+                    <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+                    {loading ? '重试中' : '重新加载'}
+                  </button>
+                </div>
+              ) : customPersons.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 text-slate-500 bg-slate-50 rounded-xl border border-dashed border-slate-200">
-                  <span className="text-4xl mb-4">📭</span>
+                  <UserPlus size={42} strokeWidth={1.5} className="mb-4 text-slate-300" aria-hidden="true" />
                   <p>暂无自定义数字人</p>
                   <p className="text-xs text-slate-400 mt-1">点击上方"开始训练"创建您的第一个数字人</p>
                 </div>
@@ -1099,6 +1204,7 @@ export default function DigitalHumanManager({ apiKey, vfs, onCreateVideo }) {
           onClose={() => setShowTrainDialog(false)}
           onTrainingComplete={handleTrainingComplete}
           apiKey={apiKey}
+          apiBaseUrl={apiBaseUrl}
           vfs={vfs}
         />
       )}

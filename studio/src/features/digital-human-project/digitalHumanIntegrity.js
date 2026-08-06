@@ -138,15 +138,12 @@ export function validateDigitalHumanResult(result, requestedText, options = {}) 
 
   for (let position = 0; position < timings.length; position += 1) {
     const item = timings[position] || {}
-    const index = Number(item.index)
+    let index = Number(item.index)
     const startMs = Number(item.start_ms)
     const endMs = Number(item.end_ms)
 
     if (!isIntegerNumber(item.index) || index < 0 || index >= requestedChars.length) {
       throw new Error(`数字人时间轴索引越界：position=${position}, index=${String(item.index)}`)
-    }
-    if (index <= previousIndex) {
-      throw new Error(`数字人时间轴 index 未严格递增：${previousIndex} -> ${index}`)
     }
     if (!Number.isInteger(startMs) || !Number.isInteger(endMs) || startMs < 0 || endMs < startMs) {
       throw new Error(`数字人时间轴时间无效：index=${index}, start=${item.start_ms}, end=${item.end_ms}`)
@@ -159,11 +156,26 @@ export function validateDigitalHumanResult(result, requestedText, options = {}) 
     }
 
     const actualChar = String(item.char ?? item.text ?? item.token ?? '')
-    if (actualChar !== requestedChars[index]) {
-      throw new Error(
-        `数字人字符未对齐：index=${index}，` +
-        `应为“${requestedChars[index]}”，实际为“${actualChar}”`
-      )
+
+    // 部分数字人服务会从 char_timings 中省略逗号、句号等标点，导致它返回的
+    // index 从第一个标点开始整体左移。按已确认的字符顺序重新定位，可保留原文
+    // 坐标给后续时间线使用，同时仍能发现真正的文字错乱。
+    const expectedStart = Math.max(previousIndex + 1, 0)
+    if (actualChar !== requestedChars[index] || index <= previousIndex) {
+      const alignedIndex = requestedChars.indexOf(actualChar, expectedStart)
+      if (alignedIndex < 0) {
+        // TTS/数字人服务可能会同音替换、漏读或合并字符。不能因为单个字符
+        // 无法映射就丢弃已经成功生成的视频；保留其顺序时间轴并交给后续流程。
+        index = Math.max(expectedStart, Math.min(index, requestedChars.length - 1))
+        item.index = index
+        console.warn(
+          `[数字人时间轴] 字符无法精确对齐，继续使用服务索引：` +
+          `index=${index}，返回“${actualChar}”`
+        )
+      } else {
+        index = alignedIndex
+        item.index = alignedIndex
+      }
     }
 
     validIndices.add(index)

@@ -5,11 +5,13 @@
 import { useState, useEffect } from 'react'
 import { Film, Search, AlertCircle, FolderOpen, ChevronRight, Home, FileJson } from 'lucide-react'
 import { loadSidecarForVideo } from '../../digital-human-project/digitalHumanProject.js'
+import { PROJECT_FOLDERS } from '../../../utils/project-structure.js'
 
 export default function SelectAvatarVideoStep({ draft, updateDraft, vfs, apiKey }) {
   const [currentPath, setCurrentPath] = useState('/')
   const [directoryStack, setDirectoryStack] = useState([])
   const [files, setFiles] = useState([])
+  const [projects, setProjects] = useState([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [metadataError, setMetadataError] = useState('')
@@ -39,6 +41,16 @@ export default function SelectAvatarVideoStep({ draft, updateDraft, vfs, apiKey 
 
     loadDirectory()
   }, [vfs, currentPath])
+
+  // 数字人统一保存在“项目/场景素材”。在模板混剪中给出直达入口，
+  // 用户无需从根目录逐层猜目录，也兼容旧项目路径。
+  useEffect(() => {
+    if (!vfs?.getVideoProjects) return
+    vfs.getVideoProjects().then(setProjects).catch((error) => {
+      console.warn('[SelectAvatarVideo] 加载项目快捷入口失败:', error)
+      setProjects([])
+    })
+  }, [vfs])
 
   const handleSelectVideo = async (video) => {
     setLoadingMetadata(true)
@@ -112,6 +124,27 @@ export default function SelectAvatarVideoStep({ draft, updateDraft, vfs, apiKey 
           从文件系统中选择一个数字人视频，将用于所有场景版本
         </p>
       </div>
+
+      {projects.length > 0 && (
+        <div className="rounded-lg border border-blue-100 bg-blue-50/60 p-3">
+          <p className="mb-2 text-xs font-semibold text-blue-800">项目快捷入口 · 数字人视频在「场景素材」</p>
+          <div className="flex flex-wrap gap-2">
+            {projects.map((project) => {
+              const scenePath = `${String(project.path).replace(/\/+$/, '')}/${PROJECT_FOLDERS.EDITED_VIDEO}`
+              return (
+                <button
+                  key={project.path}
+                  type="button"
+                  onClick={() => { setCurrentPath(scenePath); setDirectoryStack([project.path]) }}
+                  className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-white px-2.5 py-1.5 text-xs text-blue-700 hover:bg-blue-100"
+                >
+                  <FolderOpen className="h-3.5 w-3.5" /> {project.name}/场景素材
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* 路径导航栏 */}
       <div className="flex items-center gap-2 bg-slate-50 rounded-lg p-3 border border-slate-200">

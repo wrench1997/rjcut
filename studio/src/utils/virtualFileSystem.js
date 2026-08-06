@@ -3,6 +3,8 @@
  * 避免使用 Chrome 受限的本地文件系统 API
  */
 
+import { PROJECT_DISCOVERY_EXCLUDED_FOLDERS } from './project-structure'
+
 // =====================================================
 // IndexedDB 封装
 // =====================================================
@@ -228,132 +230,10 @@ export class VirtualFileSystem {
 
   // 创建默认目录结构
   async createDefaultStructure() {
-    const defaultDirs = [
-      '/projects',      // 视频项目目录
-      '/素材',          // 原始素材
-      '/草稿',          // 草稿文件
-      '/配置',          // 配置文件
-      '/脚本',          // 脚本文件
-      '/模板',          // 模板文件
-      '/输出',          // 输出文件
-      '/音频',          // 音频文件
-      '/字幕',          // 字幕文件
-      '/转录',          // 转录文件
-    ]
+    // 项目是唯一的顶层组织单位，子目录按项目使用情况创建。
+    return true
     
-    for (const dir of defaultDirs) {
-      await this.mkdir(dir, true)
-    }
-    
-    // 创建默认配置文件
-    await this.writeJSON('/配置/default.json', {
-      pipeline: {
-        remove_keyword: '转场',
-        margin: 0.15,
-        min_segment_duration: 0.1,
-      },
-      asr: {
-        model: 'large-v3',
-        device: 'cuda',
-        language: 'zh',
-      },
-      subtitle: {
-        effect: 'ad',
-        font_size: 88,
-      },
-      audio: {
-        bgm_volume: 0.3,
-        original_volume: 1.0,
-        bgm_start_time: 0.0,
-        bgm_loop: true,
-        fade_in_duration: 0.5,
-        fade_out_duration: 0.5,
-      },
-    })
-    
-    // 创建示例脚本模板 - 口播视频
-    await this.writeJSON('/模板/speaking_video.json', {
-      description: '口播视频模板 - 适用于单人讲解、产品介绍等场景',
-      config: {
-        pipeline: {
-          remove_keyword: '转场，好，那么',
-          margin: 0.2,
-          min_segment_duration: 0.5,
-        },
-        subtitle: {
-          effect: 'ad',
-          font_size: 96,
-          position: 'bottom',
-        },
-      },
-      scenes: [
-        {
-          start_time: 0,
-          end_time: 5,
-          text: '大家好，今天我来介绍一下我们的产品',
-          keywords: ['介绍', '产品'],
-        },
-      ],
-    })
-    
-    // 创建示例脚本模板 - 纪录片风格
-    await this.writeJSON('/模板/documentary.json', {
-      description: '纪录片风格模板 - 适用于故事叙述、品牌宣传等场景',
-      config: {
-        pipeline: {
-          remove_keyword: '转场',
-          margin: 0.15,
-          min_segment_duration: 0.3,
-        },
-        subtitle: {
-          effect: 'classic',
-          font_size: 80,
-          position: 'bottom',
-        },
-        audio: {
-          bgm_volume: 0.4,
-          original_volume: 0.8,
-        },
-      },
-      scenes: [
-        {
-          start_time: 0,
-          end_time: 10,
-          text: '这是一个关于创新与梦想的故事',
-          keywords: ['创新', '梦想', '故事'],
-        },
-      ],
-    })
-    
-    // 创建示例脚本模板 - 快节奏短视频
-    await this.writeJSON('/模板/short_video.json', {
-      description: '快节奏短视频模板 - 适用于抖音、快手等短视频平台',
-      config: {
-        pipeline: {
-          remove_keyword: '转场，好，那么，然后',
-          margin: 0.1,
-          min_segment_duration: 0.2,
-        },
-        subtitle: {
-          effect: 'highlight',
-          font_size: 100,
-          position: 'center',
-        },
-        audio: {
-          bgm_volume: 0.5,
-          original_volume: 1.0,
-        },
-      },
-      scenes: [
-        {
-          start_time: 0,
-          end_time: 3,
-          text: '三秒钟告诉你这个技巧有多实用！',
-          keywords: ['技巧', '实用'],
-        },
-      ],
-    })
-    
+    // 项目目录、配置目录和模板目录均按需创建，避免首次打开时出现历史空目录。
     await this.saveState()
   }
 
@@ -660,7 +540,7 @@ export class VirtualFileSystem {
       
       // 从父目录移除
       const parentPath = dir.parent !== undefined ? (dir.parent || ROOT_PATH) : ROOT_PATH
-      if (dir.parent !== undefined || normalizedPath.startsWith('/projects/') || normalizedPath === '/projects') {
+      if (dir.parent !== undefined) {
         const parent = this.directories.get(parentPath)
         if (parent) {
           parent.children.delete(normalizedPath)
@@ -1327,34 +1207,11 @@ export class VirtualFileSystem {
 
   // 创建视频项目
   async createVideoProject(projectName, config = {}) {
-    // 项目根目录在 /projects/项目名
-    const projectPath = `/projects/${projectName}`
+    // 与 Electron 实体文件系统保持一致：项目直接位于根目录。
+    const projectPath = `/${projectName}`
     
-    // 创建简化的项目目录结构（使用中文命名）
+    // 只创建项目根目录；文案、场景素材和成片目录在首次使用时按需创建。
     await this.mkdir(projectPath, true)
-    await this.mkdir(`${projectPath}/原始视频`, true)     // 原始视频素材
-    await this.mkdir(`${projectPath}/剪辑视频`, true)     // 剪辑后的视频
-    await this.mkdir(`${projectPath}/输出`, true)         // 最终输出文件
-    
-    // 创建项目配置文件
-    await this.writeJSON(`${projectPath}/project.json`, {
-      name: projectName,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      config: {
-        pipeline: {
-          remove_keyword: '转场',
-          margin: 0.15,
-          min_segment_duration: 0.1,
-        },
-        audio: {
-          bgm_volume: 0.3,
-          original_volume: 1.0,
-        },
-        ...config,
-      },
-      scenes: [],
-    })
     
     return projectPath
   }
@@ -1362,36 +1219,60 @@ export class VirtualFileSystem {
   // 获取视频项目列表
   async getVideoProjects() {
     const projects = []
-    
-    // 获取项目根目录（支持 /projects 前缀或直接根目录）
-    let projectsDir = this.getDirectory('/projects')
-    let basePath = '/projects'
-    
-    // 如果/projects 不存在，尝试直接在根目录下查找项目
-    if (!projectsDir) {
-      projectsDir = this.getDirectory('/')
-      basePath = '/'
+    const seenPaths = new Set()
+    const now = new Date().toISOString()
+
+    const latestTimestamp = (values, fallback) => {
+      const valid = values
+        .filter(Boolean)
+        .map(value => ({ value, time: new Date(value).getTime() }))
+        .filter(item => Number.isFinite(item.time))
+        .sort((a, b) => a.time - b.time)
+      return valid.length > 0 ? valid[valid.length - 1].value : fallback
     }
-    
-    if (projectsDir) {
-      for (const childPath of projectsDir.children) {
-        if (this.directories.has(childPath)) {
-          const projectConfig = await this.getFile(`${childPath}/project.json`)
-          if (projectConfig) {
-            try {
-              const config = JSON.parse(projectConfig.content)
-              projects.push({
-                name: config.name || childPath.split('/').pop(),
-                path: childPath,
-                config,
-                createdAt: config.createdAt,
-                updatedAt: config.updatedAt,
-              })
-            } catch (e) {
-              // 忽略无效的项目配置
-            }
-          }
-        }
+
+    const readLegacyConfig = (projectPath) => {
+      const projectConfig = this.getFile(`${projectPath}/project.json`)
+      if (!projectConfig || typeof projectConfig.content !== 'string') return null
+      try {
+        return JSON.parse(projectConfig.content)
+      } catch (e) {
+        return null
+      }
+    }
+
+    const collectProject = (childPath, isRootDirectory) => {
+      if (seenPaths.has(childPath) || !this.directories.has(childPath)) return
+      const name = childPath.split('/').pop()
+      if (isRootDirectory && PROJECT_DISCOVERY_EXCLUDED_FOLDERS.includes(name)) return
+
+      const directory = this.getDirectory(childPath)
+      const legacyConfig = readLegacyConfig(childPath)
+      const fileTimestamps = [...this.files.values()]
+        .filter(file => file.path.startsWith(`${childPath}/`))
+        .flatMap(file => [file.updatedAt, file.createdAt])
+      const createdAt = legacyConfig?.createdAt || directory?.createdAt || now
+      const updatedAt = latestTimestamp(
+        [legacyConfig?.updatedAt, directory?.updatedAt, ...fileTimestamps],
+        createdAt,
+      )
+
+      seenPaths.add(childPath)
+      projects.push({
+        name: legacyConfig?.name || name,
+        path: childPath,
+        // 旧项目配置只读不写；新项目不再依赖或生成它。
+        config: legacyConfig || {},
+        createdAt,
+        updatedAt,
+      })
+    }
+
+    // 根目录下的文件夹就是项目。
+    const rootDir = this.getDirectory('/')
+    if (rootDir) {
+      for (const childPath of rootDir.children) {
+        collectProject(childPath, true)
       }
     }
     

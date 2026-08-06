@@ -1,17 +1,35 @@
 /**
- * API 客户端 - 支持分片上传与任务取消
+ * API 客户端 - 统一使用系统 API 地址上传与处理任务
  */
 import axios from 'axios';
 
-const DEFAULT_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8001';
+const DEFAULT_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://112.111.7.91:8801';
 const DEFAULT_API_KEY = 'rjk_oG3u1bRu10myprstb5o2AYVW6v9HipNT33ALuJTmFxaqemUC';
+const LEGACY_BASE_URLS = new Set([
+  'http://localhost:8000',
+  'http://127.0.0.1:8000',
+  'http://192.168.166.151:8000',
+  'http://112.111.7.91:8801',
+  'http://host.docker.internal:8000',
+  'http://localhost:8001',
+  'http://127.0.0.1:8001',
+  'http://host.docker.internal:8001',
+]);
 
 // 获取 API 地址（支持从 localStorage 读取用户配置）
 export const getBaseUrl = () => {
   if (typeof localStorage !== 'undefined') {
-    return localStorage.getItem('rjcut_api_base_url') || DEFAULT_BASE_URL;
+    const configured = (localStorage.getItem('rjcut_api_base_url') || '').replace(/\/$/, '');
+    if (configured && !LEGACY_BASE_URLS.has(configured)) return configured;
   }
   return DEFAULT_BASE_URL;
+};
+
+export const getApiKey = () => {
+  if (typeof localStorage !== 'undefined') {
+    return localStorage.getItem('rjcut_api_key') || DEFAULT_API_KEY;
+  }
+  return DEFAULT_API_KEY;
 };
 
 // 创建 axios 实例
@@ -30,9 +48,7 @@ apiClient.interceptors.request.use((config) => {
     config.baseURL = baseUrl;
   }
   // 设置 API Key
-  const apiKey = typeof localStorage !== 'undefined'
-    ? localStorage.getItem('rjcut_api_key') || DEFAULT_API_KEY
-    : DEFAULT_API_KEY;
+  const apiKey = getApiKey();
   if (apiKey) {
     config.headers.Authorization = `Bearer ${apiKey}`;
   }
@@ -107,28 +123,36 @@ setApiKey(DEFAULT_API_KEY);
 export const getMerchantInfo = () => apiClient.get('/v1/merchant/info');
 
 // =====================================================
-// 文件上传流程 (普通/分片)
+// 文件上传流程
 // =====================================================
 
-// 小文件直传 - 获取预签名 URL
-export const presignUpload = (filename, content_type, purpose) =>
-  apiClient.post('/v1/uploads/presign', { filename, content_type, purpose });
+// 所有浏览器上传都经过系统配置的 API 地址，由 API 服务端转存到对象存储。
+export const relayUpload = async (
+  file,
+  filename,
+  purpose = 'input',
+  { signal, apiBaseUrl, apiKey } = {},
+) => {
+  const baseUrl = (apiBaseUrl || getBaseUrl()).replace(/\/$/, '');
+  const formData = new FormData();
+  formData.append('file', file, filename);
+  formData.append('purpose', purpose);
 
-// 确认上传完成
-export const confirmUpload = (upload_id) =>
-  apiClient.post('/v1/uploads/confirm', { upload_id });
-
-// 大文件分片上传 - 初始化
-export const initMultipartUpload = (filename, content_type, purpose, parts_count) =>
-  apiClient.post('/v1/uploads/multipart/start', { filename, content_type, purpose, parts_count });
-
-// 获取分片预签名 URLs
-export const getMultipartPresignedUrls = (upload_id, part_numbers) =>
-  apiClient.post('/v1/uploads/multipart/presign-parts', { upload_id, part_numbers });
-
-// 完成分片上传
-export const completeMultipartUpload = (upload_id, parts) =>
-  apiClient.post('/v1/uploads/multipart/complete', { upload_id, parts });
+  const response = await fetch(`${baseUrl}/v1/uploads/relay`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey || getApiKey()}`,
+    },
+    body: formData,
+    signal,
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || (payload.code !== undefined && payload.code !== 0 && payload.code !== 200)) {
+    const message = payload?.message || payload?.detail || `文件上传失败（HTTP ${response.status}）`;
+    throw new Error(message);
+  }
+  return payload;
+};
 
 // =====================================================
 // 任务发起
@@ -178,6 +202,9 @@ export const aiGenerateScript = (data) => apiClient.post('/v1/ai/generate-script
 
 // 获取公共数字人列表
 export const getCommonPersons = () => apiClient.get('/v1/dh/persons/common');
+
+// 探测公共数字人上游和 token 链路（用于部署监控/排障）
+export const getDigitalHumanHealth = () => apiClient.get('/v1/dh/health');
 
 // 获取公共数字人详情（包含可用动作）
 export const getCommonPersonDetail = (person_id) => apiClient.get(`/v1/dh/persons/common/${person_id}`);
@@ -256,6 +283,36 @@ export const getImageProxyUrl = (imageUrl) => {
   
   // 使用 URL 编码传递图片路径和 API Key（通过 URL 参数传递，因为<img>标签无法携带 header）
   return `${baseUrl}/v1/dh/proxy-image?path=${encodeURIComponent(path)}&api_key=${encodeURIComponent(apiKey)}`;
+};
+
+// 统一解析数字人封面地址。后台可能返回完整 URL、/files/... 路径或已经生成的代理路径，
+// 不能把这些相对路径直接交给前端页面，否则浏览器会错误请求 localhost:30099/files/...
+export const getDigitalHumanImageUrl = (imageUrl) => {
+  if (!imageUrl) return null;
+  const value = String(imageUrl).trim();
+  if (!value || value.startsWith('data:') || value.startsWith('blob:')) return value || null;
+
+  if (value.startsWith('/v1/dh/proxy-image')) {
+    return `${getBaseUrl()}${value}`;
+  }
+
+  try {
+    const parsed = new URL(value, getBaseUrl());
+    if (parsed.pathname === '/v1/dh/proxy-image') {
+      return `${getBaseUrl()}${parsed.pathname}${parsed.search}`;
+    }
+
+    // 文件服务地址可能来自后端数据库，也可能已经被旧前端拼成
+    // localhost:30099/files/...。只保留 /files/... 路径交给 151 后端代理，
+    // 避免代理容器再次请求它自己的 localhost。
+    if (parsed.pathname.startsWith('/files/')) {
+      return getImageProxyUrl(`${parsed.pathname}${parsed.search}`);
+    }
+  } catch {
+    // 相对路径交给后端代理处理。
+  }
+
+  return getImageProxyUrl(value) || value;
 };
 
 // AI 结构化文案 v0.3：Python 后端版，不再让数字人朗读“转场”

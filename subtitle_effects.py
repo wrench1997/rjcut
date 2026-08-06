@@ -96,7 +96,7 @@ def generate_word_ass(
     output_path: str,
     effect: str = "karaoke",
     font_name: str = "SimHei",
-    font_size: int = 72,  # 🎨 与前端 GlobalParamsVisualEditor.jsx 默认值统一
+    font_size: int = 68,  # 🎨 与前端 GlobalParamsVisualEditor.jsx 默认值统一
     res_x: int = 1080,   # 竖屏默认宽度
     res_y: int = 1920,   # 竖屏默认高度
     margin_v: int = 50,
@@ -112,7 +112,7 @@ def generate_word_ass(
     outline: int = 3,
     shadow: int = 2,
     ad_keywords: Optional[List[str]] = None,
-    max_chars_per_line: int = 18,  # 🎨 与前端 max_chars_per_line 统一
+    max_chars_per_line: int = 15,  # 🎨 与前端 max_chars_per_line 统一
     # === 新增：智能粗体控制 ===
     bold: bool = True,
     auto_disable_bold_for_light_fonts: bool = True,
@@ -347,10 +347,10 @@ def burn_whisper_subtitle(
     json_path: str,
     effect: str = "ad",
     font_file: Optional[str] = None,
-    font_size: int = 72,
+    font_size: int = 68,
     highlight_color: str = "&H0000DDFF",
     filter_transition: bool = True,
-    max_chars_per_line: int = 18,
+    max_chars_per_line: int = 15,
     alignment: int = 2,
     margin_v: int = 50,
     margin_l: int = 10,
@@ -365,7 +365,7 @@ def burn_whisper_subtitle(
     position_y: Optional[int] = None,   # 精确 Y 坐标（像素），如 900 表示垂直方向 900px
     use_relative_pos: bool = False,     # 是否使用相对坐标 (0-1 之间的小数)
     # === 新增：与前端统一参数 ===
-    color: Optional[str] = "#FFFF00",  # 字幕主色（如 "#FFFF00"）
+    color: Optional[str] = "#FFFFFF",  # 字幕基础色（如 "#FFFFFF"）
     stroke_color: Optional[str] = None,  # 描边颜色（如 "#000000"）
     stroke_width: Optional[int] = None,  # 描边宽度
     background_color: Optional[str] = None,  # 背景颜色（如 "rgba(0,0,0,0.4)"）

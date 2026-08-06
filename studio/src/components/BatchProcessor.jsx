@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import useBatchStore from '../api/useBatchProcessStore'
-import { setApiKey } from '../api/api'
+import { getApiKey, getBaseUrl, setApiKey } from '../api/api'
 import { PROJECT_FOLDERS, parseProjectNameFromVFS, buildVFSPath } from '../utils/project-structure'
 import { Rocket, Folder, Music, Check, ArrowLeft, Info, Inbox } from 'lucide-react'
 import Tooltip from './Tooltip'
@@ -95,8 +95,8 @@ function TaskCard({ task, vfs }) {
     setDownloadProgress(0)
     
     try {
-      const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8001'
-      const apiKey = localStorage.getItem('rjcut_api_key')
+      const API_BASE_URL = getBaseUrl()
+      const apiKey = getApiKey()
       
       const targetTaskId = task.composeTaskId || task.draftTaskId
       const targetFileKey = task.composeTaskId ? 'final_video' : 'cleaned_video'
@@ -122,17 +122,16 @@ function TaskCard({ task, vfs }) {
         // 自动根据场景路径解析项目名，保存到对应项目的"输出"文件夹
         let outputDir
         if (task.vfsScenesPath) {
-          // 从场景路径解析项目名（支持 /项目名/场景 X 或 /projects/项目名/场景 X 格式）
+          // 从项目场景素材路径解析项目名。
           const projectName = parseProjectNameFromVFS(task.vfsScenesPath)
           if (projectName) {
             // 使用统一的项目结构模块构建输出路径
             outputDir = buildVFSPath(projectName, PROJECT_FOLDERS.OUTPUT)
           } else {
-            // 无法解析项目名，使用默认路径
-            outputDir = '/输出'
+            throw new Error('任务缺少有效的项目场景素材路径')
           }
         } else {
-          outputDir = '/输出'
+          throw new Error('任务缺少项目场景素材路径')
         }
         const outputPath = `${outputDir}/${videoFilename}`
         

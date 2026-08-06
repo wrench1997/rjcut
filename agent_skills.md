@@ -19,7 +19,7 @@ Agent 应该根据用户的意图，自主组合以下步骤：
 ### 工作流 B：数字人克隆训练 (Digital Human Cloning)
 **场景**：用户上传了一段真人出镜视频，要求训练专属数字人。
 **执行步骤**：
-1. 请求 `POST /v1/uploads/presign` 获得视频上传凭证，让用户或系统将原视频上传至 MinIO，并调用 `POST /v1/uploads/confirm` 确认。获取 `oss_key`。
+1. 将视频以 multipart 方式提交到 `POST /v1/uploads/relay`，由系统 API 转存至 MinIO 并直接返回已确认的 `oss_key`。
 2. 调用 `POST /v1/dh/tasks/create-person` 提交训练任务，传入 `oss_key` 和 `name`。
 3. 循环调用 `GET /v1/tasks/{task_id}` 轮询进度 (通常耗时较长)。
 4. 成功后，告知用户已克隆完成，可使用其作为 `person_id`。

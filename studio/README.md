@@ -24,7 +24,7 @@ npm install
 创建 `.env` 文件：
 
 ```env
-VITE_API_BASE_URL=http://localhost:8001
+NEXT_PUBLIC_API_BASE_URL=http://192.168.166.151:8001
 ```
 
 ### 3. 启动开发服务器
@@ -125,8 +125,7 @@ npm run build
 
 依赖后端 API 服务，主要接口：
 
-- `POST /v1/uploads/presign` - 获取预签名上传 URL
-- `POST /v1/uploads/confirm` - 确认上传完成
+- `POST /v1/uploads/relay` - 通过系统 API 地址中转上传文件
 - `GET /v1/merchant/info` - 获取商户信息
 - `POST /v1/tasks/agent-draft` - 创建草稿任务
 - `POST /v1/tasks/compose-from-draft` - 创建合成任务

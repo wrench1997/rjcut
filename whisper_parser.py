@@ -155,7 +155,7 @@ def apply_corrections_to_words(
 def preprocess_segments(
     data: dict,
     filter_transition: bool = True,
-    max_chars_per_line: int = 18,
+    max_chars_per_line: int = 15,
     corrections: Optional[Dict[str, str]] = None,
 ) -> List[dict]:
     """

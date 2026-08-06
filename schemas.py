@@ -38,7 +38,7 @@ class SubtitleConfig(BaseModel):
     highlight_color: str = "gold"
     font_url: Optional[str] = None
     font_size: int = 88
-    max_chars_per_line: int = 18
+    max_chars_per_line: int = 15
     position: str = "bottom"
     margin_v: int = 50
     margin_l: int = 10
@@ -167,17 +167,6 @@ class TaskDetail(TaskBrief):
     result: Optional[Dict[str, Any]]
     started_at: Optional[datetime]
     finished_at: Optional[datetime]
-
-
-class PresignedUploadRequest(BaseModel):
-    filename: str
-    content_type: Optional[str] = None
-    purpose: str = "input"
-    file_hash: Optional[str] = Field(None, max_length=64, description="文件 SHA256 hash，用于去重")
-
-
-class UploadConfirmRequest(BaseModel):
-    upload_id: str
 
 
 class TaskCancelRequest(BaseModel):
@@ -403,4 +392,3 @@ class VisualScriptTaskResult(BaseModel):
     selected_clips: int = 0  # 选中镜头数
     uncovered_beats: int = 0  # 未覆盖的脚本行数
     total_duration: float = 0.0  # 总时长（秒）
-

@@ -5,11 +5,6 @@ import pLimit from 'p-limit';
 import * as api from './api';
 import { getVFS } from '../utils/vfsClient';
 
-// 分片大小：5MB
-const CHUNK_SIZE = 5 * 1024 * 1024;
-// 单个大文件分片并发上传数
-const CHUNK_CONCURRENCY = 3;
-
 /**
  * 任务项接口
  * @typedef {Object} BatchTaskItem
@@ -81,7 +76,7 @@ export class BatchTaskRunner {
   }
 
   /**
-   * 核心：VFS Blob -> OSS Key (支持分片与中断)
+   * 核心：VFS Blob -> OSS Key（通过系统配置的 API relay）
    * @param {string} vfsPath - VFS 文件路径
    * @param {'input'|'scenes'} purpose - 上传目的
    * @param {AbortSignal} signal - 取消信号
@@ -93,76 +88,8 @@ export class BatchTaskRunner {
     const vfs = await this.getVFS();
     const fileBlob = await vfs.readFileAsBlob(vfsPath);
     const filename = vfsPath.split('/').pop() || 'file';
-    const fileSize = fileBlob.size;
-
-    // < 5MB 走普通直传
-    if (fileSize <= CHUNK_SIZE) {
-      const { data: presignData } = await api.presignUpload(
-        filename, 
-        fileBlob.type, 
-        purpose
-      );
-      const { upload_id, upload_url, oss_key } = presignData.data;
-
-      await fetch(upload_url, {
-        method: 'PUT',
-        body: fileBlob,
-        headers: { 'Content-Type': fileBlob.type },
-        signal, // 注入 AbortSignal
-      });
-
-      await api.confirmUpload(upload_id);
-      return oss_key;
-    }
-
-    // >= 5MB 走分片上传
-    const totalParts = Math.ceil(fileSize / CHUNK_SIZE);
-    const { data: startRes } = await api.initMultipartUpload(
-      filename, 
-      fileBlob.type, 
-      purpose, 
-      totalParts
-    );
-    const { upload_id, oss_key } = startRes.data;
-
-    const partNumbers = Array.from({ length: totalParts }, (_, i) => i + 1);
-    const { data: presignRes } = await api.getMultipartPresignedUrls(
-      upload_id, 
-      partNumbers
-    );
-    
-    // 使用 pLimit 控制分片并发数，防止浏览器网络拥堵
-    const chunkLimit = pLimit(CHUNK_CONCURRENCY);
-    const uploadedParts = await Promise.all(
-      presignRes.data.parts.map((part) => 
-        chunkLimit(async () => {
-          this.checkAborted(signal); // 每个分片上传前检查取消状态
-          
-          const start = (part.part_number - 1) * CHUNK_SIZE;
-          const end = Math.min(start + CHUNK_SIZE, fileSize);
-          const chunkBlob = fileBlob.slice(start, end);
-
-          const res = await fetch(part.upload_url, {
-            method: 'PUT',
-            body: chunkBlob,
-            headers: { 'Content-Type': fileBlob.type },
-            signal, // 注入 AbortSignal
-          });
-
-          // MinIO/OSS 标准行为：返回 ETag 用于最终合并
-          const etag = res.headers.get('ETag')?.replace(/"/g, ''); 
-          if (!etag) {
-            throw new Error(`Failed to get ETag for part ${part.part_number}`);
-          }
-          
-          return { part_number: part.part_number, etag };
-        })
-      )
-    );
-
-    this.checkAborted(signal);
-    await api.completeMultipartUpload(upload_id, uploadedParts);
-    return oss_key;
+    const payload = await api.relayUpload(fileBlob, filename, purpose, { signal });
+    return payload.data.oss_key;
   }
 
   /**

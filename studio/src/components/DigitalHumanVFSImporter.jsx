@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Clapperboard, Lightbulb, LoaderCircle, UserRound } from 'lucide-react'
 import { getVFS } from '../utils/vfsClient'
 import { PROJECT_FOLDERS, buildVFSPath, parseProjectNameFromVFS } from '../utils/project-structure'
 import { 
@@ -6,7 +7,8 @@ import {
   getTaskStatus,
   getCommonPersons,
   getCustomPersons,
-  getVoices
+  getVoices,
+  getDigitalHumanImageUrl,
 } from '../api/api'
 
 // =====================================================
@@ -59,6 +61,7 @@ function PersonSelector({ selectedPerson, onSelect, apiKey }) {
   const [commonPersons, setCommonPersons] = useState([])
   const [customPersons, setCustomPersons] = useState([])
   const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState('')
 
   useEffect(() => {
     loadPersons()
@@ -66,23 +69,31 @@ function PersonSelector({ selectedPerson, onSelect, apiKey }) {
 
   const loadPersons = async () => {
     setLoading(true)
-    try {
-      const [commonRes, customRes] = await Promise.all([
-        getCommonPersons(),
-        getCustomPersons()
-      ])
-      
-      if (commonRes.data.code === 0) {
-        setCommonPersons(commonRes.data.data || [])
-      }
-      if (customRes.data.code === 0) {
-        setCustomPersons(customRes.data.data || [])
-      }
-    } catch (err) {
-      console.error('加载数字人列表失败:', err)
-    } finally {
-      setLoading(false)
+    setLoadError('')
+    const [commonResult, customResult] = await Promise.allSettled([
+      getCommonPersons(),
+      getCustomPersons(),
+    ])
+
+    if (commonResult.status === 'fulfilled' && commonResult.value?.data?.code === 0) {
+      setCommonPersons(Array.isArray(commonResult.value.data.data) ? commonResult.value.data.data : [])
+    } else if (commonResult.status === 'rejected') {
+      const err = commonResult.reason
+      const message = err?.responseData?.message || err?.message || '公共数字人加载失败'
+      setLoadError(message)
+      console.error('加载公共数字人失败:', err)
+    } else {
+      const message = commonResult.value?.data?.message || '公共数字人加载失败'
+      setLoadError(message)
     }
+
+    if (customResult.status === 'fulfilled' && customResult.value?.data?.code === 0) {
+      setCustomPersons(Array.isArray(customResult.value.data.data) ? customResult.value.data.data : [])
+    } else if (customResult.status === 'rejected') {
+      console.error('加载自定义数字人失败:', customResult.reason)
+    }
+
+    setLoading(false)
   }
 
   const persons = activeTab === 'common' ? commonPersons : customPersons
@@ -108,8 +119,16 @@ function PersonSelector({ selectedPerson, onSelect, apiKey }) {
         <div className="text-center" style={{ padding: 'var(--spacing-md) 0' }}>
           <p className="body text-muted">加载中...</p>
         </div>
+      ) : loadError && activeTab === 'common' ? (
+        <div className="text-center" style={{ padding: 'var(--spacing-md) 0' }}>
+          <p className="body" style={{ color: '#ff3b30' }}>公共数字人加载失败：{loadError}</p>
+          <button className="btn btn-sm btn-primary" style={{ marginTop: 'var(--spacing-sm)' }} onClick={loadPersons}>
+            重新加载
+          </button>
+        </div>
       ) : persons.length === 0 ? (
         <div className="text-center" style={{ padding: 'var(--spacing-md) 0' }}>
+          <UserRound size={28} className="mx-auto mb-2 text-slate-300" aria-hidden="true" />
           <p className="body text-muted">暂无数字人</p>
         </div>
       ) : (
@@ -138,7 +157,7 @@ function PersonSelector({ selectedPerson, onSelect, apiKey }) {
             >
               {person.cover_url && (
                 <img
-                  src={person.cover_url}
+                  src={getDigitalHumanImageUrl(person.cover_url)}
                   alt={person.name}
                   style={{
                     width: '100%',
@@ -286,18 +305,11 @@ export function DigitalHumanVFSImporter({
       const filename = `dh_${selectedPerson.name.replace(/\s+/g, '_')}_${Date.now()}.mp4`
       const videoInfo = await importVideoToVFS(vfs, projectPath, task, filename)
 
-      // 步骤 4: 更新项目配置 (95% -> 100%)
+      // 步骤 4: 完成项目文件整理 (95% -> 100%)
       setProgress({ 
-        stage: '更新项目配置...', 
+        stage: '整理项目文件...',
         percent: 95,
         taskStatus: 'updating',
-      })
-      
-      await updateProjectWithVideo(vfs, projectPath, videoInfo, {
-        person_name: selectedPerson.name,
-        person_id: selectedPerson.id,
-        figure_type: figureType,
-        text,
       })
 
       // 完成
@@ -331,7 +343,7 @@ export function DigitalHumanVFSImporter({
         onClick={(e) => e.stopPropagation()}
         style={{ maxWidth: '700px' }}
       >
-        <h3 className="modal-title">🎭 导入数字人视频到项目</h3>
+        <h3 className="modal-title flex items-center gap-2"><Clapperboard size={20} aria-hidden="true" />导入数字人视频到项目</h3>
         
         {/* 进度显示 */}
         {(generating || importing) && (
@@ -397,7 +409,8 @@ export function DigitalHumanVFSImporter({
                 placeholder="输入数字人要说的内容..."
               />
               <p className="caption text-muted mt-xs">
-                💡 提示：建议控制在 200 字以内，生成时间约 1-3 分钟
+                 <Lightbulb size={14} className="inline-block mr-1" aria-hidden="true" />
+                 提示：建议控制在 200 字以内，生成时间约 1-3 分钟
               </p>
             </div>
           </>
@@ -418,7 +431,7 @@ export function DigitalHumanVFSImporter({
                 className="btn btn-primary"
                 disabled
               >
-                🔄 处理中...
+                 <span className="inline-flex items-center gap-1"><LoaderCircle size={15} className="animate-spin" aria-hidden="true" />处理中...</span>
               </button>
             </>
           ) : (
@@ -434,7 +447,7 @@ export function DigitalHumanVFSImporter({
                 onClick={handleGenerateAndImport}
                 disabled={!selectedPerson || !text.trim()}
               >
-                🎬 生成并导入
+                 <span className="inline-flex items-center gap-1"><Clapperboard size={15} aria-hidden="true" />生成并导入</span>
               </button>
             </>
           )}
@@ -516,53 +529,6 @@ async function importVideoToVFS(vfs, projectPath, task, filename) {
   })
 
   return fileInfo
-}
-
-/**
- * 更新项目配置，添加视频记录
- */
-async function updateProjectWithVideo(vfs, projectPath, videoInfo, dhMetadata) {
-  // 读取项目配置
-  const config = await vfs.readJSON(`${projectPath}/project.json`)
-
-  // 初始化数字人视频列表
-  if (!config.digital_human_videos) {
-    config.digital_human_videos = []
-  }
-
-  // 添加视频记录
-  config.digital_human_videos.push({
-    id: `dh_${Date.now()}`,
-    path: videoInfo.path,
-    person_id: dhMetadata.person_id,
-    person_name: dhMetadata.person_name,
-    figure_type: dhMetadata.figure_type,
-    text: dhMetadata.text,
-    duration: videoInfo.metadata?.duration,
-    task_id: videoInfo.metadata?.task_id,
-    created_at: new Date().toISOString(),
-  })
-
-  // 添加到 scenes（如果不存在）
-  if (!config.scenes) {
-    config.scenes = []
-  }
-
-  config.scenes.push({
-    id: `scene_${Date.now()}`,
-    type: 'digital_human',
-    video_path: videoInfo.path,
-    text: dhMetadata.text,
-    duration: videoInfo.metadata?.duration,
-    created_at: new Date().toISOString(),
-  })
-
-  config.updatedAt = new Date().toISOString()
-
-  // 保存配置
-  await vfs.writeJSON(`${projectPath}/project.json`, config)
-
-  return config
 }
 
 export default DigitalHumanVFSImporter

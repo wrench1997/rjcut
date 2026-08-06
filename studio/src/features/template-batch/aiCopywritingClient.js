@@ -2,19 +2,9 @@
  * Python 后端版 AI 文案客户端。
  * 接口对应：/v1/ai-copywriting/*
  */
-function getApiBaseUrl() {
-  if (typeof localStorage !== 'undefined') {
-    return localStorage.getItem('rjcut_api_base_url') || 'http://127.0.0.1:8000'
-  }
-  return 'http://127.0.0.1:8000'
-}
+import { getApiKey, getBaseUrl } from '../../api/api'
 
-function getApiKey() {
-  if (typeof localStorage !== 'undefined') {
-    return localStorage.getItem('rjcut_api_key') || 'rjk_oG3u1bRu10myprstb5o2AYVW6v9HipNT33ALuJTmFxaqemUC'
-  }
-  return 'rjk_oG3u1bRu10myprstb5o2AYVW6v9HipNT33ALuJTmFxaqemUC'
-}
+const getApiBaseUrl = getBaseUrl
 
 async function postJson(path, body) {
   const response = await fetch(`${getApiBaseUrl()}${path}`, {

@@ -64,11 +64,14 @@ const TEST_BGM_TRACKS = [
 /**
  * @typedef {Object} SubtitleConfig
  * @property {string} effect
+ * @property {string} font_family - 中文字体
+ * @property {'normal' | 'bold'} font_weight - 字体粗细
  * @property {number} font_size
  * @property {'top' | 'center' | 'bottom' | 'custom'} position
  * @property {number} x_offset - Scale: -100 to 100
  * @property {number} y_offset - Scale: -100 to 100 (positive is upwards, negative is downwards)
  * @property {string} color
+ * @property {string} highlight_color - 当前字高亮颜色
  * @property {string} stroke_color
  * @property {number} stroke_width
  * @property {string} background_color
@@ -125,11 +128,14 @@ export const DEFAULT_CONFIG = {
   },
   subtitle: {
     effect: 'ad',
-    font_size: 72,
+    font_family: 'Microsoft YaHei',
+    font_weight: 'bold',
+    font_size: 68,
     position: 'bottom',
     x_offset: 0,
     y_offset: -80,
-    color: '#FFFF00',
+    color: '#FFFFFF',
+    highlight_color: '#FFD400',
     stroke_color: '#000000',
     stroke_width: 3,
     background_color: 'rgba(0, 0, 0, 0.4)',
@@ -137,7 +143,7 @@ export const DEFAULT_CONFIG = {
     background_radius: 8,
     line_spacing: 1.3,
     max_width: 95,
-    max_chars_per_line: 18,  // 🎨 与后端统一的每行最大字符数
+    max_chars_per_line: 15,  // 🎨 与后端统一的每行最大字符数
     word_by_word_highlight: true,  // 🎨 逐字高亮显示开关
     background_border_width: 0,
     background_border_color: '#FFFFFF',
@@ -154,6 +160,17 @@ export const DEFAULT_CONFIG = {
     need_ass: true,
   },
 };
+
+function normalizeSubtitleSettings(defaults, value) {
+  const merged = { ...(defaults || {}), ...(value || {}) };
+  return {
+    ...merged,
+    font_family: merged.font_family || 'Microsoft YaHei',
+    font_weight: merged.font_weight || 'bold',
+    highlight_color: merged.highlight_color || '#FFD400',
+    max_chars_per_line: Math.max(8, Math.min(15, Number(merged.max_chars_per_line) || 15)),
+  };
+}
 
 /**
  * Premium Preset Styles definition
@@ -173,7 +190,7 @@ export const PRESET_STYLES = [
       stroke_width: 4,
       background_color: 'transparent',
       font_size: 80,
-      max_chars_per_line: 18,
+      max_chars_per_line: 15,
     }
   },
   {
@@ -187,7 +204,7 @@ export const PRESET_STYLES = [
       background_padding: 12,
       background_radius: 6,
       font_size: 64,
-      max_chars_per_line: 18,
+      max_chars_per_line: 15,
     }
   },
   {
@@ -199,7 +216,7 @@ export const PRESET_STYLES = [
       stroke_width: 2,
       background_color: 'transparent',
       font_size: 72,
-      max_chars_per_line: 18,
+      max_chars_per_line: 15,
     }
   },
   {
@@ -327,7 +344,7 @@ export default function GlobalParamsVisualEditor({
       // Merge with effective defaults to ensure all fields exist
       return {
         pipeline: { ...effectiveDefaultConfig.pipeline, ...value.pipeline },
-        subtitle: { ...effectiveDefaultConfig.subtitle, ...value.subtitle },
+        subtitle: normalizeSubtitleSettings(effectiveDefaultConfig.subtitle, value.subtitle),
         audio: { ...effectiveDefaultConfig.audio, ...value.audio },
         output: { ...effectiveDefaultConfig.output, ...value.output }
       };
@@ -336,7 +353,7 @@ export default function GlobalParamsVisualEditor({
       // Merge stored config with defaults to ensure all fields exist
       return {
         pipeline: { ...effectiveDefaultConfig.pipeline, ...storedConfig.pipeline },
-        subtitle: { ...effectiveDefaultConfig.subtitle, ...storedConfig.subtitle },
+        subtitle: normalizeSubtitleSettings(effectiveDefaultConfig.subtitle, storedConfig.subtitle),
         audio: { ...effectiveDefaultConfig.audio, ...storedConfig.audio },
         output: { ...effectiveDefaultConfig.output, ...storedConfig.output }
       };
@@ -491,6 +508,56 @@ export default function GlobalParamsVisualEditor({
   const getCurrentSubtitle = () => {
     return customSubtitleText || sampleSubtitles[currentSubtitleIndex].zh;
   };
+
+  // 原生 FFmpeg 也按此规则换行，避免编辑器预览与导出成片的行数不同。
+  const formatSubtitlePreviewText = (text) => {
+    const limit = Math.max(8, Math.min(15, Number(config.subtitle.max_chars_per_line) || 15));
+    return String(text || '').replace(/\r/g, '').split('\n').flatMap((paragraph) => {
+      const chars = Array.from(paragraph);
+      if (!chars.length) return [''];
+      const lines = [];
+      for (let index = 0; index < chars.length; index += limit) {
+        lines.push(chars.slice(index, index + limit).join(''));
+      }
+      return lines;
+    }).join('\n');
+  };
+
+  const [previewCharIndex, setPreviewCharIndex] = useState(0);
+
+  useEffect(() => {
+    if (!config.subtitle.word_by_word_highlight) return undefined;
+    const characterCount = Array.from(formatSubtitlePreviewText(getCurrentSubtitle()).replace(/\n/g, '')).length;
+    if (!characterCount) return undefined;
+    const timer = setInterval(() => {
+      setPreviewCharIndex((index) => (index + 1) % characterCount);
+    }, 180);
+    return () => clearInterval(timer);
+  }, [customSubtitleText, currentSubtitleIndex, config.subtitle.word_by_word_highlight, config.subtitle.max_chars_per_line]);
+
+  const renderSubtitlePreview = () => {
+    const text = formatSubtitlePreviewText(getCurrentSubtitle());
+    let index = 0;
+    return Array.from(text).map((char, key) => {
+      if (char === '\n') return <br key={`br-${key}`} />;
+      const highlighted = config.subtitle.word_by_word_highlight && index <= previewCharIndex;
+      const current = config.subtitle.word_by_word_highlight && index === previewCharIndex;
+      index += 1;
+      return (
+        <span
+          key={`char-${key}`}
+          style={{
+            color: highlighted ? (config.subtitle.highlight_color || '#FFD400') : config.subtitle.color,
+            display: 'inline-block',
+            transform: current ? 'scale(1.12)' : 'scale(1)',
+            transition: 'all 0.12s ease-out',
+          }}
+        >
+          {char}
+        </span>
+      );
+    });
+  };
 // 自动播放场景切换逻辑 - 让转场效果动起来
   useEffect(() => {
     if (!isPlaying) return;
@@ -509,7 +576,7 @@ export default function GlobalParamsVisualEditor({
       setConfig(prev => {
         const newConfig = {
           pipeline: { ...DEFAULT_CONFIG.pipeline, ...value.pipeline },
-          subtitle: { ...DEFAULT_CONFIG.subtitle, ...value.subtitle },
+          subtitle: normalizeSubtitleSettings(DEFAULT_CONFIG.subtitle, value.subtitle),
           audio: { ...DEFAULT_CONFIG.audio, ...value.audio },
           output: { ...DEFAULT_CONFIG.output, ...value.output },
         };
@@ -715,9 +782,9 @@ export default function GlobalParamsVisualEditor({
     return {
       fontSize: `${scaledFontSize}px`,
       color: color,
-      fontFamily: '"Outfit", "Space Grotesk", "Inter", "system-ui", sans-serif',
+      fontFamily: config.subtitle.font_family || 'Microsoft YaHei',
       letterSpacing: '0.08em',
-      fontWeight: 'bold',
+      fontWeight: config.subtitle.font_weight || 'bold',
       textShadow: hasStroke 
         ? `
           -${scaledStrokeWidth}px -${scaledStrokeWidth}px 0 ${stroke_color}, 
@@ -737,6 +804,8 @@ export default function GlobalParamsVisualEditor({
         ? `${scaledBackgroundBorderWidth}px solid ${background_border_color}` 
         : 'none',
       textAlign: 'center',
+      whiteSpace: 'pre-wrap',
+      wordBreak: 'break-word',
       display: 'inline-block',
       maxWidth: `${max_width}%`,
       lineHeight: line_spacing,
@@ -1018,6 +1087,26 @@ export default function GlobalParamsVisualEditor({
                     </div>
                   </div>
 
+                  {/* Font family: Chinese-friendly sales subtitle fonts */}
+                  <div>
+                    <label className="text-xs font-medium text-slate-700 block mb-1.5">
+                      字体
+                    </label>
+                    <select
+                      value={config.subtitle.font_family || 'Microsoft YaHei'}
+                      onChange={(e) => updateConfig('subtitle', 'font_family', e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-md px-3 py-2 text-sm text-slate-700 focus:outline-none focus:border-blue-500"
+                    >
+                      <option value="Microsoft YaHei">微软雅黑（推荐）</option>
+                      <option value="Microsoft YaHei UI">微软雅黑 UI</option>
+                      <option value="SimHei">黑体</option>
+                      <option value="DengXian">等线</option>
+                    </select>
+                    <p className="text-[10px] text-slate-500 mt-1.5">
+                      成片使用此中文字体；默认加粗，适合竖屏卖货字幕
+                    </p>
+                  </div>
+
                   {/* Slider: Max Width (Auto-wrap) */}
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
@@ -1111,14 +1200,14 @@ export default function GlobalParamsVisualEditor({
                       <input
                         type="range"
                         min="8"
-                        max="40"
+                        max="15"
                         step="1"
                         value={config.subtitle.max_chars_per_line}
                         onChange={(e) => updateConfig('subtitle', 'max_chars_per_line', parseInt(e.target.value))}
                         className="flex-1 accent-blue-500 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer"
                       />
                       <button 
-                        onClick={() => updateConfig('subtitle', 'max_chars_per_line', Math.min(40, config.subtitle.max_chars_per_line + 2))}
+                        onClick={() => updateConfig('subtitle', 'max_chars_per_line', Math.min(15, config.subtitle.max_chars_per_line + 2))}
                         className="p-1.5 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg text-slate-600 transition-colors"
                       >
                         <Plus className="w-3.5 h-3.5" />
@@ -1155,7 +1244,7 @@ export default function GlobalParamsVisualEditor({
                   </div>
 
                   {/* Dual Color Picker Blocks */}
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     {/* Color: Subtitle text */}
                     <div className="bg-slate-50 border border-slate-200 rounded-lg p-2.5">
                       <label className="text-[10px] font-semibold text-slate-600 block mb-2">文字颜色</label>
@@ -1177,6 +1266,28 @@ export default function GlobalParamsVisualEditor({
                           value={config.subtitle.color}
                           onChange={(e) => updateConfig('subtitle', 'color', e.target.value)}
                           className="w-full min-w-0 bg-white border border-slate-200 rounded px-2 py-1 text-xs font-mono text-slate-700 focus:outline-none focus:border-blue-500"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Color: Active character highlight */}
+                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5">
+                      <label className="text-[10px] font-semibold text-amber-800 block mb-2">高亮颜色</label>
+                      <div className="flex items-center gap-2">
+                        <div className="relative w-7 h-7 rounded-md overflow-hidden border border-amber-300 flex-shrink-0 cursor-pointer shadow-sm">
+                          <input
+                            type="color"
+                            value={config.subtitle.highlight_color || '#FFD400'}
+                            onChange={(e) => updateConfig('subtitle', 'highlight_color', e.target.value)}
+                            className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+                          />
+                          <div className="w-full h-full border border-black/5 rounded-md" style={{ backgroundColor: config.subtitle.highlight_color || '#FFD400' }} />
+                        </div>
+                        <input
+                          type="text"
+                          value={config.subtitle.highlight_color || '#FFD400'}
+                          onChange={(e) => updateConfig('subtitle', 'highlight_color', e.target.value)}
+                          className="w-full min-w-0 bg-white border border-amber-200 rounded px-2 py-1 text-xs font-mono text-slate-700 focus:outline-none focus:border-amber-500"
                         />
                       </div>
                     </div>
@@ -1995,7 +2106,7 @@ export default function GlobalParamsVisualEditor({
                         }}
                         className="shadow-2xl"
                       >
-                        {getCurrentSubtitle()}
+                        {renderSubtitlePreview()}
                       </motion.div>
                     </AnimatePresence>
 

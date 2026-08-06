@@ -10,6 +10,7 @@ import {
   updateDraftTimestamp,
   validateTemplateRunDraft,
   convertToBatchTasks,
+  analyzeTemplateRunDraft,
 } from './templateRunAdapter.js'
 
 import {
@@ -39,6 +40,7 @@ export default function TemplateBatchPage({
   apiKey,
   onOpenBatchCenter,
   onStartBatch,
+  focusProgress = false,
 }) {
   const [draft, setDraft] = useState(() => {
     if (typeof window === 'undefined') return createTemplateRunDraft()
@@ -59,6 +61,12 @@ export default function TemplateBatchPage({
   const saveTimerRef = useRef(null)
   const activeStep = STEPS[activeStepIndex]
   const template = getTemplateById(draft.templateId)
+
+  useEffect(() => {
+    if (focusProgress && tasks.length > 0) {
+      setActiveStepIndex(STEPS.length - 1)
+    }
+  }, [focusProgress, tasks.length])
 
   // 自动保存草稿
   useEffect(() => {
@@ -118,9 +126,24 @@ export default function TemplateBatchPage({
       ]
       if (finalErrors.length) throw new Error(finalErrors[0])
 
+      const preflight = await analyzeTemplateRunDraft(draft, vfs)
+      if (preflight.warnings.length > 0 && typeof window !== 'undefined') {
+        const preview = preflight.warnings
+          .slice(0, 8)
+          .map((warning) => `• ${warning.sceneName}：${warning.message}`)
+          .join('\n')
+        const more = preflight.warnings.length > 8
+          ? `\n• 另有 ${preflight.warnings.length - 8} 个素材段需要确认`
+          : ''
+        const confirmed = window.confirm(
+          `检测到模板段与素材时长不匹配：\n${preview}${more}\n\n继续生成后，短素材会循环播放以填满模板时间。是否继续？`,
+        )
+        if (!confirmed) return
+      }
+
       // 新的一次点击必须创建全新 runId 和输出目录，不能复用上次 task.id/outputPath。
       reset()
-      const converted = await convertToBatchTasks(draft, vfs)
+      const converted = await convertToBatchTasks(draft, vfs, { preflight })
       const taskItems = converted.tasks
 
       if (taskItems.length === 0) {

@@ -14,6 +14,7 @@ import {
   Volume2,
   VolumeX,
   Headphones,
+  Film,
   Magnet,
   Plus,
   MoreVertical
@@ -77,7 +78,7 @@ export default function Timeline() {
   // 配置
   const TRACK_HEIGHT = 96
   const HEADER_HEIGHT = 40
-  const TRACK_HEADER_WIDTH = 220
+  const TRACK_HEADER_WIDTH = 168
   const SNAP_THRESHOLD_MS = 200
   
   // 转换函数
@@ -91,9 +92,18 @@ export default function Timeline() {
 
   // 获取轨道列表
   const getTrackIds = () => {
-    const ids = [...new Set(clips.map(c => c.track))]
-    return ids.sort()
+    const ids = [...new Set([...Object.keys(tracks || {}), ...clips.map(c => c.track)])]
+    const trackOrder = { human: 0, scene: 1, video: 2, audio: 3, subtitle: 4, image: 5 }
+    return ids.sort((a, b) => {
+      const aType = a.split('_')[0]
+      const bType = b.split('_')[0]
+      return (trackOrder[aType] ?? 99) - (trackOrder[bType] ?? 99) || a.localeCompare(b)
+    })
   }
+
+  const trackIds = getTrackIds()
+  // 没有轨道时，时间标尺和播放头必须从最左侧 0 秒开始；有轨道时再为轨道控制栏预留宽度。
+  const timelineHeaderWidth = trackIds.length > 0 ? TRACK_HEADER_WIDTH : 0
 
   // ========== 事件处理 ==========
 
@@ -146,7 +156,7 @@ export default function Timeline() {
     }
     
     const rect = timelineRef.current.getBoundingClientRect()
-    const x = e.clientX - rect.left - TRACK_HEADER_WIDTH
+    const x = e.clientX - rect.left - timelineHeaderWidth
     const timeMs = pixelsToMs(Math.max(0, x))
     timelineStore.seek(Math.max(0, timeMs))
   }
@@ -212,7 +222,8 @@ export default function Timeline() {
 
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return
+      const target = e.target
+      if (target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.tagName === 'SELECT' || target?.isContentEditable) return
       
       if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
         e.preventDefault()
@@ -235,10 +246,6 @@ export default function Timeline() {
           e.preventDefault()
           removeClip(selectedClipId)
         }
-      }
-      if (e.key === ' ') {
-        e.preventDefault()
-        timelineStore.getState().isPlaying ? timelineStore.pause() : timelineStore.play()
       }
     }
     
@@ -272,15 +279,17 @@ export default function Timeline() {
   // ========== 渲染辅助函数 ==========
 
   const formatTime = (ms) => {
-    const seconds = Math.floor(ms / 1000)
-    const mins = Math.floor(seconds / 60)
-    const secs = seconds % 60
-    const frames = Math.floor((ms % 1000) / 1000 * fps)
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}:${frames.toString().padStart(2, '0')}`
+    const totalSeconds = Math.max(0, Math.floor(ms / 1000))
+    const hours = Math.floor(totalSeconds / 3600)
+    const mins = Math.floor((totalSeconds % 3600) / 60)
+    const secs = totalSeconds % 60
+    return hours > 0
+      ? `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
+      : `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
   }
 
   const renderTimeRuler = () => {
-    const duration = Math.max(totalDuration_ms, 10000)
+    const duration = Math.max(totalDuration_ms, 30000)
     const markers = []
     const interval = zoom >= 100 ? 1 : zoom >= 50 ? 2 : 5 // 秒间隔
     
@@ -302,9 +311,11 @@ export default function Timeline() {
     return markers
   }
 
-  const trackIds = getTrackIds()
-  const duration = Math.max(totalDuration_ms, 10000)
+  // 空时间轴也保留一段可操作空间，避免刚打开时只有 10 秒的“玩具尺子”。
+  // 有真实内容时再由成片时长自动撑开，并继续允许横向滚动。
+  const duration = Math.max(totalDuration_ms, 30000)
   const timelineWidth = msToPixels(duration)
+  const rulerIntervalMs = (zoom >= 100 ? 1 : zoom >= 50 ? 2 : 5) * 1000
 
   return (
     <div className="flex flex-col h-full w-full overflow-hidden bg-[#0d1117]">
@@ -423,13 +434,13 @@ export default function Timeline() {
         className="flex-1 overflow-auto relative"
         onClick={handleTimelineClick}
       >
-        <div className="relative min-h-full" style={{ width: timelineWidth + TRACK_HEADER_WIDTH }}>
+        <div className="relative min-h-full" style={{ width: timelineWidth + timelineHeaderWidth }}>
           {/* 时间刻度 */}
           <div 
             className="h-8 bg-[#161b22] border-b border-slate-700/50 sticky top-0 z-20"
             style={{ position: 'sticky', top: 0, left: 0, right: 0 }}
           >
-            <div className="absolute left-[220px] right-0 h-full">
+            <div className="absolute right-0 h-full" style={{ left: timelineHeaderWidth }}>
               {renderTimeRuler()}
             </div>
           </div>
@@ -451,6 +462,9 @@ export default function Timeline() {
                   onClipMouseDown={handleMouseDown}
                   onResizeStart={handleResizeStart}
                   msToPixels={msToPixels}
+                  pixelsToMs={pixelsToMs}
+                  gridIntervalMs={rulerIntervalMs}
+                  timelineDurationMs={duration}
                   trackHeight={TRACK_HEIGHT}
                   headerWidth={TRACK_HEADER_WIDTH}
                   toggleTrackLock={toggleTrackLock}
@@ -469,7 +483,7 @@ export default function Timeline() {
             currentTime_ms={timelineStore.getState().currentTime_ms}
             msToPixels={msToPixels}
             pixelsToMs={pixelsToMs}
-            headerWidth={TRACK_HEADER_WIDTH}
+            headerWidth={timelineHeaderWidth}
             onSeek={(time) => timelineStore.seek(time)}
             timelineRef={timelineRef}
           />
@@ -505,15 +519,18 @@ function ToolButton({ icon: Icon, onClick, label, disabled, active, className = 
 
 function EmptyState({ onAddTrack }) {
   return (
-    <div className="flex flex-col items-center justify-center h-48 text-slate-500">
-      <div className="text-4xl mb-3">🎬</div>
-      <p className="text-sm mb-4">时间轴为空，添加素材开始创作</p>
+    <div className="timeline-empty-state flex items-center h-28 text-slate-500">
+      <div className="timeline-empty-icon"><Film size={22} /></div>
+      <div className="timeline-empty-copy-wrap">
+        <p className="text-sm mb-1">时间轴还是空的</p>
+        <span className="timeline-empty-copy">从素材库添加视频，开始你的二次剪辑</span>
+      </div>
       <button
         onClick={onAddTrack}
-        className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm transition"
+        className="timeline-empty-button flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs transition"
       >
         <Plus size={16} />
-        <span>添加视频轨道</span>
+        <span>创建视频轨道</span>
       </button>
     </div>
   )
@@ -529,7 +546,10 @@ function TimelineTrack({
   mediaFiles, 
   selectedClipId, 
   onClipMouseDown, 
-  msToPixels, 
+  msToPixels,
+  pixelsToMs,
+  gridIntervalMs,
+  timelineDurationMs,
   trackHeight, 
   headerWidth,
   onResizeStart,
@@ -541,6 +561,7 @@ function TimelineTrack({
   removeTrack,
 }) {
   const trackType = trackId.split('_')[0]
+  const trackNumber = trackId.match(/_(\d+)$/u)?.[1] || ''
   // 从 tracks 获取轨道状态
   const trackInfo = tracks?.[trackId] || {}
   const isLocked = trackInfo.locked || false
@@ -548,6 +569,15 @@ function TimelineTrack({
   const isMuted = trackInfo.muted || false
   const isSolo = trackInfo.solo || false
   const volume = trackInfo.volume ?? 1.0
+  const trackLabels = {
+    human: '原生视频',
+    scene: '素材视频',
+    video: '视频',
+    audio: '配音',
+    subtitle: '字幕',
+    image: '图片',
+  }
+  const trackLabel = `${trackLabels[trackType] || trackInfo.name || trackId}${trackNumber ? ` ${trackNumber}` : ''}`
   
   return (
     <div 
@@ -563,12 +593,14 @@ function TimelineTrack({
         <div className="flex items-center justify-between px-3 py-2 border-b border-slate-700/30">
           <div className="flex items-center gap-2 min-w-0">
             <span className={`text-xs font-medium truncate ${
+              trackType === 'human' ? 'text-amber-400' :
+              trackType === 'scene' ? 'text-cyan-400' :
               trackType === 'video' ? 'text-blue-400' :
               trackType === 'audio' ? 'text-green-400' :
               trackType === 'subtitle' ? 'text-purple-400' :
               'text-slate-300'
             }`}>
-              {trackId.toUpperCase().replace('_', ' ')}
+              {trackLabel}
             </span>
           </div>
           <span className="text-[10px] text-slate-500 bg-slate-800 px-1.5 py-0.5 rounded">
@@ -655,11 +687,11 @@ function TimelineTrack({
       >
         {/* 网格背景 */}
         <div className="absolute inset-0 pointer-events-none">
-          {[...Array(50)].map((_, i) => (
+          {[...Array(Math.ceil(timelineDurationMs / gridIntervalMs) + 1)].map((_, i) => (
             <div 
               key={i}
               className="absolute h-full w-px bg-slate-800/30"
-              style={{ left: i * 100 }}
+              style={{ left: msToPixels(i * gridIntervalMs) }}
             />
           ))}
         </div>
@@ -729,8 +761,8 @@ function ClipItem({
           : 'hover:ring-2 hover:ring-blue-400/50 hover:shadow-md'
       }`}
       style={{ 
-        left: left + 4, 
-        width: Math.max(width - 8, minWidth),
+        left,
+        width: Math.max(width, minWidth),
         background: clipColor,
       }}
       onMouseDown={(e) => {
@@ -842,6 +874,8 @@ function Playhead({ currentTime_ms, msToPixels, pixelsToMs, headerWidth, onSeek,
 function getClipColor(type) {
   const colors = {
     video: 'linear-gradient(135deg, rgba(59, 130, 246, 0.85) 0%, rgba(37, 99, 235, 0.9) 100%)',
+    human: 'linear-gradient(135deg, rgba(245, 158, 11, 0.9) 0%, rgba(217, 119, 6, 0.92) 100%)',
+    scene: 'linear-gradient(135deg, rgba(6, 182, 212, 0.9) 0%, rgba(8, 145, 178, 0.92) 100%)',
     audio: 'linear-gradient(135deg, rgba(34, 197, 94, 0.85) 0%, rgba(22, 163, 74, 0.9) 100%)',
     image: 'linear-gradient(135deg, rgba(168, 85, 247, 0.85) 0%, rgba(147, 51, 234, 0.9) 100%)',
     subtitle: 'linear-gradient(135deg, rgba(236, 72, 153, 0.85) 0%, rgba(219, 39, 119, 0.9) 100%)',

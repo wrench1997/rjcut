@@ -375,8 +375,63 @@ function splitSceneSegment(segment, files) {
       duration: (endMs - startMs) / 1000,
       scene_file: file.name || String(file.path).split('/').pop(),
       scene_vfs_path: file.path,
+      material_duration_ms: Number.isFinite(Number(file.durationSeconds)) && Number(file.durationSeconds) > 0
+        ? Math.round(Number(file.durationSeconds) * 1000)
+        : null,
+      material_loop_required: Number.isFinite(Number(file.durationSeconds))
+        && Number(file.durationSeconds) > 0
+        && Number(file.durationSeconds) * 1000 + 100 < endMs - startMs,
     }
   })
+}
+
+export function analyzeMaterialCoverage(timeline) {
+  const segments = Array.isArray(timeline?.segments) ? timeline.segments : []
+  const sceneSegments = segments.filter((segment) => segment?.type === 'scene' && segment.scene_vfs_path)
+  const templateDurationMs = segments.reduce(
+    (max, segment) => Math.max(max, Number(segment?.end_ms) || Number(segment?.end || 0) * 1000),
+    0,
+  )
+  const warnings = []
+
+  sceneSegments.forEach((segment, index) => {
+    const requiredMs = Math.max(0, Number(segment.end_ms) - Number(segment.start_ms))
+    const materialMs = Number(segment.material_duration_ms)
+    const materialName = segment.scene_file || segment.scene_vfs_path
+    if (!Number.isFinite(materialMs) || materialMs <= 0) {
+      warnings.push({
+        type: 'unknown',
+        segmentId: segment.id || `scene_${index + 1}`,
+        materialName,
+        requiredMs,
+        materialMs: null,
+        message: `${materialName} 未读取到时长，合成时将按循环模式补足。`,
+      })
+      return
+    }
+    if (materialMs + 100 < requiredMs) {
+      warnings.push({
+        type: 'loop',
+        segmentId: segment.id || `scene_${index + 1}`,
+        materialName,
+        requiredMs,
+        materialMs,
+        loopCount: Math.max(1, Math.ceil(requiredMs / materialMs) - 1),
+        message: `${materialName} 时长 ${(materialMs / 1000).toFixed(1)} 秒，模板段需要 ${(requiredMs / 1000).toFixed(1)} 秒，将循环播放。`,
+      })
+    }
+  })
+
+  return {
+    templateDurationMs,
+    materialDurationMs: sceneSegments.reduce(
+      (sum, segment) => sum + (Number(segment.material_duration_ms) > 0 ? Number(segment.material_duration_ms) : 0),
+      0,
+    ),
+    sceneCount: sceneSegments.length,
+    warnings,
+    willLoop: warnings.some((warning) => warning.type === 'loop' || warning.type === 'unknown'),
+  }
 }
 
 export function buildBoundLocalTimeline(project, template, scene) {
@@ -419,6 +474,7 @@ export function buildBoundLocalTimeline(project, template, scene) {
       end_ms: segment.end_ms,
       slot_id: segment.slot_id || null,
       scene_vfs_path: segment.scene_vfs_path || null,
+      material_duration_ms: segment.material_duration_ms || null,
       edit_action: segment.edit_action || (segment.type === 'scene' ? 'replace_visual' : 'keep_digital_human'),
       is_transition_segment: Boolean(segment.is_transition_segment || segment.type === 'scene'),
       transition: segment.transition || buildTransitionDescriptor(segment.type === 'scene' ? 'scene' : 'human', segment.slot_id),
@@ -434,6 +490,7 @@ export function buildBoundLocalTimeline(project, template, scene) {
         duration_ms: segment.end_ms - segment.start_ms,
         slot_id: segment.slot_id || null,
         scene_vfs_path: segment.scene_vfs_path || null,
+        material_duration_ms: segment.material_duration_ms || null,
         visual_tags: segment.visual_tags || [],
         action: 'replace_visual',
         keep_original_audio: segment.transition?.keep_original_audio !== false,

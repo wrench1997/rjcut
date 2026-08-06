@@ -889,7 +889,7 @@ function AIScriptForm({ template, productInfo, setProductInfo, onSubmit, onCance
 请直接输出完整口播文案。
 请按自然语义分段；禁止把导演口令写进口播。
 剪辑意图由结构化 segments 表达；不要在 spoken_text 中写镜头说明。
-全文控制在 450～650 字。
+全文控制在 300 字。
 语言必须口语化，像真人一镜到底口播，节奏要快，句子不要太长。
 
 ## 产品信息

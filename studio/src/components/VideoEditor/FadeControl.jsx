@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { useTimelineStore } from '../../stores/timelineStore'
+import { useTimelineStore, timelineStore } from '../../stores/timelineStore'
 import { Volume2, Sun } from 'lucide-react'
 
 /**
@@ -7,7 +7,11 @@ import { Volume2, Sun } from 'lucide-react'
  * 用于设置选中片段的音频/视频淡入淡出效果
  */
 export default function FadeControl() {
-  const { selectedClipId, clips, setClipFade } = useTimelineStore()
+  const { selectedClipId, clips } = useTimelineStore((snapshot) => ({
+    selectedClipId: snapshot.selectedClipId,
+    clips: snapshot.clips,
+  }))
+  const { setClipFade } = timelineStore
   const [fadeDuration, setFadeDuration] = useState(500) // 默认 500ms
   
   const selectedClip = clips.find(c => c.id === selectedClipId)

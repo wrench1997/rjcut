@@ -3,9 +3,11 @@
  * 支持添加多个场景版本，每个版本对应一条最终视频
  */
 import { useState } from 'react'
-import { CirclePlus, Copy, Trash2, AlertTriangle, BadgeCheck, Loader2, WandSparkles, ArrowUp, X, Layers, Film, FolderOpen, Sparkles as SparklesIcon } from 'lucide-react'
+import { CirclePlus, Copy, Trash2, AlertTriangle, BadgeCheck, Loader2, WandSparkles, ArrowUp, X, Layers, Film, FolderOpen, FileVideo, House, Sparkles as SparklesIcon } from 'lucide-react'
 import { getTemplateById } from '../templateRegistry.js'
 import { aiSuggestSlotFiles, aiAutoCreateScene } from '../aiAssistant.js'
+import { getSceneMaterialsPathFromVideo } from '../../../utils/project-structure.js'
+import { getVideoDurationSeconds, formatDurationSeconds } from '../templateMediaDuration.js'
 
 export default function AddSceneVariantsStep({ draft, updateDraft, vfs, apiKey }) {
   const template = getTemplateById(draft.templateId)
@@ -77,8 +79,13 @@ export default function AddSceneVariantsStep({ draft, updateDraft, vfs, apiKey }
 
     setIsAutoCreating(true)
     try {
-      // 扫描根目录下的视频文件
-      const rootFiles = await vfs.listDirectory('/')
+      // 只扫描当前数字人所在项目的“场景素材”。没有项目时要求先选择数字人视频。
+      const materialPath = getSceneMaterialsPathFromVideo(draft.avatarVideo?.path)
+      if (!materialPath) {
+        alert('请先选择项目中的数字人视频')
+        return
+      }
+      const rootFiles = await vfs.listDirectory(materialPath)
       const videoFiles = rootFiles.filter((f) =>
         !f.isDirectory && /\.(mp4|mov|webm)$/i.test(f.name)
       )
@@ -130,7 +137,7 @@ export default function AddSceneVariantsStep({ draft, updateDraft, vfs, apiKey }
         ...files.map((f) => ({
           path: f.path,
           name: f.name,
-          durationSeconds: null,
+          durationSeconds: f.durationSeconds ?? f.duration ?? null,
         })),
       ],
     }
@@ -338,6 +345,7 @@ export default function AddSceneVariantsStep({ draft, updateDraft, vfs, apiKey }
             {showFolderPicker && (
               <VfsFolderPicker
                 vfs={vfs}
+                initialPath={getSceneMaterialsPathFromVideo(draft.avatarVideo?.path) || '/'}
                 onSelect={handleFolderSelected}
                 onCancel={() => setShowFolderPicker(false)}
               />
@@ -581,22 +589,21 @@ function SceneVariantCard({
  */
 function SlotFilePicker({ slot, binding, vfs, onChange }) {
   const [showBrowser, setShowBrowser] = useState(false)
+  const [readingDuration, setReadingDuration] = useState(false)
 
   const files = binding?.files || []
   const isComplete = files.length >= slot.minFiles
   const isOverLimit = slot.maxFiles && files.length > slot.maxFiles
 
-  const handleAddFile = (fileItem) => {
+  const handleAddFile = async (fileItem) => {
     if (slot.maxFiles && files.length >= slot.maxFiles) {
       alert(`最多只能选择 ${slot.maxFiles} 个视频`)
       return
     }
 
-    const newFile = {
-      path: fileItem.path,
-      name: fileItem.name,
-      durationSeconds: null,
-    }
+    setReadingDuration(true)
+    const durationSeconds = await getVideoDurationSeconds(fileItem, vfs)
+    const newFile = { path: fileItem.path, name: fileItem.name, durationSeconds }
 
     onChange({
       order: slot.order,
@@ -604,6 +611,7 @@ function SlotFilePicker({ slot, binding, vfs, onChange }) {
       files: [...files, newFile],
     })
     setShowBrowser(false)
+    setReadingDuration(false)
   }
 
   const handleRemoveFile = (index) => {
@@ -651,11 +659,12 @@ function SlotFilePicker({ slot, binding, vfs, onChange }) {
       {(!slot.maxFiles || files.length < slot.maxFiles) && (
         <button
           type="button"
+          disabled={readingDuration}
           onClick={() => setShowBrowser(true)}
           className="w-full py-2 border-2 border-dashed border-slate-300 rounded-lg text-slate-500 hover:border-blue-400 hover:text-blue-600 hover:bg-gradient-to-r hover:from-blue-50 hover:to-indigo-50 transition-all flex items-center justify-center gap-2 text-sm font-semibold mb-3"
         >
           <CirclePlus size={16} />
-          从素材库选择
+          {readingDuration ? '读取素材时长…' : '从素材库选择'}
         </button>
       )}
 
@@ -667,12 +676,15 @@ function SlotFilePicker({ slot, binding, vfs, onChange }) {
               key={`${file.path}-${index}`}
               className="flex items-center gap-3 p-2 bg-white rounded border border-slate-200"
             >
-              <span className="text-lg">📄</span>
+              <FileVideo size={20} className="text-violet-500 shrink-0" />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-slate-700 truncate">
                   {file.name}
                 </p>
                 <p className="text-xs text-slate-500 truncate">{file.path}</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  时长：{formatDurationSeconds(file.durationSeconds)}
+                </p>
               </div>
               <button
                 type="button"
@@ -785,9 +797,9 @@ function VfsFileBrowser({ vfs, currentPath, onSelect, onClose, acceptTypes }) {
                       }
                     }}
                   >
-                    <span className="text-lg">
-                      {item.isDirectory ? '📁' : '📄'}
-                    </span>
+                    {item.isDirectory
+                      ? <FolderOpen size={20} className="text-amber-500 shrink-0" />
+                      : <FileVideo size={20} className="text-violet-500 shrink-0" />}
                     <span className="flex-1 text-sm text-slate-700">
                       {item.name}
                     </span>
@@ -819,8 +831,10 @@ function VfsFileBrowser({ vfs, currentPath, onSelect, onClose, acceptTypes }) {
 }/**
  * VFS 文件夹选择器弹窗（简化版文件浏览器）
  */
-function VfsFolderPicker({ vfs, onSelect, onCancel }) {
-  const [currentPath, setCurrentPath] = useState('/')
+function VfsFolderPicker({ vfs, initialPath, onSelect, onCancel }) {
+  const materialRoot = initialPath || '/'
+  const isProjectMaterialsRoot = materialRoot !== '/'
+  const [currentPath, setCurrentPath] = useState(materialRoot)
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(false)
   const [videoCount, setVideoCount] = useState(0)
@@ -856,12 +870,20 @@ function VfsFolderPicker({ vfs, onSelect, onCancel }) {
     }
   }
 
+  useEffect(() => {
+    // 有数字人视频时从其项目的“场景素材”进入，否则从项目根目录选择。
+    vfs.mkdir(materialRoot, true).then(() => loadDirectory(materialRoot)).catch((error) => {
+      console.error('[VfsFolderPicker] 初始化素材库失败:', error)
+      loadDirectory(materialRoot)
+    })
+  }, [vfs, materialRoot])
+
   const handleSelect = () => {
     onSelect(currentPath)
   }
 
   const goUp = () => {
-    if (currentPath !== '/') {
+    if (currentPath !== materialRoot) {
       const parentPath = currentPath.substring(0, currentPath.lastIndexOf('/')) || '/'
       navigateTo(parentPath)
     }
@@ -881,29 +903,17 @@ function VfsFolderPicker({ vfs, onSelect, onCancel }) {
         <div className="mb-4">
           <div className="flex items-center gap-2 mb-2">
             <button
-              className="px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded transition-colors"
-              onClick={() => navigateTo('/projects')}
+              className="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors inline-flex items-center gap-1.5"
+              onClick={() => navigateTo(materialRoot)}
             >
-              📁 项目
-            </button>
-            <button
-              className="px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded transition-colors"
-              onClick={() => navigateTo('/drafts')}
-            >
-              📁 草稿
-            </button>
-            <button
-              className="px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded transition-colors"
-              onClick={() => navigateTo('/')}
-            >
-              🏠 根目录
+              <House size={14} /> {isProjectMaterialsRoot ? '当前项目场景素材' : '项目根目录'}
             </button>
           </div>
           <div className="flex items-center gap-2 p-2 bg-slate-50 rounded-lg border border-slate-200">
             <button
               className="p-1 hover:bg-slate-200 rounded disabled:opacity-30"
               onClick={goUp}
-              disabled={currentPath === '/'}
+              disabled={currentPath === materialRoot}
             >
               <ArrowUp size={16} />
             </button>

@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { getSharedFileSystem } from '../src/utils/virtualFileSystem'
-import { setApiKey } from '../src/api/api'
-import { FolderOpen, Folder, Layers, Sparkles, Settings, HelpCircle, Gem, Users, Scissors, WandSparkles, Book } from 'lucide-react'
+import { getBaseUrl } from '../src/api/api'
+import { FolderOpen, Folder, Sparkles, Settings, HelpCircle, Gem, Users, WandSparkles, Book, Scissors, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import Tooltip from '../src/components/Tooltip'
 
 // 导入你的各个组件
@@ -12,12 +12,14 @@ import DigitalHumanStudio from '../src/components/DigitalHumanStudio'
 import DigitalHumanManager from '../src/components/DigitalHumanManager'
 import HelpGuide from '../src/components/HelpGuide'
 import AdvancedVideoEditor from '../src/components/AdvancedVideoEditor'
+import OnboardingGuide from '../src/components/OnboardingGuide'
 import TemplateBatchPage from '../src/features/template-batch/TemplateBatchPage'
 import TemplateManager from '../src/components/TemplateManager'
-import CampaignWizard from '../src/features/campaign/CampaignWizard'
+import useBatchStore from '../src/api/useBatchProcessStore'
+import { GlobalTaskProgress } from '../src/components/BatchProgress.jsx'
 
 
-const DEFAULT_API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8001'
+const DEFAULT_API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://112.111.7.91:8801'
 const DEFAULT_API_KEY = 'rjk_oG3u1bRu10myprstb5o2AYVW6v9HipNT33ALuJTmFxaqemUC'
 
 const apiRequest = async (endpoint, options = {}, apiKey = DEFAULT_API_KEY, baseUrl = DEFAULT_API_BASE_URL) => {
@@ -31,24 +33,48 @@ const apiRequest = async (endpoint, options = {}, apiKey = DEFAULT_API_KEY, base
     },
   }
   const response = await fetch(url, config)
-  const data = await response.json()
-  if (!response.ok) throw new Error(data.message || '请求失败')
+  const text = await response.text()
+  if (!text) {
+    throw new Error(`[${response.status}] ${url} 返回空响应，请检查 API 基础地址和端口`)
+  }
+  let data
+  try {
+    data = JSON.parse(text)
+  } catch (parseErr) {
+    throw new Error(`[${response.status}] ${url} 返回非 JSON: ${text.slice(0, 120)}`)
+  }
+  if (!response.ok) throw new Error(data.message || data.detail || `请求失败 (${response.status})`)
   return data
 }
 
-// 导航菜单配置
-const NAV_ITEMS = [
-  { id: 'campaign', label: '模板混剪', icon: WandSparkles, tip: '选择已生成的数字人视频，按模板补充素材自动混剪' },
-  // { id: 'batch', label: '任务执行中心', icon: Layers, tip: '批量上传视频或指定参数，并行处理多个生成任务' }, // 老模板，已屏蔽
-  // { id: 'projects', label: '项目管理', icon: FolderOpen, tip: '管理您的视频项目，创建、编辑和删除项目' }, // 已屏蔽
-  { id: 'files', label: '文件浏览', icon: Folder, tip: '浏览和管理虚拟文件系统中的所有文件' },
-  
-  { id: 'digital-human-studio', label: '数字人创作平台', icon: Sparkles, tip: '选择数字人和场景，创作专属数字人视频' },
-  { id: 'digital-human', label: '数字人管理', icon: Users, tip: '管理数字人形象，查看已创建的 digital human' },
-  { id: 'template-manager', label: '模板管理', icon: Book, tip: '管理文案模板，支持 AI 自动生成模板和文案' },
-  // { id: 'advanced-editor', label: '高级剪辑', icon: Scissors, tip: '专业视频剪辑功能：多轨道编辑、分割、修剪、淡入淡出' }, // 已屏蔽
-  { id: 'settings', label: '系统设置', icon: Settings, tip: '配置 API 连接参数和系统偏好设置' },
+// 导航按“先创作、再管理、后设置”的用户任务分组，避免把不同层级的功能混在一起。
+const NAV_SECTIONS = [
+  {
+    label: '创作工作流',
+    items: [
+      { id: 'digital-human-studio', label: '数字人创作', icon: Sparkles, tip: '选择数字人和场景，创作专属数字人视频', description: '从数字人、场景和文案开始' },
+      { id: 'campaign', label: '模板混剪', icon: WandSparkles, tip: '选择已生成的数字人视频，按模板补充素材自动混剪', description: '将一条视频扩展为多条成片' },
+      { id: 'advanced-editor', label: '高级剪辑', icon: Scissors, tip: '像传统剪辑软件一样二次加工视频，并同步保留 JSON 信息', description: '切割、修剪和校准数字人时间轴' },
+    ],
+  },
+  {
+    label: '内容管理',
+    items: [
+      { id: 'projects', label: '项目', icon: FolderOpen, tip: '管理视频项目的进度、配置和输出', description: '按项目查看创作进度' },
+      { id: 'files', label: '素材与文件', icon: Folder, tip: '浏览和管理虚拟文件系统中的素材与输出文件', description: '查找具体素材和导出文件' },
+      { id: 'digital-human', label: '数字人形象', icon: Users, tip: '管理可复用的数字人形象和身份信息', description: '维护可复用的数字人资产' },
+      { id: 'template-manager', label: '模板库', icon: Book, tip: '管理文案模板，支持 AI 自动生成模板和文案', description: '维护可复用的模板和文案' },
+    ],
+  },
+  {
+    label: '系统',
+    items: [
+      { id: 'settings', label: '系统设置', icon: Settings, tip: '配置 API 连接参数和系统偏好设置', description: '连接服务和调整偏好设置' },
+    ],
+  },
 ]
+
+const NAV_ITEMS = NAV_SECTIONS.flatMap((section) => section.items)
 
 export default function Home() {
   const [vfs, setVfs] = useState(null)
@@ -58,27 +84,55 @@ export default function Home() {
     typeof window !== 'undefined' ? localStorage.getItem('rjcut_api_key') || DEFAULT_API_KEY : DEFAULT_API_KEY
   )
   const [apiBaseUrl, setApiBaseUrlState] = useState(() => 
-    typeof window !== 'undefined' ? localStorage.getItem('rjcut_api_base_url') || DEFAULT_API_BASE_URL : DEFAULT_API_BASE_URL
+    typeof window !== 'undefined' ? getBaseUrl() : DEFAULT_API_BASE_URL
   )
   
-  const [activeTab, setActiveTab] = useState('campaign')
+  const [activeTab, setActiveTab] = useState('digital-human-studio')
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [preselectedPerson, setPreselectedPerson] = useState(null)
+  const [advancedEditorRequest, setAdvancedEditorRequest] = useState(null)
   const [fileBrowserPath, setFileBrowserPath] = useState('/') // 文件浏览器目标路径
+  const [showOnboarding, setShowOnboarding] = useState(false)
+  const [hideGlobalTaskProgress, setHideGlobalTaskProgress] = useState(false)
+  const batchTasks = useBatchStore((state) => state.tasks)
+  const hasRunningBatch = batchTasks.some((task) => !['succeeded', 'failed', 'cancelled'].includes(task.stage))
+  const isFullHeightTab = activeTab === 'digital-human-studio' || activeTab === 'files' || activeTab === 'advanced-editor'
   
-  // 🔴 处理数字人管理平台的创作视频回调
+  // 从数字人形象管理直接进入创作流程，并带入当前形象。
   const handleCreateVideoFromManager = useCallback((person) => {
-    console.log('========================================')
-    console.log('[index.js] ✅ 收到 onCreateVideo 回调，数字人:', person.name, person.id)
-    console.log('[index.js] 🚀 设置预选数字人:', person.id)
     setPreselectedPerson(person)
-    console.log('[index.js] 🚀 切换到 digital-human-studio')
     setActiveTab('digital-human-studio')
-    console.log('[index.js] ✅ 已切换到 digital-human-studio')
-    console.log('========================================')
   }, [])
+
+  const handleAdvancedEdit = useCallback((item) => {
+    if (!item?.path || item.isDirectory) return
+    setAdvancedEditorRequest({ path: item.path, name: item.name, requestedAt: Date.now() })
+    setActiveTab('advanced-editor')
+  }, [])
+
+  useEffect(() => {
+    // 高级剪辑默认收起外层导航，用户仍可点击左上角按钮恢复。
+    setSidebarCollapsed(activeTab === 'advanced-editor')
+  }, [activeTab])
+
+  useEffect(() => {
+    // 新任务启动后自动恢复全局进度条；用户切换页面时不丢失反馈。
+    if (hasRunningBatch) setHideGlobalTaskProgress(false)
+  }, [hasRunningBatch])
   const [merchantInfo, setMerchantInfo] = useState(null)
   const [showHelp, setShowHelp] = useState(false)
   const [toast, setToast] = useState({ show: false, msg: '', type: 'success' })
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setShowOnboarding(window.localStorage.getItem('rjcut_onboarding_completed') !== '1')
+    }
+  }, [])
+
+  const openOnboarding = useCallback(() => {
+    setShowHelp(false)
+    setShowOnboarding(true)
+  }, [])
 
   const showToast = (msg, type = 'success') => {
     setToast({ show: true, msg, type })
@@ -124,52 +178,101 @@ export default function Home() {
 
   // --- 侧边栏 ---
   const Sidebar = () => (
-    <aside className="w-64 bg-white border-r border-slate-200 flex flex-col h-screen fixed left-0 top-0 z-40">
-      <div className="h-16 flex items-center px-6 border-b border-slate-100">
-        <h1 className="text-xl font-black bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-indigo-600">
-          RJCut Studio
-        </h1>
+    <aside className={`${sidebarCollapsed ? 'w-16' : 'w-64'} bg-white border-r border-slate-200 flex flex-col h-screen fixed left-0 top-0 z-40 transition-all duration-200`}>
+      <div className={`${sidebarCollapsed ? 'justify-center px-2' : 'justify-between px-5'} h-16 flex items-center border-b border-slate-100`}>
+        {sidebarCollapsed ? (
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-md">
+            <Scissors size={17} />
+          </div>
+        ) : (
+          <div>
+            <h1 className="text-xl font-black bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-indigo-600">RJCut Studio</h1>
+            <p className="mt-0.5 text-[11px] font-medium text-slate-400">视频创作工作台</p>
+          </div>
+        )}
+        <button
+          onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+          title={sidebarCollapsed ? '展开导航' : '收起导航'}
+          className={`${sidebarCollapsed ? 'hidden' : ''} rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700`}
+        >
+          {sidebarCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+        </button>
       </div>
-      <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-1 custom-scrollbar">
-        {NAV_ITEMS.map(item => {
-          const IconComponent = item.icon
-          return (
-            <Tooltip key={item.id} tip={item.tip} delay={1000}>
-              <button
-                onClick={() => setActiveTab(item.id)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition-all ${
-                  activeTab === item.id 
-                    ? 'bg-blue-50 text-blue-700' 
-                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-                }`}
-              >
-                <IconComponent size={18} strokeWidth={2} />
-                <span className="text-sm">{item.label}</span>
-              </button>
-            </Tooltip>
-          )
-        })}
+      {sidebarCollapsed && (
+        <button
+          onClick={() => setSidebarCollapsed(false)}
+          title="展开导航"
+          className="mx-auto mt-3 rounded-lg p-2 text-slate-400 transition-colors hover:bg-blue-50 hover:text-blue-600"
+        >
+          <PanelLeftOpen size={18} />
+        </button>
+      )}
+      <nav className={`${sidebarCollapsed ? 'px-2' : 'px-3'} flex-1 overflow-y-auto py-5 custom-scrollbar`}>
+        {NAV_SECTIONS.map((section) => (
+          <div key={section.label} className="mb-6 last:mb-0">
+            {!sidebarCollapsed && <div className="mb-2 px-3 text-[11px] font-bold tracking-wider text-slate-400">{section.label}</div>}
+            <div className="space-y-1">
+              {section.items.map(item => {
+                const IconComponent = item.icon
+                const isActive = activeTab === item.id
+                return (
+                  <Tooltip key={item.id} tip={item.tip} delay={1000}>
+                    <button
+                      onClick={() => setActiveTab(item.id)}
+                      className={`group w-full rounded-xl py-2.5 text-left transition-all ${sidebarCollapsed ? 'justify-center px-2' : 'px-3'} ${
+                        isActive
+                          ? 'bg-blue-50 text-blue-700 shadow-sm ring-1 ring-blue-100'
+                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                      }`}
+                    >
+                      <span className={`flex items-center ${sidebarCollapsed ? 'justify-center' : 'gap-3'}`}>
+                        <IconComponent size={18} strokeWidth={isActive ? 2.25 : 2} />
+                        {!sidebarCollapsed && <span className="text-sm font-semibold">{item.label}</span>}
+                        {!sidebarCollapsed && item.id === 'digital-human-studio' && (
+                          <span className={`ml-auto rounded-full px-1.5 py-0.5 text-[10px] font-bold ${isActive ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-400'}`}>开始</span>
+                        )}
+                      </span>
+                      {!sidebarCollapsed && <span className={`mt-1 block pl-[30px] text-[11px] leading-4 ${isActive ? 'text-blue-600/70' : 'text-slate-400 group-hover:text-slate-500'}`}>{item.description}</span>}
+                    </button>
+                  </Tooltip>
+                )
+              })}
+            </div>
+          </div>
+        ))}
       </nav>
-      <div className="p-4 border-t border-slate-100">
-        <Tooltip tip="查看系统使用帮助和快捷键说明" delay={1000}>
-          <button 
-            onClick={() => setShowHelp(true)}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-medium transition-colors"
+      <div className={`${sidebarCollapsed ? 'p-2' : 'p-4'} border-t border-slate-100`}>
+        <div className={`${sidebarCollapsed ? 'grid grid-cols-1' : 'grid grid-cols-2'} gap-2`}>
+          <button
+            onClick={openOnboarding}
+            className="flex items-center justify-center gap-1.5 rounded-lg bg-blue-50 px-2 py-2 text-xs font-semibold text-blue-700 transition-colors hover:bg-blue-100"
           >
-            <HelpCircle size={18} strokeWidth={2} />
-            <span>帮助指南</span>
+            <Sparkles size={15} />
+            {!sidebarCollapsed && '新手教程'}
           </button>
-        </Tooltip>
+          <button
+            onClick={() => setShowHelp(true)}
+            className="flex items-center justify-center gap-1.5 rounded-lg bg-slate-100 px-2 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-200"
+          >
+            <HelpCircle size={15} />
+            {!sidebarCollapsed && '使用指南'}
+          </button>
+        </div>
       </div>
     </aside>
   )
 
   // --- 顶部信息栏 ---
   const Topbar = () => (
-    <header className="h-16 bg-white/80 backdrop-blur-md border-b border-slate-200 fixed top-0 right-0 left-64 z-30 flex items-center justify-between px-8">
-      <h2 className="text-lg font-bold text-slate-800">
-        {NAV_ITEMS.find(n => n.id === activeTab)?.label || '控制台'}
-      </h2>
+    <header style={{ left: sidebarCollapsed ? 64 : 256 }} className="h-16 bg-white/80 backdrop-blur-md border-b border-slate-200 fixed top-0 right-0 z-30 flex items-center justify-between px-8 transition-all duration-200">
+      <div>
+        <h2 className="text-lg font-bold text-slate-800">
+          {NAV_ITEMS.find(n => n.id === activeTab)?.label || '控制台'}
+        </h2>
+        <p className="text-xs text-slate-400">
+          {NAV_ITEMS.find(n => n.id === activeTab)?.tip || '开始你的视频创作'}
+        </p>
+      </div>
       <div className="flex items-center gap-4">
         {merchantInfo && (
           <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 rounded-full border border-blue-100">
@@ -182,9 +285,9 @@ export default function Home() {
   )
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
-      <Sidebar />
-      <Topbar />
+    <div className={`${isFullHeightTab ? 'h-screen overflow-hidden' : 'min-h-screen'} bg-slate-50 flex`}>
+      {activeTab !== 'advanced-editor' && <Sidebar />}
+      {activeTab !== 'advanced-editor' && <Topbar />}
 
       {/* 全局 Toast */}
       {toast.show && (
@@ -195,10 +298,28 @@ export default function Home() {
         </div>
       )}
 
-      {showHelp && <HelpGuide onClose={() => setShowHelp(false)} />}
+      {showHelp && <HelpGuide onClose={() => setShowHelp(false)} onOpenTutorial={openOnboarding} />}
+      {showOnboarding && (
+        <OnboardingGuide
+          onClose={() => setShowOnboarding(false)}
+          onNavigate={setActiveTab}
+        />
+      )}
+
+      {activeTab !== 'campaign' && !hideGlobalTaskProgress && batchTasks.length > 0 && (
+        <GlobalTaskProgress
+          tasks={batchTasks}
+          onOpen={() => {
+            setHideGlobalTaskProgress(false)
+            setActiveTab('campaign')
+          }}
+          onClose={() => setHideGlobalTaskProgress(true)}
+        />
+      )}
 
       {/* 主内容区，数字人创作台全屏显示，其他留白 */}
-      <main className={`flex-1 transition-all pt-16 ml-64 ${activeTab === 'digital-human-studio' || activeTab === 'files' ? 'p-0 h-[calc(100vh-64px)]' : 'p-8 min-h-screen'}`}>
+      <main className={`flex-1 transition-all ${activeTab === 'advanced-editor' ? 'ml-0 pt-0' : 'pt-16'} ${activeTab === 'advanced-editor' ? 'p-0 h-screen min-h-0 overflow-hidden' : `${sidebarCollapsed ? 'ml-16' : 'ml-64'} ${isFullHeightTab ? 'p-0 h-screen min-h-0 overflow-hidden' : 'p-8 min-h-screen'}`}`}
+      >
         
         {vfsLoading && activeTab !== 'settings' && activeTab !== 'digital-human-studio' ? (
           <div className="flex flex-col items-center justify-center h-64 text-slate-400">
@@ -211,6 +332,7 @@ export default function Home() {
   <TemplateBatchPage
     vfs={vfs}
     apiKey={apiKey}
+    focusProgress={batchTasks.length > 0}
     onOpenBatchCenter={() => setActiveTab('batch')}
     onStartBatch={async (taskItems) => {
       // 直接调用 BatchProcessor 的 startBatch 逻辑
@@ -226,6 +348,7 @@ export default function Home() {
     vfs={vfs} 
     initialPath={fileBrowserPath} 
     key={fileBrowserPath} // 路径变化时强制重新渲染组件
+    onAdvancedEdit={handleAdvancedEdit}
   />
 )}
             
@@ -244,7 +367,15 @@ export default function Home() {
 )}
             {activeTab === 'digital-human' && <DigitalHumanManager apiKey={apiKey} apiBaseUrl={apiBaseUrl} onCreateVideo={handleCreateVideoFromManager} />}
             {activeTab === 'template-manager' && <TemplateManager />}
-            {activeTab === 'advanced-editor' && !vfsLoading && vfs && <AdvancedVideoEditor vfs={vfs} />}
+            {activeTab === 'advanced-editor' && !vfsLoading && vfs && (
+              <AdvancedVideoEditor
+                vfs={vfs}
+                initialMediaRequest={advancedEditorRequest}
+                onExitFocusMode={() => {
+                  setActiveTab('digital-human-studio')
+                }}
+              />
+            )}
             
             {activeTab === 'settings' && (
               <div className="max-w-2xl mx-auto">

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Folder, FileVideo, FileAudio, FileImage, FileJson, FileCode, FileBox, FileText, File, Film, Music, Image, ArrowUp, RefreshCw, FolderPlus, FilePlus, Trash2, Eye, Download, Clapperboard, Home, List, Grid3x3, FolderOpen, Copy, Clipboard, Scissors, Move, FileInput } from 'lucide-react'
 import Tooltip from './Tooltip'
+import { PROJECT_FOLDERS, PROJECT_METADATA_FILES } from '../utils/project-structure'
 
 // =====================================================
 // 文件图标
@@ -385,7 +386,7 @@ function FileGridItem({ item, onSelect, onOpen, selected, onDelete, onContextMen
 // =====================================================
 // 右键菜单组件
 // =====================================================
-function ContextMenu({ x, y, item, onClose, onCopy, onCut, onPaste, canPaste, onDelete, onRename, onDownload, onUpload }) {
+function ContextMenu({ x, y, item, onClose, onCopy, onCut, onPaste, canPaste, onDelete, onRename, onDownload, onUpload, onAdvancedEdit }) {
   useEffect(() => {
     const handleClick = () => onClose()
     document.addEventListener('click', handleClick)
@@ -398,11 +399,22 @@ function ContextMenu({ x, y, item, onClose, onCopy, onCut, onPaste, canPaste, on
     top: y,
     zIndex: 9999,
   }
+  const isVideoFile = Boolean(item && (item.type?.startsWith('video/') || /\.(mp4|mov|mkv|webm|avi|m4v)$/iu.test(item.name || '')))
 
   return (
     <div className="context-menu" style={menuStyle}>
       {item && (
         <>
+          {isVideoFile && (
+            <>
+              <Tooltip tip="打开高级剪辑，并自动载入视频旁边的 .rjdh.json 与关联素材" delay={700} position="right">
+                <div className="context-menu-item context-menu-item-primary" onClick={() => { onAdvancedEdit?.(item); onClose(); }}>
+                  <Clapperboard size={14} /> 二次加工
+                </div>
+              </Tooltip>
+              <div className="context-menu-divider" />
+            </>
+          )}
           <Tooltip tip="复制文件到剪贴板" delay={1000} position="right">
             <div className="context-menu-item" onClick={() => { onCopy?.(item); onClose(); }}>
               <Copy size={14} /> 复制
@@ -526,7 +538,7 @@ function ProjectSidebar({ vfs, currentPath, onNavigate }) {
         <div className="sidebar-loading caption text-muted">加载中...</div>
       ) : projects.length === 0 ? (
         <div className="sidebar-empty caption text-muted">
-          暂无项目，请上传文件创建
+          暂无项目，请先在“项目”中创建
         </div>
       ) : (
         <div className="project-list">
@@ -556,6 +568,16 @@ function ProjectSidebar({ vfs, currentPath, onNavigate }) {
         >
           <FolderOpen size={14} /> 根目录
         </button>
+        {projects.map(project => (
+          <button
+            key={`${project.path}-scene-materials`}
+            className="quick-nav-item"
+             onClick={() => onNavigate(`${String(project.path).replace(/\/+$/, '')}/${PROJECT_FOLDERS.EDITED_VIDEO}`)}
+             title={`打开 ${project.name} 的场景素材目录`}
+           >
+             <Film size={14} /> {project.name}/{PROJECT_FOLDERS.EDITED_VIDEO}
+           </button>
+        ))}
       </div>
     </div>
   )
@@ -1189,7 +1211,7 @@ function StorageInfo({ vfs }) {
 // =====================================================
 // 主文件浏览器组件
 // =====================================================
-function FileBrowser({ vfs, onFileSelect, onFileOpen, className, initialPath = '/' }) {
+function FileBrowser({ vfs, onFileSelect, onFileOpen, onAdvancedEdit, className, initialPath = '/' }) {
   const [currentPath, setCurrentPath] = useState(initialPath)
   const [items, setItems] = useState([])
   const [selectedFile, setSelectedFile] = useState(null)
@@ -1279,6 +1301,11 @@ function FileBrowser({ vfs, onFileSelect, onFileOpen, className, initialPath = '
           }
         })
       }
+
+      // project.json 是项目内部元数据，不作为用户文件展示或管理。
+      dirItems = dirItems.filter(item => (
+        item.isDirectory || !PROJECT_METADATA_FILES.includes(item.name)
+      ))
       
       let filtered = dirItems
       if (searchQuery) {
@@ -1524,6 +1551,26 @@ function FileBrowser({ vfs, onFileSelect, onFileOpen, className, initialPath = '
           </div>
           
           <div className="toolbar-right">
+            <Tooltip tip="在当前目录创建一个空文件夹，项目子目录按需创建" delay={1000}>
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={() => handleCreate('folder')}
+                title="新建文件夹"
+              >
+                <FolderPlus size={14} /> 新建文件夹
+              </button>
+            </Tooltip>
+
+            <Tooltip tip="上传文件到当前目录" delay={1000}>
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={handleUpload}
+                title="上传文件"
+              >
+                <ArrowUp size={14} /> 上传文件
+              </button>
+            </Tooltip>
+
             <Tooltip tip="返回上一级目录" delay={1000}>
               <button
                 className="btn btn-ghost btn-sm"
@@ -1746,6 +1793,7 @@ function FileBrowser({ vfs, onFileSelect, onFileOpen, className, initialPath = '
           }}
           onDownload={handleDownload}
           onUpload={handleUpload}
+          onAdvancedEdit={onAdvancedEdit}
         />
       )}
     </div>

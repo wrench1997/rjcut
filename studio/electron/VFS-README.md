@@ -4,7 +4,7 @@
 
 ## 特点
 
-1. **虚拟路径系统** - 所有操作在虚拟路径上进行（如 `/projects`, `/素材`, `/配置`），避免真实路径失败
+1. **虚拟路径系统** - 所有操作在虚拟路径上进行（如 `/项目名/文案`, `/项目名/场景素材`, `/项目名/成片`），避免真实路径失败
 2. **持久化存储** - 数据自动保存到本地 JSON 文件（每 30 秒自动保存）
 3. **清晰的目录结构** - 预定义中文目录模板，看得见摸得着
 4. **MCP 协议支持** - 兼容外部 MCP 客户端（Codex/Claude 等）
@@ -14,8 +14,10 @@
 
 ```
 /
-├── projects/        # 视频项目目录
-├── 素材/            # 原始素材
+├── 项目名/          # 每个一级目录就是一个视频项目
+│   ├── 文案/         # 文案、数字人输入
+│   ├── 场景素材/     # 模板混剪素材
+│   └── 成片/         # 输出视频
 ├── 草稿/            # 草稿文件
 ├── 配置/            # 配置文件
 │   └── default.json
@@ -80,14 +82,14 @@ VFS_PORT=9000 VFS_STORAGE=./my-vfs.json npm start
 ```bash
 curl -X POST http://localhost:8766/api/vfs \
   -H "Content-Type: application/json" \
-  -d '{"operation": "listDirectory", "args": ["/projects"]}'
+  -d '{"operation": "listDirectory", "args": ["/我的项目"]}'
 ```
 
 #### 创建目录
 ```bash
 curl -X POST http://localhost:8766/api/vfs \
   -H "Content-Type: application/json" \
-  -d '{"operation": "mkdir", "args": ["/projects/我的项目", true]}'
+  -d '{"operation": "mkdir", "args": ["/我的项目/场景素材", true]}'
 ```
 
 #### 写入文件
@@ -139,7 +141,7 @@ curl -X POST http://localhost:8766/api/vfs \
   "params": {
     "name": "vfs_list_directory",
     "arguments": {
-      "path": "/projects"
+      "path": "/我的项目"
     }
   }
 }
@@ -154,7 +156,7 @@ curl -X POST http://localhost:8766/api/vfs \
     "content": [
       {
         "type": "text",
-        "text": "[\n  {\n    \"name\": \"项目 1\",\n    \"path\": \"/projects/项目 1\",\n    \"isDirectory\": true,\n    \"isFile\": false\n  }\n]"
+        "text": "[\n  {\n    \"name\": \"场景素材\",\n    \"path\": \"/我的项目/场景素材\",\n    \"isDirectory\": true,\n    \"isFile\": false\n  }\n]"
       }
     ]
   }
@@ -163,7 +165,7 @@ curl -X POST http://localhost:8766/api/vfs \
 
 ## 创建视频项目
 
-使用 `vfs_create_project` 工具：
+使用 `vfs_project_create` 工具：
 
 ```json
 {
@@ -171,7 +173,7 @@ curl -X POST http://localhost:8766/api/vfs \
   "id": 2,
   "method": "tools/call",
   "params": {
-    "name": "vfs_create_project",
+    "name": "vfs_project_create",
     "arguments": {
       "name": "我的纪录片",
       "config": {
@@ -185,14 +187,15 @@ curl -X POST http://localhost:8766/api/vfs \
 }
 ```
 
-这将创建：
+这只创建项目根目录，标准子目录在实际使用时按需生成：
 ```
-/projects/我的纪录片/
-├── 原始视频/
-├── 剪辑视频/
-├── 输出/
-└── project.json
+/我的纪录片/
+├── 文案/       # 按需创建
+├── 场景素材/   # 按需创建
+└── 成片/       # 按需创建
 ```
+
+项目目录本身就是项目，不再生成 `project.json`。旧项目中的该文件只做兼容读取。
 
 ## 持久化说明
 

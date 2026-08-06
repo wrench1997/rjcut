@@ -176,7 +176,7 @@ def run_compose_from_draft_task(task_id: str, payload: dict, trace_id: str, merc
         top_percent = base_y_percent - (y_offset_pct / 2)
         
         # 🎨 获取字幕参数用于精确计算 margin_v
-        font_size = int(subtitle.get("font_size", 72))
+        font_size = int(subtitle.get("font_size", 68))
         line_spacing = float(subtitle.get("line_spacing", 1.3))
         
         # 🎨 ASS 字体补偿系数（与 subtitle_effects.py 一致）
@@ -222,8 +222,8 @@ def run_compose_from_draft_task(task_id: str, payload: dict, trace_id: str, merc
         print(f"🎨 [字幕参数] alignment={alignment}, subtitle_center_from_top={int(subtitle_center_from_top)}px, subtitle_half_height={subtitle_height/2:.1f}px, actual_margin_v={actual_margin_v}px (视频高度={video_height}px)")
         
         # 🎨 与前端统一的字幕样式参数 - 颜色格式转换
-        # 前端 color 是 HEX 格式 (#FFFF00)，需要转换为 ASS 格式 (&HAABBGGRR)
-        highlight_color = _hex_to_ass_color(subtitle.get("color", "#FFFF00"))
+        # 前端 color 是基础色，highlight_color 是当前字高亮色，分别转换为 ASS 格式
+        highlight_color = _hex_to_ass_color(subtitle.get("highlight_color", "#FFD400"))
         
         # stroke_color: 前端 HEX 格式 -> ASS 格式
         stroke_color_raw = subtitle.get("stroke_color", "#000000")
@@ -273,9 +273,9 @@ def run_compose_from_draft_task(task_id: str, payload: dict, trace_id: str, merc
             language=payload.get("asr", {}).get("language", "zh"),
             effect=subtitle.get("effect", "ad"),
             font_file=font_path,
-            font_size=int(subtitle.get("font_size", 72)),  # 🎨 与前端 GlobalParamsVisualEditor.jsx 默认值统一
+            font_size=int(subtitle.get("font_size", 68)),  # 🎨 与前端 GlobalParamsVisualEditor.jsx 默认值统一
             highlight_color=highlight_color,  # 🎨 使用前端 color 参数转换后的 ASS 格式
-            max_chars_per_line=int(subtitle.get("max_chars_per_line", 18)),
+            max_chars_per_line=int(subtitle.get("max_chars_per_line", 15)),
             alignment=alignment,
             margin_v=actual_margin_v,
             margin_l=int(subtitle.get("margin_l", 10)),
@@ -299,7 +299,7 @@ def run_compose_from_draft_task(task_id: str, payload: dict, trace_id: str, merc
             ass_output_path=ass_file,
             resync_json_output_path=resync_json,
             # 🎨 与前端统一的字幕样式参数
-            color=subtitle.get("color", "#FFFF00"),  # 字幕主色（HEX 格式）
+            color=subtitle.get("color", "#FFFFFF"),  # 字幕基础色（HEX 格式）
             stroke_color=stroke_color,
             stroke_width=stroke_width,
             background_color=background_color,

@@ -5,10 +5,11 @@ import { Layers, Folder, Sparkles, FileText, Settings, HelpCircle, Clapperboard,
  * HelpGuide - 前端使用说明和脚本格式帮助指南
  * 采用 Apple 设计风格的模态弹窗组件
  */
-function HelpGuide({ onClose }) {
+function HelpGuide({ onClose, onOpenTutorial }) {
   const [activeTab, setActiveTab] = useState('quickstart');
 
   const tabs = [
+    { id: 'quickstart', label: '快速开始', icon: <Video size={16} /> },
     { id: 'batch', label: '批量处理', icon: <Layers size={16} /> },
     { id: 'files', label: '文件浏览', icon: <Folder size={16} /> },
     { id: 'digital-human', label: '数字人创作', icon: <Sparkles size={16} /> },
@@ -59,11 +60,22 @@ function HelpGuide({ onClose }) {
             backgroundColor: '#f9f9f9',
           }}
         >
-          <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 600, color: '#1d1d1f', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Book size={20} /> RJCut Studio 使用指南
-          </h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 600, color: '#1d1d1f', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Book size={20} /> RJCut Studio 使用指南
+            </h2>
+            {onOpenTutorial && (
+              <button
+                onClick={onOpenTutorial}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', border: '1px solid #bfdbfe', background: '#eff6ff', color: '#2563eb', borderRadius: '8px', padding: '7px 10px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
+              >
+                <Sparkles size={14} /> 新手教程
+              </button>
+            )}
+          </div>
           <button
             onClick={onClose}
+            aria-label="关闭使用指南"
             style={{
               background: 'none',
               border: 'none',
@@ -74,8 +86,8 @@ function HelpGuide({ onClose }) {
               borderRadius: '6px',
               transition: 'all 0.2s',
             }}
-            onMouseOver={(e) => (e.target.style.backgroundColor = '#e5e5e5')}
-            onMouseOut={(e) => (e.target.style.backgroundColor = 'transparent')}
+            onMouseOver={(e) => (e.currentTarget.style.backgroundColor = '#e5e5e5')}
+            onMouseOut={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
           >
             ✕
           </button>
@@ -129,6 +141,7 @@ function HelpGuide({ onClose }) {
             padding: '24px',
           }}
         >
+          {activeTab === 'quickstart' && <QuickStartContent onOpenTutorial={onOpenTutorial} />}
           {activeTab === 'batch' && <BatchModuleContent />}
           {activeTab === 'files' && <FileBrowserModuleContent />}
           {activeTab === 'digital-human' && <DigitalHumanModuleContent />}
@@ -139,6 +152,47 @@ function HelpGuide({ onClose }) {
       </div>
     </div>
   );
+}
+
+function QuickStartContent({ onOpenTutorial }) {
+  const steps = [
+    ['1', '数字人创作', '先选择数字人形象、场景和文案，生成一条基础视频。'],
+    ['2', '模板混剪', '用基础视频搭配模板和场景素材，批量扩展成片。'],
+    ['3', '项目与文件', '项目看进度和配置，素材与文件查找具体文件和导出结果。'],
+  ]
+
+  return (
+    <div style={{ lineHeight: 1.6, color: '#1d1d1f' }}>
+      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '8px', color: '#1d1d1f', display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <Video size={18} /> 用 3 步完成第一条视频
+      </h3>
+      <p style={{ marginBottom: '20px', color: '#3a3a3c' }}>
+        不确定从哪里开始时，按下面的顺序操作即可。熟悉后也可以直接跳过教程，从左侧导航进入任意模块。
+      </p>
+
+      <div style={{ display: 'grid', gap: '12px', marginBottom: '24px' }}>
+        {steps.map(([number, title, description]) => (
+          <div key={number} style={{ display: 'flex', gap: '12px', padding: '14px 16px', border: '1px solid #e5e5e5', borderRadius: '10px', backgroundColor: '#fff' }}>
+            <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '28px', height: '28px', flexShrink: 0, borderRadius: '50%', backgroundColor: '#eff6ff', color: '#2563eb', fontWeight: 700, fontSize: '13px' }}>{number}</span>
+            <div>
+              <h4 style={{ margin: '0 0 4px', fontSize: '15px', fontWeight: 600 }}>{title}</h4>
+              <p style={{ margin: 0, color: '#6b7280', fontSize: '13px' }}>{description}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {onOpenTutorial && (
+        <button
+          type="button"
+          onClick={onOpenTutorial}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', border: 'none', borderRadius: '8px', padding: '10px 14px', backgroundColor: '#2563eb', color: '#fff', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}
+        >
+          <Sparkles size={15} /> 打开交互式新手教程
+        </button>
+      )}
+    </div>
+  )
 }
 
 /**
@@ -260,11 +314,9 @@ function FileBrowserModuleContent() {
           标准项目目录
         </h4>
         <ul style={{ margin: 0, paddingLeft: '20px', color: '#3a3a3c' }}>
-          <li><strong>剪辑视频</strong> - 存放数字人视频等原始素材</li>
-          <li><strong>场景</strong> - 存放场景素材文件夹</li>
-          <li><strong>脚本</strong> - 存放 JSON 格式脚本文件</li>
-          <li><strong>音频</strong> - 存放背景音乐等音频文件</li>
-          <li><strong>输出</strong> - 存放最终生成的视频文件</li>
+          <li><strong>文案</strong> - 存放文案和数字人生成视频</li>
+          <li><strong>场景素材</strong> - 存放模板混剪使用的场景素材</li>
+          <li><strong>成片</strong> - 存放最终生成的视频文件</li>
         </ul>
       </div>
 
@@ -317,7 +369,7 @@ function DigitalHumanModuleContent() {
           <li><strong>批量文案</strong> - 一次输入多条文案，批量生成多个视频</li>
           <li><strong>声音选择</strong> - 可选择不同的配音角色</li>
           <li><strong>高级设置</strong> - 支持语速、语调、音量、背景等精细调节</li>
-          <li><strong>项目保存</strong> - 生成的视频自动保存到指定项目的剪辑视频目录</li>
+          <li><strong>项目保存</strong> - 生成的视频自动保存到指定项目的场景素材目录</li>
         </ul>
       </div>
 
@@ -364,7 +416,7 @@ function DigitalHumanModuleContent() {
           4. 选择保存项目并生成
         </h4>
         <p style={{ margin: 0, color: '#3a3a3c' }}>
-          在右侧选择要保存到的项目，点击 <strong>生成数字人视频</strong> 按钮。生成完成后，视频会自动保存到项目的 <strong>剪辑视频</strong> 目录。
+          在右侧选择要保存到的项目，点击 <strong>生成数字人视频</strong> 按钮。生成完成后，视频会自动保存到项目的 <strong>场景素材</strong> 目录。
         </p>
       </div>
 

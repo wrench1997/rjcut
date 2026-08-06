@@ -161,9 +161,9 @@ def run_agent_compose_task(task_id: str, payload: dict, trace_id: str, merchant_
                 language=payload.get("asr", {}).get("language", "zh"),
                 effect=subtitle.get("effect", "ad"),
                 font_file=context.font_path,
-                font_size=int(subtitle.get("font_size", 72)),
-                highlight_color=subtitle.get("color", "#FFFF00"),
-                max_chars_per_line=int(subtitle.get("max_chars_per_line", 18)),
+                font_size=int(subtitle.get("font_size", 68)),
+                highlight_color=subtitle.get("highlight_color", "#FFD400"),
+                max_chars_per_line=int(subtitle.get("max_chars_per_line", 15)),
                 alignment=alignment,
                 margin_v=actual_margin_v,
                 margin_l=int(subtitle.get("margin_l", 10)),
@@ -172,6 +172,7 @@ def run_agent_compose_task(task_id: str, payload: dict, trace_id: str, merchant_
                 y_offset=0,  # 垂直位置已通过 margin_v 精确计算
                 corrections_file=context.corrections_path,
                 # 🎨 传递字幕样式参数到 lip_sync.py
+                color=subtitle.get("color", "#FFFFFF"),
                 stroke_color=subtitle.get("stroke_color", "#000000"),
                 stroke_width=int(subtitle.get("stroke_width", 3)),
                 background_color=subtitle.get("background_color", "rgba(0, 0, 0, 0.4)"),

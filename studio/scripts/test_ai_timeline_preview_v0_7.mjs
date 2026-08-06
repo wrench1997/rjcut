@@ -75,7 +75,7 @@ const project = buildDigitalHumanProject({
     char_timings: charTimings,
   },
   copywritingPlan: plan,
-  videoPath: '/12344/剪辑视频/test.mp4',
+  videoPath: '/12344/场景素材/test.mp4',
 })
 
 if (project.transition_segments?.[0]?.segment_id !== 's2') {

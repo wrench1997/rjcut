@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { VideoPreview } from './FileBrowser'
 import { DigitalHumanVFSImporter } from './DigitalHumanVFSImporter'
-import { Film, Trash2, Copy, Settings, Upload, FileText, Video, AlertTriangle, Check, X, FolderOpen, Scissors, Clapperboard, Send, Folder, Music, Download } from 'lucide-react'
-import { PROJECT_ROOT_PREFIX } from '../utils/project-structure'
+import { Film, Trash2, Copy, Upload, FileText, Video, AlertTriangle, Check, X, FolderOpen, Scissors, Clapperboard, Send, Folder, Music, Download } from 'lucide-react'
+import { PROJECT_FOLDERS } from '../utils/project-structure'
 
 // =====================================================
 // 项目卡片组件
@@ -36,12 +36,6 @@ function ProjectCard({ project, onSelect, onDelete, onDuplicate }) {
       <p className="project-card-meta">
         更新于 {formatDate(project.updatedAt)}
       </p>
-      {project.config?.scenes?.length > 0 && (
-        <p className="project-card-meta">
-          {project.config.scenes.length} 个场景
-        </p>
-      )}
-      
       {showActions && (
         <div className="project-card-actions">
           <button
@@ -76,7 +70,6 @@ function ProjectCard({ project, onSelect, onDelete, onDuplicate }) {
 // =====================================================
 function NewProjectDialog({ vfs, onClose, onCreated }) {
   const [name, setName] = useState('')
-  const [template, setTemplate] = useState('default')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   
@@ -91,19 +84,8 @@ function NewProjectDialog({ vfs, onClose, onCreated }) {
     try {
       setLoading(true)
       
-      // 加载模板配置
-      let config = {}
-      if (template !== 'default') {
-        try {
-          const templateData = await vfs.readJSON(`/templates/${template}.json`)
-          config = templateData.config || {}
-        } catch (e) {
-          console.warn('加载模板失败，使用默认配置')
-        }
-      }
-      
-      // 创建项目
-      const projectPath = await vfs.createVideoProject(name, config)
+      // 项目只创建根目录，素材目录在首次使用时按需生成。
+      const projectPath = await vfs.createVideoProject(name)
       
       onCreated?.(projectPath)
       onClose()
@@ -142,25 +124,9 @@ function NewProjectDialog({ vfs, onClose, onCreated }) {
             )}
           </div>
           
-          <div className="mb-md">
-            <label className="caption-strong mb-sm" style={{ display: 'block' }}>
-              选择模板
-            </label>
-            <select
-              className="input"
-              value={template}
-              onChange={(e) => setTemplate(e.target.value)}
-            >
-              <option value="default">空白项目</option>
-              <option value="speaking_video">📢 口播视频 - 单人讲解、产品介绍</option>
-              <option value="documentary">🎬 纪录片风格 - 故事叙述、品牌宣传</option>
-              <option value="short_video">⚡ 快节奏短视频 - 抖音/快手风格</option>
-            </select>
-            <p className="caption text-muted mt-xs" style={{ fontSize: '12px' }}>
-              {template === 'default' && '从头开始创建项目，使用默认配置'}
-              {template === 'speaking_video' && '适用于口播、讲解类视频，自动优化停顿和字幕大小'}
-              {template === 'documentary' && '适用于纪录片、宣传片，保留更多情感表达'}
-              {template === 'short_video' && '适用于短视频平台，快节奏剪辑和醒目字幕'}
+          <div className="mb-md rounded-lg border border-blue-100 bg-blue-50 px-3 py-2.5">
+            <p className="caption text-blue-700" style={{ fontSize: '12px' }}>
+              创建后只保留项目目录。文案、场景素材和成片目录会在真正使用时自动生成，避免空目录堆积。
             </p>
           </div>
           
@@ -187,16 +153,15 @@ function NewProjectDialog({ vfs, onClose, onCreated }) {
 }
 
 // =====================================================
-// JSON 脚本查看器组件
+// 创作脚本查看器组件（不包含项目元数据）
 // =====================================================
 function JSONScriptViewer({ project, vfs }) {
   const [scriptContent, setScriptContent] = useState(null)
   const [isEditing, setIsEditing] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [activeScript, setActiveScript] = useState('project.json')
+  const [activeScript, setActiveScript] = useState('scenes.json')
   
   const scriptFiles = [
-    { name: 'project.json', label: '项目配置', icon: <Settings size={14} /> },
     { name: 'scenes.json', label: '场景脚本', icon: <FileText size={14} /> },
     { name: 'timeline.json', label: '时间线', icon: <Clapperboard size={14} /> },
   ]
@@ -318,22 +283,22 @@ function JSONScriptViewer({ project, vfs }) {
 // =====================================================
 // 项目视频内容查看器
 // =====================================================
-function ProjectVideoViewer({ project, vfs, onNavigate }) {
+function ProjectVideoViewer({ project, vfs, onNavigate, refreshKey = 0 }) {
   const [videos, setVideos] = useState([])
   const [selectedVideo, setSelectedVideo] = useState(null)
-  const [videoCategory, setVideoCategory] = useState('raw') // 'raw' | 'edited' | 'output'
+  const [videoCategory, setVideoCategory] = useState(PROJECT_FOLDERS.RAW_VIDEO)
   
   const categories = [
-    { id: '原始视频', label: '原始视频', icon: <Clapperboard size={14} />, path: '/原始视频' },
-    { id: '剪辑视频', label: '剪辑视频', icon: <Scissors size={14} />, path: '/剪辑视频' },
-    { id: '输出', label: '输出视频', icon: <Send size={14} />, path: '/输出' },
+    { id: PROJECT_FOLDERS.RAW_VIDEO, label: '文案素材', icon: <Clapperboard size={14} />, path: `/${PROJECT_FOLDERS.RAW_VIDEO}` },
+    { id: PROJECT_FOLDERS.EDITED_VIDEO, label: '场景素材', icon: <Scissors size={14} />, path: `/${PROJECT_FOLDERS.EDITED_VIDEO}` },
+    { id: PROJECT_FOLDERS.OUTPUT, label: '成片输出', icon: <Send size={14} />, path: `/${PROJECT_FOLDERS.OUTPUT}` },
   ]
   
   useEffect(() => {
     const loadVideos = async () => {
       try {
         const categoryPath = `${project.path}/${videoCategory}`
-        const items = vfs.listDirectory(categoryPath)
+        const items = await vfs.listDirectory(categoryPath)
         const videoItems = items.filter(item => 
           !item.isDirectory && item.type?.startsWith('video/')
         )
@@ -350,7 +315,7 @@ function ProjectVideoViewer({ project, vfs, onNavigate }) {
     if (project) {
       loadVideos()
     }
-  }, [project, vfs, videoCategory])
+  }, [project, vfs, videoCategory, refreshKey])
   
   return (
     <div className="project-video-viewer">
@@ -423,51 +388,6 @@ function ProjectVideoViewer({ project, vfs, onNavigate }) {
           )}
         </div>
       </div>
-      
-      {/* 数字人视频导入模态框 */}
-      {showDHImporter && (
-        <DigitalHumanVFSImporter
-          projectPath={project.path}
-          onImportComplete={(videoInfo) => {
-            setImportStatus({ 
-              success: true, 
-              message: `视频已导入：${videoInfo.name}`,
-              video: videoInfo 
-            })
-            setShowDHImporter(false)
-            // 重新加载项目配置
-            loadProject()
-          }}
-          onClose={() => setShowDHImporter(false)}
-          onError={(err) => {
-            setImportStatus({ success: false, message: err.message })
-            setShowDHImporter(false)
-          }}
-        />
-      )}
-      
-      {/* 导入状态提示 */}
-      {importStatus && (
-        <div 
-          className={`toast ${importStatus.success ? 'toast-success' : 'toast-error'}`}
-          onClick={() => setImportStatus(null)}
-          style={{
-            position: 'fixed',
-            bottom: '20px',
-            right: '20px',
-            padding: 'var(--spacing-md)',
-            borderRadius: 'var(--rounded-md)',
-            backgroundColor: importStatus.success 
-              ? 'rgba(52, 199, 89, 0.9)' 
-              : 'rgba(255, 59, 48, 0.9)',
-            color: 'white',
-            cursor: 'pointer',
-            zIndex: 10000,
-          }}
-        >
-          {importStatus.success ? '✓' : '✗'} {importStatus.message}
-        </div>
-      )}
     </div>
   )
 }
@@ -476,40 +396,15 @@ function ProjectVideoViewer({ project, vfs, onNavigate }) {
 // 项目详情面板
 // =====================================================
 function ProjectDetail({ project, vfs, onBack, onOpen, onNavigate }) {
-  const [config, setConfig] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState('overview') // 'overview' | 'scripts' | 'videos' | 'files' | 'settings'
+  const config = {
+    name: project.name,
+    createdAt: project.createdAt,
+    updatedAt: project.updatedAt,
+  }
+  const [activeTab, setActiveTab] = useState('overview') // 'overview' | 'scripts' | 'videos' | 'files'
   const [showDHImporter, setShowDHImporter] = useState(false)
   const [importStatus, setImportStatus] = useState(null)
-  
-  const loadProject = async () => {
-    try {
-      setLoading(true)
-      const configData = await vfs.readJSON(`${project.path}/project.json`)
-      setConfig(configData)
-    } catch (e) {
-      console.error('加载项目配置失败:', e)
-      setConfig({ error: true, message: e.message })
-    } finally {
-      setLoading(false)
-    }
-  }
-  
-  useEffect(() => {
-    if (project) {
-      loadProject()
-    }
-  }, [project, vfs])
-  
-  if (loading) {
-    return (
-      <div className="project-detail">
-        <div className="empty-state">
-          <span>加载项目中...</span>
-        </div>
-      </div>
-    )
-  }
+  const [videoRefreshKey, setVideoRefreshKey] = useState(0)
   
   return (
     <div className="project-detail">
@@ -571,12 +466,6 @@ function ProjectDetail({ project, vfs, onBack, onOpen, onNavigate }) {
         >
           <Folder size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} /> 文件
         </button>
-        <button
-          className={`project-tab ${activeTab === 'settings' ? 'active' : ''}`}
-          onClick={() => setActiveTab('settings')}
-        >
-          <Settings size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} /> 设置
-        </button>
       </div>
       
       <div className="project-detail-content">
@@ -614,64 +503,19 @@ function ProjectDetail({ project, vfs, onBack, onOpen, onNavigate }) {
                 </div>
                 
                 <div className="overview-section">
-                  <h3 className="caption-strong mb-sm">处理配置</h3>
+                  <h3 className="caption-strong mb-sm">项目目录</h3>
+                  <p className="caption text-muted mb-md">
+                    目录本身就是项目，不再生成 project.json。文案、场景素材和成片目录会在真正使用时按需创建。
+                  </p>
                   <div className="config-grid">
-                    {config.config?.pipeline && (
-                      <>
-                        <div className="config-item">
-                          <span className="config-label">移除关键词:</span>
-                          <span className="config-value">{config.config.pipeline.remove_keyword || '-'}</span>
-                        </div>
-                        <div className="config-item">
-                          <span className="config-label">边缘余量:</span>
-                          <span className="config-value">{config.config.pipeline.margin || '-'}</span>
-                        </div>
-                        <div className="config-item">
-                          <span className="config-label">最小片段时长:</span>
-                          <span className="config-value">{config.config.pipeline.min_segment_duration || '-'}</span>
-                        </div>
-                      </>
-                    )}
-                    {config.config?.asr && (
-                      <>
-                        <div className="config-item">
-                          <span className="config-label">ASR 模型:</span>
-                          <span className="config-value">{config.config.asr.model || '-'}</span>
-                        </div>
-                        <div className="config-item">
-                          <span className="config-label">设备:</span>
-                          <span className="config-value">{config.config.asr.device || '-'}</span>
-                        </div>
-                        <div className="config-item">
-                          <span className="config-label">语言:</span>
-                          <span className="config-value">{config.config.asr.language || '-'}</span>
-                        </div>
-                      </>
-                    )}
-                    {config.config?.subtitle && (
-                      <>
-                        <div className="config-item">
-                          <span className="config-label">字幕效果:</span>
-                          <span className="config-value">{config.config.subtitle.effect || '-'}</span>
-                        </div>
-                        <div className="config-item">
-                          <span className="config-label">字体大小:</span>
-                          <span className="config-value">{config.config.subtitle.font_size || '-'}</span>
-                        </div>
-                      </>
-                    )}
-                    {config.config?.audio && (
-                      <>
-                        <div className="config-item">
-                          <span className="config-label">BGM 音量:</span>
-                          <span className="config-value">{config.config.audio.bgm_volume || '-'}</span>
-                        </div>
-                        <div className="config-item">
-                          <span className="config-label">原始音量:</span>
-                          <span className="config-value">{config.config.audio.original_volume || '-'}</span>
-                        </div>
-                      </>
-                    )}
+                    <div className="config-item">
+                      <span className="config-label">项目路径:</span>
+                      <span className="config-value">{project.path}</span>
+                    </div>
+                    <div className="config-item">
+                      <span className="config-label">配置方式:</span>
+                      <span className="config-value">按功能生成</span>
+                    </div>
                   </div>
                 </div>
                 
@@ -715,7 +559,7 @@ function ProjectDetail({ project, vfs, onBack, onOpen, onNavigate }) {
             )}
           </div>
         )}
-        
+
         {activeTab === 'scripts' && (
           <JSONScriptViewer 
             project={project} 
@@ -728,6 +572,7 @@ function ProjectDetail({ project, vfs, onBack, onOpen, onNavigate }) {
             project={project}
             vfs={vfs}
             onNavigate={onNavigate}
+            refreshKey={videoRefreshKey}
           />
         )}
         
@@ -739,107 +584,77 @@ function ProjectDetail({ project, vfs, onBack, onOpen, onNavigate }) {
             <div className="file-quick-access">
               <div 
                 className="quick-folder" 
-                onClick={() => onNavigate({ path: `${project.path}/原始视频` })}
+                onClick={() => onNavigate({ path: `${project.path}/${PROJECT_FOLDERS.RAW_VIDEO}` })}
               >
                 <span className="folder-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <Film size={20} strokeWidth={2} className="text-purple-500" />
                 </span>
-                <span className="folder-name">原始视频</span>
+                <span className="folder-name">文案素材</span>
               </div>
               <div 
                 className="quick-folder" 
-                onClick={() => onNavigate({ path: `${project.path}/剪辑视频` })}
+                onClick={() => onNavigate({ path: `${project.path}/${PROJECT_FOLDERS.EDITED_VIDEO}` })}
               >
                 <span className="folder-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <Scissors size={20} strokeWidth={2} className="text-pink-500" />
                 </span>
-                <span className="folder-name">剪辑视频</span>
+                <span className="folder-name">场景素材</span>
               </div>
               <div 
                 className="quick-folder" 
-                onClick={() => onNavigate({ path: `${project.path}/输出` })}
+                onClick={() => onNavigate({ path: `${project.path}/${PROJECT_FOLDERS.OUTPUT}` })}
               >
                 <span className="folder-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <Download size={20} strokeWidth={2} className="text-emerald-500" />
                 </span>
-                <span className="folder-name">输出</span>
+                <span className="folder-name">成片输出</span>
               </div>
             </div>
           </div>
         )}
-        
-        {activeTab === 'settings' && config && (
-          <div className="project-settings">
-            <p className="caption text-muted mb-md">
-              修改项目配置，这些设置将在视频合成时使用
-            </p>
-            <div className="settings-form">
-              <div className="mb-md">
-                <label className="caption-strong mb-sm" style={{ display: 'block' }}>
-                  管道配置 (JSON)
-                </label>
-                <textarea
-                  className="file-editor"
-                  value={JSON.stringify(config.config?.pipeline || {}, null, 2)}
-                  onChange={(e) => {
-                    try {
-                      const newConfig = JSON.parse(e.target.value)
-                      setConfig({
-                        ...config,
-                        config: {
-                          ...config.config,
-                          pipeline: newConfig,
-                        },
-                      })
-                    } catch (err) {
-                      // 忽略 JSON 解析错误
-                    }
-                  }}
-                  rows={8}
-                />
-              </div>
-              
-              <div className="mb-md">
-                <label className="caption-strong mb-sm" style={{ display: 'block' }}>
-                  ASR 配置 (JSON)
-                </label>
-                <textarea
-                  className="file-editor"
-                  value={JSON.stringify(config.config?.asr || {}, null, 2)}
-                  onChange={(e) => {
-                    try {
-                      const newConfig = JSON.parse(e.target.value)
-                      setConfig({
-                        ...config,
-                        config: {
-                          ...config.config,
-                          asr: newConfig,
-                        },
-                      })
-                    } catch (err) {
-                      // 忽略 JSON 解析错误
-                    }
-                  }}
-                  rows={6}
-                />
-              </div>
-              
-              <button
-                className="btn btn-primary"
-                onClick={async () => {
-                  try {
-                    await vfs.writeJSON(`${project.path}/project.json`, config)
-                    alert('配置已保存')
-                  } catch (e) {
-                    alert(`保存失败：${e.message}`)
-                  }
-                }}
-              >
-                保存配置
-              </button>
-            </div>
+
+        {showDHImporter && (
+          <DigitalHumanVFSImporter
+            projectPath={project.path}
+            onImportComplete={(videoInfo) => {
+              setImportStatus({
+                success: true,
+                message: `视频已导入：${videoInfo.name}`,
+              })
+              setVideoRefreshKey(value => value + 1)
+              setActiveTab('videos')
+              setShowDHImporter(false)
+            }}
+            onClose={() => setShowDHImporter(false)}
+            onError={(err) => {
+              setImportStatus({ success: false, message: err.message })
+              setShowDHImporter(false)
+            }}
+          />
+        )}
+
+        {importStatus && (
+          <div
+            className={`toast ${importStatus.success ? 'toast-success' : 'toast-error'}`}
+            onClick={() => setImportStatus(null)}
+            style={{
+              position: 'fixed',
+              bottom: '20px',
+              right: '20px',
+              padding: 'var(--spacing-md)',
+              borderRadius: 'var(--rounded-md)',
+              backgroundColor: importStatus.success
+                ? 'rgba(52, 199, 89, 0.9)'
+                : 'rgba(255, 59, 48, 0.9)',
+              color: 'white',
+              cursor: 'pointer',
+              zIndex: 10000,
+            }}
+          >
+            {importStatus.success ? '✓' : '✗'} {importStatus.message}
           </div>
         )}
+
       </div>
     </div>
   )
@@ -862,8 +677,10 @@ function VideoProjectManager({ vfs, onOpenProject, onNavigate: onNavigateToPath,
       setLoading(true)
       const projectList = await vfs.getVideoProjects()
       setProjects(projectList)
+      return projectList
     } catch (e) {
       console.error('加载项目列表失败:', e)
+      return []
     } finally {
       setLoading(false)
     }
@@ -875,9 +692,9 @@ function VideoProjectManager({ vfs, onOpenProject, onNavigate: onNavigateToPath,
   
   // 创建新项目
   const handleCreateProject = async (projectPath) => {
-    await loadProjects()
+    const projectList = await loadProjects()
     // 自动选中新创建的项目
-    const newProject = projects.find(p => p.path === projectPath)
+    const newProject = projectList.find(p => p.path === projectPath)
     if (newProject) {
       setSelectedProject(newProject)
     }
@@ -906,12 +723,14 @@ function VideoProjectManager({ vfs, onOpenProject, onNavigate: onNavigateToPath,
     
     try {
       // 创建新项目
-      const newProjectPath = await vfs.createVideoProject(newName, project.config)
+      const newProjectPath = await vfs.createVideoProject(newName)
       
       // 复制所有文件
       const copyFiles = async (fromPath, toPath) => {
-        const items = vfs.listDirectory(fromPath)
+        const items = await vfs.listDirectory(fromPath)
         for (const item of items) {
+          // 不把旧项目遗留的 project.json 复制到新项目。
+          if (!item.isDirectory && item.name === 'project.json') continue
           const newFromPath = `${fromPath}/${item.name}`
           const newToPath = `${toPath}/${item.name}`
           

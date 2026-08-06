@@ -173,10 +173,10 @@ def resync_subtitle(
     language: str = "zh",
     effect: str = "ad",
     font_file: Optional[str] = None,
-    font_size: int = 72,
+    font_size: int = 68,
     highlight_color: str = "&H0000FFFF",  # ASS 格式 (&HAABBGGRR)
     filter_transition: bool = True,
-    max_chars_per_line: int = 18,
+    max_chars_per_line: int = 15,
     save_json: bool = True,
     alignment: int = 2,
     margin_v: int = 50,
@@ -190,7 +190,7 @@ def resync_subtitle(
     # 🆕 新增：明确指定 resync json 输出路径
     resync_json_path: Optional[str] = None,
     # 🎨 与前端统一的字幕样式参数
-    color: Optional[str] = "#FFFF00",  # 字幕主色（HEX 格式）
+    color: Optional[str] = "#FFFFFF",  # 字幕基础色（HEX 格式）
     stroke_color: Optional[str] = None,  # 描边颜色（HEX 格式）
     stroke_width: Optional[int] = 3,
     background_color: Optional[str] = None,  # 背景颜色（rgba 格式）
@@ -579,9 +579,9 @@ def compose_from_timeline(
     language: str = "zh",
     effect: str = "ad",
     font_file: Optional[str] = None,
-    font_size: int = 72,
+    font_size: int = 68,
     highlight_color: str = "&H0000FFFF",  # ASS 格式 (&HAABBGGRR)
-    max_chars_per_line: int = 18,
+    max_chars_per_line: int = 15,
     alignment: int = 2,
     margin_v: int = 50,
     margin_l: int = 10,
@@ -603,7 +603,7 @@ def compose_from_timeline(
     mode: str = "normal",
     subtitle_json: Optional[str] = None,
     # 🎨 与前端统一的字幕样式参数
-    color: Optional[str] = "#FFFF00",  # 字幕主色（HEX 格式）
+    color: Optional[str] = "#FFFFFF",  # 字幕基础色（HEX 格式）
     stroke_color: Optional[str] = None,  # 描边颜色（HEX 格式）
     stroke_width: Optional[int] = 3,
     background_color: Optional[str] = None,  # 背景颜色（rgba 格式）
