@@ -356,6 +356,10 @@ def _normalize_copywriting_script(raw: dict, template_structure: List[Dict]) -> 
             for index, chunk in enumerate(chunks)
         ]
 
+    fallback_chunks = []
+    if template_structure and spoken_candidate:
+        fallback_chunks = _split_spoken_text_for_template(spoken_candidate, len(template_structure))
+
     normalized_segments = []
     scene_index = 0
     max_len = max(len(raw_segments), len(template_structure))
@@ -372,8 +376,14 @@ def _normalize_copywriting_script(raw: dict, template_structure: List[Dict]) -> 
             else {}
         )
         text = _strip_director_words(generated.get("text") or template_seg.get("text") or "")
-        if not text:
+        if not text and index < len(fallback_chunks):
+            text = _strip_director_words(fallback_chunks[index])
+        if not text and template_seg.get("note"):
+            text = _strip_director_words(template_seg.get("note"))
+        if not text and not template_seg:
             continue
+        if not text:
+            text = ""
 
         source_flag = str(
             template_seg.get("flag")
@@ -440,7 +450,43 @@ def _normalize_copywriting_script(raw: dict, template_structure: List[Dict]) -> 
         })
 
     if not normalized_segments:
-        raise ValueError("AI 返回的 segments 为空，无法生成模板混剪时间线")
+        if not template_structure:
+            raise ValueError("AI 返回的 segments 为空，无法生成模板混剪时间线")
+        for index, template_seg in enumerate(template_structure):
+            source_flag = str(template_seg.get("flag") or "auto").lower()
+            is_transition_segment = source_flag in {"scene", "transition"}
+            slot_id = template_seg.get("slot_id")
+            if is_transition_segment:
+                scene_index += 1
+                slot_id = slot_id or f"slot_{scene_index}"
+            transition = {
+                "enabled": is_transition_segment,
+                "action": "replace_visual" if is_transition_segment else "keep_digital_human",
+                "slot_id": slot_id if is_transition_segment else None,
+                "keep_original_audio": True,
+                "entry": "cut",
+                "exit": "cut",
+            }
+            fallback_text = ""
+            if index < len(fallback_chunks):
+                fallback_text = fallback_chunks[index]
+            elif template_seg.get("note"):
+                fallback_text = _strip_director_words(template_seg.get("note"))
+            normalized_segments.append({
+                "id": f"s{index + 1}",
+                "text": fallback_text,
+                "purpose": "hook" if index == 0 else "close" if index == len(template_structure) - 1 else "explain",
+                "visual_mode": "scene" if is_transition_segment else "human",
+                "visual_tags": [],
+                "slot_id": slot_id,
+                "flag": "scene" if is_transition_segment else (
+                    "hook" if index == 0 else "ending" if index == len(template_structure) - 1 else "human"
+                ),
+                "edit_action": transition["action"],
+                "is_transition_segment": is_transition_segment,
+                "transition": transition,
+                "note": str(template_seg.get("note") or ""),
+            })
 
     spoken_text = spoken_candidate or "".join(seg["text"] for seg in normalized_segments)
     joined_text = "".join(segment["text"] for segment in normalized_segments)
@@ -448,19 +494,86 @@ def _normalize_copywriting_script(raw: dict, template_structure: List[Dict]) -> 
     # 模板有明确段数时，必须完整返回每一个语义段。
     if template_structure and len(normalized_segments) != len(template_structure):
         chunks = _split_spoken_text_for_template(spoken_text or joined_text, len(template_structure))
-        if len(chunks) != len(template_structure):
-            raise ValueError(
-                f"AI 段落数量不完整：期望 {len(template_structure)} 段，实际 {len(normalized_segments)} 段"
-            )
-        fallback_raw = {
-            "spoken_text": "".join(chunks),
-            "segments": [
-                {"id": f"s{index + 1}", "text": chunk}
-                for index, chunk in enumerate(chunks)
-            ],
-            "meta": raw.get("meta") if isinstance(raw.get("meta"), dict) else {},
-        }
-        return _normalize_copywriting_script(fallback_raw, template_structure)
+        target_count = len(template_structure)
+        if len(chunks) == target_count:
+            for index in range(target_count):
+                if index < len(normalized_segments):
+                    normalized_segments[index]["text"] = _strip_director_words(
+                        normalized_segments[index].get("text") or chunks[index]
+                    )
+                else:
+                    template_seg = template_structure[index]
+                    source_flag = str(template_seg.get("flag") or "auto").lower()
+                    is_transition_segment = source_flag in {"scene", "transition"}
+                    slot_id = template_seg.get("slot_id")
+                    if is_transition_segment:
+                        scene_index += 1
+                        slot_id = slot_id or f"slot_{scene_index}"
+                    transition = {
+                        "enabled": is_transition_segment,
+                        "action": "replace_visual" if is_transition_segment else "keep_digital_human",
+                        "slot_id": slot_id if is_transition_segment else None,
+                        "keep_original_audio": True,
+                        "entry": "cut",
+                        "exit": "cut",
+                    }
+                    normalized_segments.append({
+                        "id": f"s{index + 1}",
+                        "text": _strip_director_words(chunks[index]),
+                        "purpose": "hook" if index == 0 else "close" if index == target_count - 1 else "explain",
+                        "visual_mode": "scene" if is_transition_segment else "human",
+                        "visual_tags": [],
+                        "slot_id": slot_id,
+                        "flag": "scene" if is_transition_segment else (
+                            "hook" if index == 0 else "ending" if index == target_count - 1 else "human"
+                        ),
+                        "edit_action": transition["action"],
+                        "is_transition_segment": is_transition_segment,
+                        "transition": transition,
+                        "note": str(template_seg.get("note") or ""),
+                    })
+        else:
+            for index in range(min(target_count, len(normalized_segments)), target_count):
+                template_seg = template_structure[index]
+                source_flag = str(template_seg.get("flag") or "auto").lower()
+                is_transition_segment = source_flag in {"scene", "transition"}
+                slot_id = template_seg.get("slot_id")
+                if is_transition_segment:
+                    scene_index += 1
+                    slot_id = slot_id or f"slot_{scene_index}"
+                transition = {
+                    "enabled": is_transition_segment,
+                    "action": "replace_visual" if is_transition_segment else "keep_digital_human",
+                    "slot_id": slot_id if is_transition_segment else None,
+                    "keep_original_audio": True,
+                    "entry": "cut",
+                    "exit": "cut",
+                }
+                fallback_text = ""
+                if index < len(chunks):
+                    fallback_text = _strip_director_words(chunks[index])
+                elif template_seg.get("note"):
+                    fallback_text = _strip_director_words(template_seg.get("note"))
+                normalized_segments.append({
+                    "id": f"s{index + 1}",
+                    "text": fallback_text,
+                    "purpose": "hook" if index == 0 else "close" if index == target_count - 1 else "explain",
+                    "visual_mode": "scene" if is_transition_segment else "human",
+                    "visual_tags": [],
+                    "slot_id": slot_id,
+                    "flag": "scene" if is_transition_segment else (
+                        "hook" if index == 0 else "ending" if index == target_count - 1 else "human"
+                    ),
+                    "edit_action": transition["action"],
+                    "is_transition_segment": is_transition_segment,
+                    "transition": transition,
+                    "note": str(template_seg.get("note") or ""),
+                })
+
+        if len(normalized_segments) > target_count:
+            normalized_segments = normalized_segments[:target_count]
+        joined_text = "".join(segment["text"] for segment in normalized_segments)
+        spoken_text = spoken_candidate or joined_text
 
     # segments 是时间轴映射依据，因此最终以连续 segments 原文为准。
     if spoken_text != joined_text:
@@ -739,7 +852,7 @@ def extract_json_field(text, field_name, allow_partial=False):
                             return [json.loads(m) for m in matches]
                         except:
                             pass
-                return value
+                return None
         return None
     
     elif first_char == '{':
@@ -753,7 +866,7 @@ def extract_json_field(text, field_name, allow_partial=False):
             try:
                 return json.loads(value)
             except:
-                return value
+                return None
         return None
     
     return None
@@ -1479,4 +1592,3 @@ ending: "老妹家自家鹿场养了 1000 头梅花鹿，无论是鹿茸血还�
             "template": None,
             "error": f"AI 生成失败：{str(e)}",
         }
-

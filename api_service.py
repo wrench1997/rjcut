@@ -35,6 +35,7 @@ from oss import (
 
 from admin_api import router as admin_router
 from api_digital_human import router as dh_router
+from api_ai_copywriting import router as ai_copywriting_router
 
 from draft_utils import (
     apply_corrections_to_editable_script,
@@ -77,6 +78,7 @@ app.add_middleware(
 
 app.include_router(admin_router)
 app.include_router(dh_router)
+app.include_router(ai_copywriting_router)
 
 # 🖼️ 单独注册不需要认证的代理图片接口（在 router 之后注册，覆盖需要认证版本）
 from api_digital_human import proxy_image_no_auth
