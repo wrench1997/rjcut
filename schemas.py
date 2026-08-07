@@ -248,7 +248,7 @@ class DhGenerateVideoRequest(BaseModel):
     # 🔗 回调与引用
     callback_url: Optional[str] = None  # 回调 URL
     client_ref_id: Optional[str] = None  # 客户端引用 ID
-    timeout_seconds: Optional[int] = 3600  # 超时时间（秒）
+    timeout_seconds: Optional[int] = 1800  # 超时时间（秒，默认 30 分钟）
 
 class DhCreateCustomPersonRequest(BaseModel):
     name: str
@@ -392,4 +392,3 @@ class VisualScriptTaskResult(BaseModel):
     selected_clips: int = 0  # 选中镜头数
     uncovered_beats: int = 0  # 未覆盖的脚本行数
     total_duration: float = 0.0  # 总时长（秒）
-

@@ -10,6 +10,7 @@ import hashlib
 import subprocess
 import traceback
 import time
+import binascii
 from datetime import datetime, timezone
 from typing import Dict, Any
 
@@ -32,6 +33,65 @@ def _normalize_voice_id(value):
     if normalized.lower() in {'', 'null', 'none', 'undefined'}:
         return ''
     return normalized
+
+
+def _extract_video_url_from_status(data: Dict[str, Any]) -> str:
+    if not isinstance(data, dict):
+        return ''
+    for key in (
+        "video_url",
+        "videoUrl",
+        "url",
+        "download_url",
+        "file_url",
+        "output_url",
+        "result_url",
+        "final_video",
+        "video",
+    ):
+        value = data.get(key)
+        if isinstance(value, str):
+            value = value.strip()
+            if value:
+                return value
+    nested = data.get("result")
+    if isinstance(nested, dict):
+        for key in ("video_url", "videoUrl", "url", "download_url", "final_video", "video"):
+            value = nested.get(key)
+            if isinstance(value, str):
+                value = value.strip()
+                if value:
+                    return value
+    return ''
+
+
+def _preview_bytes(file_path: str, max_len: int = 32) -> str:
+    if not os.path.exists(file_path):
+        return ''
+    try:
+        with open(file_path, "rb") as f:
+            head = f.read(max_len)
+        return binascii.hexlify(head).decode("ascii")
+    except Exception:
+        return ''
+
+
+def _validate_downloaded_video(file_path: str, source_url: str):
+    if not os.path.exists(file_path):
+        raise RuntimeError(f"数字人视频文件未生成：{source_url}")
+
+    size = os.path.getsize(file_path)
+    if size <= 1024:
+        raise RuntimeError(
+            f"下载的数字人视频异常（文件过小: {size}B），可能未写入有效视频帧：{source_url}, head={_preview_bytes(file_path)}"
+        )
+
+    with open(file_path, "rb") as f:
+        head = f.read(64)
+    if b"ftyp" not in head:
+        raise RuntimeError(
+            f"下载的数字人视频不包含 MP4 头部（可能是 JSON/HTML/重定向页），请检查视频下载源是否可访问：{source_url}, head={binascii.hexlify(head).decode('ascii')}"
+        )
 
 
 def _extract_audio_man_id(payload_obj):
@@ -225,7 +285,7 @@ def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merch
         _update_task(task_id, progress=10, stage="waiting_chanjing_render")
 
         chanjing_video_url = None
-        render_timeout_seconds = int(payload.get("timeout_seconds") or 600)
+        render_timeout_seconds = int(payload.get("timeout_seconds") or 30 * 60)
         if render_timeout_seconds < 60:
             render_timeout_seconds = 60
         render_poll_interval = 10
@@ -245,7 +305,7 @@ def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merch
                 data = status_resp.get('data', {})
                 status = data.get('status')
                 progress = data.get('progress', 0)
-                video_url = data.get('video_url')
+                video_url = _extract_video_url_from_status(data) or data.get('video_url')
                 msg = data.get('msg', '')
 
                 # 只在状态变化时打印完整日志，避免日志过多
@@ -266,7 +326,12 @@ def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merch
                         logger.info(f"✅ 视频渲染完成 (status={status})，URL: {chanjing_video_url}")
                         break
                     else:
-                        logger.warning(f"状态={status} 已完成，但 video_url 为空，继续等待...")
+                        logger.warning(
+                            "状态=%s 已完成，但未取到可用视频地址，等待续帧；"
+                            "完整状态=%s",
+                            status,
+                            json.dumps(data, ensure_ascii=False),
+                        )
                 elif status == VIDEO_STATUS_PROCESSING:
                     logger.info(f"⏳ 视频处理中 (status=2), 进度：{progress}%")
                 elif status in (VIDEO_STATUS_FAILED, VIDEO_STATUS_ERROR, 40):
@@ -292,6 +357,7 @@ def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merch
         _update_task(task_id, progress=90, stage="uploading_results")
         local_result = os.path.join(task_dir, "final.mp4")
         api.download_video(chanjing_video_url, local_result)
+        _validate_downloaded_video(local_result, chanjing_video_url)
 
         # 使用统一的文件管理组件上传
         file_manager = FileManagerComponent()

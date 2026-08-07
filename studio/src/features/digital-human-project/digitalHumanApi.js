@@ -7,6 +7,7 @@ const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://112.111.7.
 const DEFAULT_DIGITAL_HUMAN_BASE_URL = `${API_BASE_URL}/dh`
 // 蝉镜源服务地址，用于把返回体里的绝对地址改写到 /dh 代理。
 const CHANJING_ORIGIN = process.env.NEXT_PUBLIC_CHANJING_ORIGIN || ''
+const DEFAULT_DIGITAL_HUMAN_TIMEOUT_SECONDS = 1800
 
 export function getDigitalHumanBaseUrl() {
   if (typeof localStorage === 'undefined') return DEFAULT_DIGITAL_HUMAN_BASE_URL
@@ -62,6 +63,10 @@ export async function createTimelineDigitalHumanTask(payload, baseUrl = getDigit
     throw new Error('数字人生成请求缺少 person_id，前端禁止静默回退到默认 human')
   }
   const audioManId = String(payload.audio_man_id || '').trim()
+  const rawTimeoutSeconds = Number(payload?.timeout_seconds)
+  const timeoutSeconds = Number.isFinite(rawTimeoutSeconds)
+    ? rawTimeoutSeconds
+    : DEFAULT_DIGITAL_HUMAN_TIMEOUT_SECONDS
 
   const body = {
     text: String(payload.text || '').trim(),
@@ -72,6 +77,7 @@ export async function createTimelineDigitalHumanTask(payload, baseUrl = getDigit
     char_timing_level: 'char',
     callback_url: payload.callback_url || undefined,
     extra: payload.extra || undefined,
+    timeout_seconds: timeoutSeconds,
   }
   if (audioManId) body.audio_man_id = audioManId
 

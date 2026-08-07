@@ -272,7 +272,7 @@ export function DigitalHumanVFSImporter({
         bg_type: 'color',
         bg_color: '#EDEDED',
         hide_subtitle: true,
-        timeout_seconds: 3600,
+        timeout_seconds: 1800,
       })
 
       if (taskRes.data.code !== 0) {
