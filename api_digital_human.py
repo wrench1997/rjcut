@@ -633,10 +633,18 @@ def get_custom_person_detail(
     api = get_chanjing_api()
     
     # 先从蝉镜 API 获取最新状态（使用缓存降低并发）
-    status_resp = api.get_customised_person_status(person_id, use_cache=True)
-    
+    try:
+        status_resp = api.get_customised_person_status(person_id, use_cache=True)
+    except Exception as e:
+        return _upstream_error_response("获取自定义数字人详情", e, logger)
+
+    # 兼容返回空 / 非字典 / 缺失 code 的异常数据
+    if not isinstance(status_resp, dict) or 'data' not in status_resp:
+        return _upstream_error_response("获取自定义数字人详情", RuntimeError(f"上游响应格式异常: {status_resp}"), logger)
+
     if not ChanjingStatusCode.is_success(status_resp.get('code')):
-        return fail(ChanjingStatusCode.get_msg(status_resp.get('code')), status_code=400)
+        msg = ChanjingStatusCode.get_msg(status_resp.get('code')) if status_resp.get('code') is not None else "获取自定义数字人详情失败"
+        return fail(50000, msg, status_code=400)
     
     data = status_resp.get('data', {})
     
