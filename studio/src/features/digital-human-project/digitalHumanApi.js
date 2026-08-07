@@ -61,11 +61,11 @@ export async function createTimelineDigitalHumanTask(payload, baseUrl = getDigit
   if (!personId) {
     throw new Error('数字人生成请求缺少 person_id，前端禁止静默回退到默认 human')
   }
+  const audioManId = String(payload.audio_man_id || '').trim()
 
   const body = {
     text: String(payload.text || '').trim(),
     person_id: personId,
-    audio_man_id: payload.audio_man_id || undefined,
     figure_type: payload.figure_type || 'whole_body',
     hide_subtitle: payload.hide_subtitle !== false,
     return_char_timing: true,
@@ -73,6 +73,7 @@ export async function createTimelineDigitalHumanTask(payload, baseUrl = getDigit
     callback_url: payload.callback_url || undefined,
     extra: payload.extra || undefined,
   }
+  if (audioManId) body.audio_man_id = audioManId
 
   if (!body.text) throw new Error('数字人口播文本不能为空')
 

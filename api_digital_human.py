@@ -99,6 +99,28 @@ def _normalize_chanjing_files_path(path: str) -> str | None:
     return None
 
 
+def _first_non_empty(value, fallback=None):
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped and stripped.lower() not in {"null", "none", "undefined"}:
+            return stripped
+    if value:
+        return value
+    return fallback
+
+
+def _extract_audio_man_id(payload):
+    if payload is None or not isinstance(payload, dict):
+        return ''
+    return (
+        _first_non_empty(payload.get("audio_man_id"), '') or
+        _first_non_empty(payload.get("audio_id"), '') or
+        _first_non_empty(payload.get("audio_man"), '') or
+        _first_non_empty(payload.get("voice_id"), '') or
+        _first_non_empty(payload.get("voiceId"), '')
+    )
+
+
 def _to_public_media_url(path: str) -> str:
     """将内部可见路径转换为前端可通过后端 /dh 路由访问的公共 URL。"""
     if not path:
@@ -249,7 +271,7 @@ def list_common_persons(merchant: Merchant = Depends(verify_api_key)):
     for person in persons:
         person_id = person.get("id", "")
         person_name = person.get("name", "")
-        audio_man_id = person.get("audio_man_id", "")
+        audio_man_id = _extract_audio_man_id(person)
         figures = person.get("figures", [])
         
         # 提取所有可选的 figure_type 列表
@@ -396,7 +418,7 @@ def get_common_person_detail(
         "available_figure_types": available_figure_types,
         "cover_url": cover_url,
         "preview_video_url": preview_video_url,
-        "audio_man_id": target_person.get("audio_man_id", ""),
+        "audio_man_id": _extract_audio_man_id(target_person),
         "gender": target_person.get("gender", ""),
         "figures": figures,
     }
@@ -441,6 +463,7 @@ def list_custom_persons(
     
     result_list = []
     for i, p in enumerate(persons):
+        audio_man_id = _first_non_empty(p.audio_man_id, '')
         cover_url = p.cover_url
         logger.info(f"\n--- 数字人 [{i+1}/{len(persons)}] ---")
         logger.info(f"  ID: {p.chanjing_person_id}")
@@ -451,6 +474,7 @@ def list_custom_persons(
         logger.info(f"  audio_man_id: {p.audio_man_id}")
         
         # 🎬 如果数据库中没有封面，尝试从蝉镜 API 动态获取
+        detail_fetched = False
         if not cover_url:
             logger.info(f"  *** 数据库无封面，尝试从蝉镜 API 获取详情...")
             try:
@@ -459,7 +483,19 @@ def list_custom_persons(
                 detail_resp = api.get_customised_person_status(p.chanjing_person_id, use_cache=False)
                 logger.info(f"  *** 蝉镜 API 返回：code={detail_resp.get('code')}, data={detail_resp.get('data', {})}")
                 if ChanjingStatusCode.is_success(detail_resp.get('code')):
+                    detail_fetched = True
                     detail_data = detail_resp.get('data', {})
+                    if not audio_man_id:
+                        audio_man_id = _extract_audio_man_id(detail_data)
+                        if audio_man_id:
+                            try:
+                                p.audio_man_id = audio_man_id
+                                db.add(p)
+                                db.commit()
+                                logger.info(f"  ✅ 已同步数字人原生音色：{audio_man_id}")
+                            except Exception as update_err:
+                                logger.warning(f"  ⚠️ 音色信息回填失败：{update_err}")
+                                db.rollback()
                     cover_url = detail_data.get('pic_url', '') or detail_data.get('preview_url', '') or detail_data.get('cover_url', '')
                     logger.info(f"  *** cover_url 提取结果：{cover_url[:80] if cover_url else 'None'}...")
                     if cover_url:
@@ -476,7 +512,27 @@ def list_custom_persons(
                     else:
                         logger.error(f"  *** ❌ 蝉镜 API 也无封面字段，data keys={list(detail_data.keys())}")
             except Exception as e:
-                 logger.error(f"  *** ❌ 调用蝉镜 API 失败：{e}")
+                logger.error(f"  *** ❌ 调用蝉镜 API 失败：{e}")
+
+        if not audio_man_id and not detail_fetched:
+            try:
+                api = get_chanjing_api()
+                detail_resp = api.get_customised_person_status(p.chanjing_person_id, use_cache=True)
+                logger.info(f"  🎤 补充请求详情：code={detail_resp.get('code')}, data={detail_resp.get('data', {})}")
+                if ChanjingStatusCode.is_success(detail_resp.get('code')):
+                    detail_data = detail_resp.get('data', {})
+                    audio_man_id = _extract_audio_man_id(detail_data)
+                    if audio_man_id:
+                        try:
+                            p.audio_man_id = audio_man_id
+                            db.add(p)
+                            db.commit()
+                            logger.info(f"  ✅ 已同步数字人原生音色（补齐）：{audio_man_id}")
+                        except Exception as update_err:
+                            logger.warning(f"  ⚠️ 音色信息回填失败：{update_err}")
+                            db.rollback()
+            except Exception as e:
+                logger.warning(f"  ⚠️ 补齐数字人音色失败：{e}")
         
         if cover_url:
             # 🔗 检查是否是本地路径或 HTTP URL（蝉镜 API 返回的）
@@ -520,7 +576,7 @@ def list_custom_persons(
             "status": p.status,
             "cover_url": cover_url,
             "figure_type": p.figure_type,  # 形象类型
-            "audio_man_id": p.audio_man_id,  # 声音 ID
+            "audio_man_id": audio_man_id,  # 声音 ID
             "created_at": p.created_at.isoformat() if p.created_at else None
         })
     
@@ -566,7 +622,7 @@ def get_custom_person_detail(
         local_person.status = local_status
         # 🎬 不要覆盖本地封面！本地存储的是从源视频第一帧提取的封面，比蝉镜的默认头像更有意义
         # local_person.cover_url = data.get('cover_url')
-        local_person.audio_man_id = data.get('audio_man_id')  # 🆕 同步声音 ID
+        local_person.audio_man_id = _extract_audio_man_id(data)  # 🆕 同步声音 ID
         local_person.updated_at = datetime.now(timezone.utc)
         db.add(local_person)
         db.commit()
@@ -596,7 +652,7 @@ def get_custom_person_detail(
         "status": data.get('status', 0),
         "status_text": _get_person_status_text(data.get('status', 0)),
         "progress": data.get('progress', 0),
-        "audio_man_id": data.get('audio_man_id'),
+        "audio_man_id": _extract_audio_man_id(data),
         "cover_url": cover_url,
         "video_url": data.get('video_url'),  # 训练完成的示例视频
         "figure_type": data.get('type', ''),
@@ -751,7 +807,15 @@ def sync_custom_persons(
             display_cover_url = _to_public_media_url(cover_url)
             logger.info(f"  🔄 同步时封面 URL 转换为代理 URL: {display_cover_url}")
         
-        audio_man_id = person_data.get('audio_man_id')  # 🆕 获取声音 ID
+        audio_man_id = _extract_audio_man_id(person_data)  # 🆕 获取声音 ID
+        if not audio_man_id:
+            # 兼容列表无音色时，尝试从详情补齐
+            try:
+                detail_resp = api.get_customised_person_status(person_id, use_cache=True)
+                if ChanjingStatusCode.is_success(detail_resp.get('code')):
+                    audio_man_id = _extract_audio_man_id(detail_resp.get('data', {}))
+            except Exception:
+                audio_man_id = ''
         
         # 映射蝉镜状态到本地状态 (根据 chanjing_api.py：1=制作中，2=成功，4=失败)
         local_status = 30 if chanjing_status == 2 else (40 if chanjing_status in (4, 40, -1) else 10)

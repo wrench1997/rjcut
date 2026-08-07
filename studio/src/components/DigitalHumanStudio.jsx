@@ -18,6 +18,11 @@ import { decoratePersonsForGeneration, findMatchingPerson, mergePersonDetails, p
 // 左侧：资产选择 (数字人与声音) - 9 宫格布局
 // =====================================================
 function AvatarPicker({ persons, voices, selectedPerson, onSelectPerson, selectedVoice, onSelectVoice }) {
+  const normalizeSelectValue = (value) => {
+    const normalized = String(value ?? '').trim()
+    return normalized === 'undefined' || normalized === 'null' ? '' : normalized
+  }
+
   return (
     <div className="w-[420px] bg-white border-r border-slate-200 flex flex-col h-full z-10 flex-shrink-0">
       {/* 标题区 */}
@@ -80,14 +85,42 @@ function AvatarPicker({ persons, voices, selectedPerson, onSelectPerson, selecte
         <select 
           className="w-full text-sm p-2.5 rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all cursor-pointer"
           value={selectedVoice}
-          onChange={(e) => onSelectVoice(e.target.value)}
+          onChange={(e) => onSelectVoice(normalizeSelectValue(e.target.value))}
         >
           <option value="">使用数字人原声</option>
-          {voices.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+          {voices.map((v) => {
+            const optionValue = normalizeSelectValue(v?.id ?? v?.audio_id ?? v?.voice_id)
+            if (!optionValue) return null
+            return (
+              <option key={optionValue} value={optionValue}>
+                {v?.name || '未命名配音'}
+              </option>
+            )
+          })}
         </select>
       </div>
     </div>
   )
+}
+
+function getPersonAudioManId(person) {
+  const raw = [
+    person?.audio_man_id,
+    person?.audio_id,
+    person?.audioId,
+    person?.audio_man,
+    person?.voice_id,
+    person?.voiceId,
+  ]
+
+  for (const candidate of raw) {
+    const normalized = String(candidate ?? '').trim()
+    if (normalized && normalized !== 'undefined' && normalized !== 'null') {
+      return normalized
+    }
+  }
+
+  return ''
 }
 // =====================================================
 // 高级设置面板（折叠式）
@@ -1573,6 +1606,31 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
   const [minimizedProgress, setMinimizedProgress] = useState(false)
   const [generatedVideos, setGeneratedVideos] = useState([]) // 存储已生成的视频路径
   const [previewVideo, setPreviewVideo] = useState(null) // 当前预览的视频
+
+  const sanitizeVoiceId = useCallback((value) => {
+    const normalized = String(value ?? '').trim()
+    return normalized === 'undefined' || normalized === 'null' ? '' : normalized
+  }, [])
+
+  useEffect(() => {
+    const autoVoiceId = sanitizeVoiceId(
+      getPersonAudioManId(selectedPersonDetails) || getPersonAudioManId(selectedPerson)
+    )
+        if (!sanitizeVoiceId(selectedVoice) && autoVoiceId) {
+          console.log('[DigitalHumanStudio] 自动回填配音角色:', {
+            source: getPersonAudioManId(selectedPersonDetails) ? 'personDetails' : 'selectedPerson',
+            voiceId: autoVoiceId,
+            personName: selectedPerson?.name,
+          })
+      setSelectedVoice(autoVoiceId)
+    }
+  }, [
+    selectedPerson,
+    selectedPersonDetails,
+    selectedPerson?.name,
+    selectedVoice,
+    sanitizeVoiceId,
+  ])
   
   // AI 生成文案处理函数
   const handleAIGenerateScript = async () => {
@@ -1990,6 +2048,7 @@ const [cRes, pRes, vRes] = [commonPersonsRes, customPersonsRes, voicesRes]
             // 如果没找到，直接使用 preselectedPerson 数据
             console.log('[DigitalHumanStudio] 未在列表中找到，直接使用 preselectedPerson')
             setSelectedPerson(preselectedPerson)
+            loadPersonDetails(preselectedPerson)
           }
 // 通知父组件预选数字人已被使用
           if (onPreselectedPersonUsed) {
@@ -2055,10 +2114,17 @@ const [cRes, pRes, vRes] = [commonPersonsRes, customPersonsRes, voicesRes]
     setPipelineTasks(initialTasks)
 
     try {
-      const apiKey = localStorage.getItem('rjcut_api_key')
-      const resolvedAudioManId = selectedVoice || selectedPersonDetails?.audio_man_id || ''
+      const resolvedAudioManId = sanitizeVoiceId(
+        selectedVoice || getPersonAudioManId(selectedPersonDetails) || getPersonAudioManId(selectedPerson)
+      )
       if (!resolvedAudioManId) {
-        throw new Error(`当前数字人“${selectedPerson.name || '未命名'}”缺少可用配音音色，请先选择配音后再生成`)
+        console.warn('[DigitalHumanStudio] 当前数字人未检测到可用配音，尝试使用数字人原声继续创建任务', {
+          selectedVoice: sanitizeVoiceId(selectedVoice),
+          selectedPersonVoice: sanitizeVoiceId(getPersonAudioManId(selectedPerson)),
+          selectedPersonDetailVoice: sanitizeVoiceId(getPersonAudioManId(selectedPersonDetails)),
+          availableVoicesCount: voices.length,
+          personName: selectedPerson?.name,
+        })
       }
       const vfs = getVFS()
       
@@ -2090,12 +2156,10 @@ const [cRes, pRes, vRes] = [commonPersonsRes, customPersonsRes, voicesRes]
           // 8080 只接收一次完整口播。segments 只保存在 RJCut，用于后续模板混剪。
           const fullSpokenText = requireFullSpokenText(copywritingPlan, script.text)
           copywritingPlan.spoken_text = fullSpokenText
-          const audioManId = resolvedAudioManId
           const taskPayload = {
             text: fullSpokenText,
             // 不能再发送 selectedPerson.id：旧列表可能让多张卡片共用同一个 ID。
             person_id: selectedGenerationPersonId,
-            audio_man_id: audioManId,
             figure_type: selectedPerson.figure_type || selectedPersonDetails?.figure_type || advancedSettings.figure_type || 'whole_body',
             hide_subtitle: advancedSettings.hide_subtitle !== false,
             extra: {
@@ -2120,6 +2184,10 @@ const [cRes, pRes, vRes] = [commonPersonsRes, customPersonsRes, voicesRes]
                 action_id: advancedSettings.action_id || null,
               },
             },
+          }
+          const audioManId = resolvedAudioManId
+          if (audioManId) {
+            taskPayload.audio_man_id = audioManId
           }
 
           const textContract = summarizeTextContract(fullSpokenText)
@@ -2272,6 +2340,15 @@ const [cRes, pRes, vRes] = [commonPersonsRes, customPersonsRes, voicesRes]
         onSelectPerson={(person) => {
           setSelectedPerson(person)
           setSelectedPersonDetails(mergePersonDetails(person, {}))
+          const autoVoiceId = sanitizeVoiceId(getPersonAudioManId(person))
+          if (!sanitizeVoiceId(selectedVoice) && autoVoiceId) {
+            console.log('[DigitalHumanStudio] 用户切换数字人，回填数字人原声:', {
+              personName: person?.name,
+              personId: person?.id,
+              voiceId: autoVoiceId,
+            })
+            setSelectedVoice(autoVoiceId)
+          }
           console.log('[DigitalHumanStudio] 用户选择数字人:', {
             name: person.name,
             legacyId: person.id,

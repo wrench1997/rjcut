@@ -26,6 +26,33 @@ settings = get_settings()
 logger = logging.getLogger("chanjing.task")
 
 
+def _normalize_voice_id(value):
+    value = value if value is not None else ''
+    normalized = str(value).strip()
+    if normalized.lower() in {'', 'null', 'none', 'undefined'}:
+        return ''
+    return normalized
+
+
+def _extract_audio_man_id(payload_obj):
+    if not isinstance(payload_obj, dict):
+        return ''
+
+    candidate_values = [
+        payload_obj.get("audio_man_id"),
+        payload_obj.get("audio_id"),
+        payload_obj.get("audio_man"),
+        payload_obj.get("voice_id"),
+        payload_obj.get("voiceId"),
+        payload_obj.get("audio-man"),
+    ]
+    for candidate in candidate_values:
+        normalized = _normalize_voice_id(candidate)
+        if normalized:
+            return normalized
+    return ''
+
+
 def _require_chanjing_base_url() -> str:
     """数字人服务地址必须配置为公网可达值。"""
     base_url = (settings.CHANJING_BASE_URL or "").strip()
@@ -106,9 +133,9 @@ def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merch
             chanjing_file_id = api.upload_file(local_bg, service="background")
             bg_params = {"file_id": chanjing_file_id, "x": 0, "y": 0, "width": 1080, "height": 1920}
 
-        # 🆕 获取 audio_man_id：如果 payload 中未提供，则从数字人详情中获取原生声音 ID。
-        # 前端发送的字段名是 audio_man_id，禁止提交空字符串导致服务端回退到默认 TTS 音源。
-        audio_man_id = payload.get("audio_man_id")
+        # 🆕 获取 audio_man_id：优先取 payload 中已携带值；如果空则从数字人详情中回填。
+        # 前端可不传 audio_man_id，此时交给蝉镜服务决定默认音源策略。
+        audio_man_id = _extract_audio_man_id(payload)
         logger.info(f"[DEBUG] payload keys: {list(payload.keys())}")
         logger.info(f"[DEBUG] audio_man_id from payload: {audio_man_id}")
         digital_person_id = payload.get("person_id")
@@ -117,20 +144,13 @@ def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merch
             logger.info(f"audio_man 未提供，正在从数字人 {digital_person_id} 详情中获取原生声音 ID...")
             person_detail_resp = api.get_customised_person_status(digital_person_id)
             if ChanjingStatusCode.is_success(person_detail_resp.get('code')):
-                person_data = person_detail_resp.get('data', {})
-                audio_man_id = person_data.get('audio_man_id')
+                audio_man_id = _extract_audio_man_id(person_detail_resp.get('data', {}))
                 if audio_man_id:
                     logger.info(f"获取到数字人原生声音 ID: {audio_man_id}")
-                else:
-                    raise ValueError(
-                        f"数字人 {digital_person_id} 未关联声音 ID（audio_man_id 为空），"
-                        "请先在蝉镜端完成声音配置后再试"
-                    )
-        if not audio_man_id:
-            raise ValueError(
-                "数字人生成任务缺少 audio_man_id，"
-                "当前未提供配音且数字人原生音色不可用。请先选择配音角色或配置数字人声音"
-            )
+            if not audio_man_id:
+                logger.warning(
+                    f"数字人 {digital_person_id} 当前未返回可用音色，按无 audio_man_id 模式发起生成"
+                )
         
         # 🎭 获取 figure_type：优先使用 payload 中传递的值（前端已根据数字人类型正确设置）
         figure_type = payload.get("figure_type")
@@ -184,8 +204,11 @@ def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merch
         if bg_params:
             video_params["bg_params"] = bg_params
         
-        # 必须传递 audio_man_id，空值会触发蝉镜默认人声导致“参考音频不存在”错误
-        video_params["audio_man_id"] = audio_man_id
+        # 空值时不下发 audio_man_id，避免传空字符串触发蝉镜端默认 TTS 路径异常
+        if audio_man_id:
+            video_params["audio_man_id"] = audio_man_id
+        else:
+            logger.warning("未提供数字人音色 audio_man_id，尝试按默认音源生成")
         
         logger.info(f"调用蝉镜 create_video，参数：{json.dumps(video_params, ensure_ascii=False, default=str)}")
         
@@ -444,7 +467,7 @@ def run_dh_create_person_task(task_id: str, payload: dict, trace_id: str, mercha
                     person_detail = api.get_customised_person_status(person_id)
                     audio_man_id = None
                     if ChanjingStatusCode.is_success(person_detail.get('code')):
-                        audio_man_id = person_detail.get('data', {}).get('audio_man_id')
+                        audio_man_id = _extract_audio_man_id(person_detail.get('data', {}))
                         logger.info(f"获取到原生声音 ID: {audio_man_id}")
                     break
                 elif status in (PERSON_STATUS_FAILED, PERSON_STATUS_ERROR):
@@ -507,7 +530,7 @@ def run_dh_create_person_task(task_id: str, payload: dict, trace_id: str, mercha
                     figure_type = person_data.get('figure_type')
                     # 🎬 优先使用从源视频提取的封面图，其次使用蝉镜 API 返回的封面
                     cover_url = cover_oss_key  # 使用本地上传的封面图
-                    audio_man_id = person_data.get('audio_man_id')  # 🆕 获取原生声音 ID
+                    audio_man_id = _extract_audio_man_id(person_data)  # 🆕 获取原生声音 ID
                     logger.info(f"获取到形象类型：{figure_type}, 封面：{cover_url}, 声音 ID: {audio_man_id}")
                 
                 new_person = DhCustomPerson(
