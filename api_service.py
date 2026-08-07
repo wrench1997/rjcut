@@ -50,6 +50,7 @@ from draft_utils import (
 from batch_validator import BatchTaskValidator, validate_batch_config_file
 
 import json
+import re
 from typing import Optional
 from fastapi import FastAPI, Depends, File, Form, Query, Request, UploadFile
 from sqlalchemy import cast, String
@@ -75,6 +76,23 @@ def _normalize_chanjing_file_path(path: str) -> str | None:
     return None
 
 
+_CHANJING_INLINE_PATH_RE = re.compile(
+    r"(/root/MuseTalk/data/[^\s\"'`<>\\[\\]{}()]+|/app/data/[^\s\"'`<>\\[\\]{}()]+|/data/[^\s\"'`<>\\[\\]{}()]+)"
+)
+
+
+def _normalize_chanjing_text_paths(value: str) -> str:
+    if not value:
+        return value
+
+    def _replace(match):
+        raw = match.group(1)
+        mapped = _normalize_chanjing_file_path(raw)
+        return mapped or raw
+
+    return _CHANJING_INLINE_PATH_RE.sub(_replace, value)
+
+
 def _normalize_chanjing_url(value: str) -> str:
     raw = value.strip()
     if not raw:
@@ -89,10 +107,16 @@ def _normalize_chanjing_url(value: str) -> str:
 
     parsed = urlparse(raw)
     if parsed.scheme not in ("http", "https"):
+        normalized_text = _normalize_chanjing_text_paths(raw)
+        if normalized_text != raw:
+            return normalized_text
         return raw
 
     normalized_path = _normalize_chanjing_file_path(parsed.path)
     if not normalized_path:
+        normalized_text = _normalize_chanjing_text_paths(raw)
+        if normalized_text != raw:
+            return normalized_text
         return raw
 
     rebuilt = parsed._replace(path=normalized_path)

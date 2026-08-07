@@ -9,8 +9,9 @@ import {
   getCustomPersons,
   getVoices,
   getDigitalHumanImageUrl,
-  getDigitalHumanMediaUrl,
+  getBaseUrl,
 } from '../api/api'
+import { downloadDigitalHumanVideo } from '../features/digital-human-project/digitalHumanDownload'
 
 // =====================================================
 // 状态徽章组件
@@ -497,40 +498,48 @@ async function waitForTaskCompletion(taskId, onProgress) {
  * 下载视频并导入到 VFS
  */
 async function importVideoToVFS(vfs, projectPath, task, filename) {
-  const rawVideoUrl = task.result?.video_url || task.result?.videoUrl || task.video_url
-  const videoUrl = getDigitalHumanMediaUrl(rawVideoUrl)
-  if (!videoUrl) {
-    throw new Error('未找到视频 URL')
+  const taskPayload = task?.payload || task || {}
+  const taskResult = task?.result || task || {}
+  const taskId = task?.task_id || task?.id
+  const baseUrl = getBaseUrl()
+  try {
+    const { blob, url, attempts } = await downloadDigitalHumanVideo({
+      result: taskResult,
+      baseUrl,
+      taskId,
+      fetchImpl: fetch,
+    })
+
+    if (!blob || !blob.size) {
+      throw new Error('下载结果为空')
+    }
+
+    // 统一保存路径：项目根目录下输出子目录
+    const projectName = parseProjectNameFromVFS(projectPath)
+    const outputDir = buildVFSPath(projectName, PROJECT_FOLDERS.OUTPUT)
+    const savePath = `${outputDir}/${filename}`
+
+    // 写入 VFS
+    return vfs.writeFile(savePath, blob, {
+      type: 'video/mp4',
+      metadata: {
+        source: 'digital_human',
+        task_id: taskId,
+        task_status_video_url: url,
+        person_id: taskPayload.person_id,
+        person_name: taskPayload.person_name || taskPayload.name,
+        text: taskPayload.text,
+        duration: taskResult.duration,
+        attempts: attempts?.length ? attempts : undefined,
+        created_at: taskPayload.completed_at || taskPayload.updated_at || taskPayload.created_at,
+      },
+    })
+  } catch (error) {
+    const attemptText = Array.isArray(error?.attempts)
+      ? ` 下载尝试：${error.attempts.map((item) => `${item.status || 'ERR'} ${item.url}`).join(' | ')}`
+      : ''
+    throw new Error(`下载数字人视频失败：${error?.message || '未知错误'}${attemptText}`)
   }
-
-  // 下载视频为 Blob
-  const response = await fetch(videoUrl)
-  if (!response.ok) {
-    throw new Error('下载视频失败')
-  }
-  const blob = await response.blob()
-
-  // 确定保存路径 - 直接保存到项目根目录的 输出 子目录
-  // 使用统一的项目结构模块构建路径
-  const projectName = parseProjectNameFromVFS(projectPath)
-  const outputDir = buildVFSPath(projectName, PROJECT_FOLDERS.OUTPUT)
-  const savePath = `${outputDir}/${filename}`
-
-  // 写入 VFS
-  const fileInfo = await vfs.writeFile(savePath, blob, {
-    type: 'video/mp4',
-    metadata: {
-      source: 'digital_human',
-      task_id: task.id,
-      person_id: task.payload?.person_id,
-      person_name: task.payload?.person_name,
-      text: task.payload?.text,
-      duration: task.result?.duration,
-      created_at: task.completed_at,
-    },
-  })
-
-  return fileInfo
 }
 
 export default DigitalHumanVFSImporter
