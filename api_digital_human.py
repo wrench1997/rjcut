@@ -112,13 +112,49 @@ def _first_non_empty(value, fallback=None):
 def _extract_audio_man_id(payload):
     if payload is None or not isinstance(payload, dict):
         return ''
-    return (
+    candidate = (
         _first_non_empty(payload.get("audio_man_id"), '') or
         _first_non_empty(payload.get("audio_id"), '') or
         _first_non_empty(payload.get("audio_man"), '') or
         _first_non_empty(payload.get("voice_id"), '') or
         _first_non_empty(payload.get("voiceId"), '')
     )
+    if candidate:
+        return candidate
+
+    for key in ("audio", "audio_man", "voice", "voice_info", "voiceInfo", "audio_info", "audioInfo"):
+        nested = payload.get(key)
+        if isinstance(nested, dict):
+            nested_value = (
+                _first_non_empty(nested.get("audio_man_id"), '') or
+                _first_non_empty(nested.get("audio_id"), '') or
+                _first_non_empty(nested.get("audio_man"), '') or
+                _first_non_empty(nested.get("voice_id"), '') or
+                _first_non_empty(nested.get("voiceId"), '') or
+                _first_non_empty(nested.get("id"), '')
+            )
+            if nested_value:
+                return nested_value
+
+    for list_key in ("audios", "audio_mans", "audio_list", "audioList", "voices", "voice_list", "voiceList"):
+        nested_items = payload.get(list_key)
+        if not isinstance(nested_items, (list, tuple)):
+            continue
+        for item in nested_items:
+            if not isinstance(item, dict):
+                continue
+            nested_value = (
+                _first_non_empty(item.get("audio_man_id"), '') or
+                _first_non_empty(item.get("audio_id"), '') or
+                _first_non_empty(item.get("audio_man"), '') or
+                _first_non_empty(item.get("voice_id"), '') or
+                _first_non_empty(item.get("voiceId"), '') or
+                _first_non_empty(item.get("id"), '')
+            )
+            if nested_value:
+                return nested_value
+
+    return ''
 
 
 def _to_public_media_url(path: str) -> str:

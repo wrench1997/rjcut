@@ -122,6 +122,56 @@ function getPersonAudioManId(person) {
 
   return ''
 }
+
+function getVoiceAudioManId(voice) {
+  const raw = [
+    voice?.audio_man_id,
+    voice?.audio_id,
+    voice?.voice_id,
+    voice?.voiceId,
+    voice?.id,
+  ]
+
+  for (const candidate of raw) {
+    const normalized = String(candidate ?? '').trim()
+    if (normalized && normalized !== 'undefined' && normalized !== 'null') {
+      return normalized
+    }
+  }
+
+  return ''
+}
+
+function getPersonFallbackVoiceId(person, voices) {
+  const personAudio = getPersonAudioManId(person)
+  if (personAudio) return personAudio
+  if (!Array.isArray(voices)) return ''
+
+  const normalizedPersonName = String(person?.name || '').trim()
+  const normalizedGender = String(person?.gender || '').trim().toLowerCase()
+  const byName = voices.find((voice) => {
+    const voiceName = String(voice?.name || '').trim()
+    if (!voiceName || !normalizedPersonName) return false
+    return voiceName === normalizedPersonName || voiceName.includes(normalizedPersonName) || normalizedPersonName.includes(voiceName)
+  })
+  if (byName) {
+    const matched = getVoiceAudioManId(byName)
+    if (matched) return matched
+  }
+
+  const byGender = voices.find((voice) => String(voice?.gender || '').trim().toLowerCase() === normalizedGender)
+  if (byGender) {
+    const matched = getVoiceAudioManId(byGender)
+    if (matched) return matched
+  }
+
+  for (const voice of voices) {
+    const value = getVoiceAudioManId(voice)
+    if (value) return value
+  }
+
+  return ''
+}
 // =====================================================
 // 高级设置面板（折叠式）
 // =====================================================
@@ -1614,14 +1664,16 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
 
   useEffect(() => {
     const autoVoiceId = sanitizeVoiceId(
-      getPersonAudioManId(selectedPersonDetails) || getPersonAudioManId(selectedPerson)
+      getPersonFallbackVoiceId(selectedPerson, [selectedPerson, selectedPersonDetails].filter(Boolean))
     )
-        if (!sanitizeVoiceId(selectedVoice) && autoVoiceId) {
-          console.log('[DigitalHumanStudio] 自动回填配音角色:', {
-            source: getPersonAudioManId(selectedPersonDetails) ? 'personDetails' : 'selectedPerson',
-            voiceId: autoVoiceId,
-            personName: selectedPerson?.name,
-          })
+    if (!sanitizeVoiceId(selectedVoice) && autoVoiceId) {
+      console.log('[DigitalHumanStudio] 自动回填配音角色:', {
+        source: getPersonAudioManId(selectedPersonDetails)
+          ? 'personDetails'
+          : (getPersonAudioManId(selectedPerson) ? 'selectedPerson' : 'voicesFallback'),
+        voiceId: autoVoiceId,
+        personName: selectedPerson?.name,
+      })
       setSelectedVoice(autoVoiceId)
     }
   }, [
@@ -1629,6 +1681,7 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
     selectedPersonDetails,
     selectedPerson?.name,
     selectedVoice,
+    voices,
     sanitizeVoiceId,
   ])
   
@@ -2113,19 +2166,19 @@ const [cRes, pRes, vRes] = [commonPersonsRes, customPersonsRes, voicesRes]
     }))
     setPipelineTasks(initialTasks)
 
-    try {
-      const resolvedAudioManId = sanitizeVoiceId(
-        selectedVoice || getPersonAudioManId(selectedPersonDetails) || getPersonAudioManId(selectedPerson)
-      )
-      if (!resolvedAudioManId) {
-        console.warn('[DigitalHumanStudio] 当前数字人未检测到可用配音，尝试使用数字人原声继续创建任务', {
-          selectedVoice: sanitizeVoiceId(selectedVoice),
-          selectedPersonVoice: sanitizeVoiceId(getPersonAudioManId(selectedPerson)),
-          selectedPersonDetailVoice: sanitizeVoiceId(getPersonAudioManId(selectedPersonDetails)),
-          availableVoicesCount: voices.length,
-          personName: selectedPerson?.name,
-        })
-      }
+      try {
+        const resolvedAudioManId = sanitizeVoiceId(
+          selectedVoice || getPersonFallbackVoiceId(selectedPerson, [selectedPerson, selectedPersonDetails, ...voices].filter(Boolean))
+        )
+        if (!resolvedAudioManId) {
+          console.warn('[DigitalHumanStudio] 当前数字人未检测到可用配音，尝试使用数字人原声继续创建任务', {
+            selectedVoice: sanitizeVoiceId(selectedVoice),
+            selectedPersonVoice: sanitizeVoiceId(getPersonAudioManId(selectedPerson)),
+            selectedPersonDetailVoice: sanitizeVoiceId(getPersonAudioManId(selectedPersonDetails)),
+            availableVoicesCount: voices.length,
+            personName: selectedPerson?.name,
+          })
+        }
       const vfs = getVFS()
       
       // 以用户选择的 VFS 项目实际路径为准。
@@ -2340,7 +2393,9 @@ const [cRes, pRes, vRes] = [commonPersonsRes, customPersonsRes, voicesRes]
         onSelectPerson={(person) => {
           setSelectedPerson(person)
           setSelectedPersonDetails(mergePersonDetails(person, {}))
-          const autoVoiceId = sanitizeVoiceId(getPersonAudioManId(person))
+          const autoVoiceId = sanitizeVoiceId(
+            getPersonFallbackVoiceId(person, [person, ...voices].filter(Boolean))
+          )
           if (!sanitizeVoiceId(selectedVoice) && autoVoiceId) {
             console.log('[DigitalHumanStudio] 用户切换数字人，回填数字人原声:', {
               personName: person?.name,

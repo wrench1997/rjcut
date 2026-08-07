@@ -110,6 +110,84 @@ def _extract_audio_man_id(payload_obj):
         normalized = _normalize_voice_id(candidate)
         if normalized:
             return normalized
+
+    nested_payloads = []
+    for key in ("audio", "audio_man", "voice", "voice_info", "voiceInfo", "audio_info", "audioInfo"):
+        value = payload_obj.get(key)
+        if isinstance(value, dict):
+            nested_payloads.append(value)
+        elif isinstance(value, str) and value.strip():
+            normalized = _normalize_voice_id(value)
+            if normalized:
+                return normalized
+
+    if nested_payloads:
+        for nested in nested_payloads:
+            for nested_key in ("audio_man_id", "audio_id", "audio_man", "voice_id", "voiceId", "id"):
+                nested_value = nested.get(nested_key)
+                normalized = _normalize_voice_id(nested_value)
+                if normalized:
+                    return normalized
+
+    for list_key in ("audios", "audio_mans", "audio_list", "audioList", "voices", "voice_list", "voiceList"):
+        items = payload_obj.get(list_key)
+        if not isinstance(items, (list, tuple)):
+            continue
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            for nested_key in ("audio_man_id", "audio_id", "audio_man", "voice_id", "voiceId", "id"):
+                normalized = _normalize_voice_id(item.get(nested_key))
+                if normalized:
+                    return normalized
+
+    return ''
+
+
+def _resolve_common_audio_fallback(api, digital_person_id: str) -> str:
+    if not digital_person_id:
+        return ''
+
+    try:
+        person_list_resp = api.list_common_digital_persons(page=1, size=200, use_cache=False)
+        code = person_list_resp.get("code")
+        if code not in (None, 0):
+            logger.warning(f"公共数字人列表返回错误 code={code}，无法回填音色")
+            return ''
+
+        persons = person_list_resp.get("data", {}).get("list", [])
+        for person in persons:
+            if not isinstance(person, dict):
+                continue
+            if person.get("id") == digital_person_id:
+                audio_man_id = _extract_audio_man_id(person)
+                if audio_man_id:
+                    logger.info(f"数字人 {digital_person_id} 在公共列表匹配到音色：{audio_man_id}")
+                    return audio_man_id
+    except Exception as exc:
+        logger.warning(f"回退到公共数字人列表时失败：{exc}")
+        return ''
+
+    return ''
+
+
+def _resolve_default_voice_fallback(api) -> str:
+    try:
+        voices_resp = api.list_common_audio_mans(page=1, size=1, use_cache=True)
+        if voices_resp.get("code") not in (None, 0):
+            return ''
+
+        voices = voices_resp.get("data", {}).get("list", [])
+        for item in voices:
+            if not isinstance(item, dict):
+                continue
+            audio_man_id = _extract_audio_man_id(item)
+            if audio_man_id:
+                logger.warning(f"未找到数字人专属音色，使用公共音色兜底：{audio_man_id}")
+                return audio_man_id
+    except Exception as exc:
+        logger.warning(f"公共音色兜底失败：{exc}")
+
     return ''
 
 
@@ -208,9 +286,10 @@ def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merch
                 if audio_man_id:
                     logger.info(f"获取到数字人原生声音 ID: {audio_man_id}")
             if not audio_man_id:
-                logger.warning(
-                    f"数字人 {digital_person_id} 当前未返回可用音色，按无 audio_man_id 模式发起生成"
-                )
+                logger.info(f"数字人 {digital_person_id} 定制详情未返回音色，尝试从公共数字人列表匹配")
+                audio_man_id = _resolve_common_audio_fallback(api, digital_person_id)
+            if not audio_man_id:
+                logger.warning(f"数字人 {digital_person_id} 当前未返回可用音色")
         
         # 🎭 获取 figure_type：优先使用 payload 中传递的值（前端已根据数字人类型正确设置）
         figure_type = payload.get("figure_type")
@@ -265,10 +344,12 @@ def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merch
             video_params["bg_params"] = bg_params
         
         # 空值时不下发 audio_man_id，避免传空字符串触发蝉镜端默认 TTS 路径异常
+        if not audio_man_id:
+            audio_man_id = _resolve_default_voice_fallback(api)
         if audio_man_id:
             video_params["audio_man_id"] = audio_man_id
         else:
-            logger.warning("未提供数字人音色 audio_man_id，尝试按默认音源生成")
+            logger.warning("未提供数字人音色 audio_man_id，尝试按默认音源生成（失败）")
         
         logger.info(f"调用蝉镜 create_video，参数：{json.dumps(video_params, ensure_ascii=False, default=str)}")
         
