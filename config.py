@@ -21,9 +21,11 @@ class Settings(BaseSettings):
     
     CHANJING_APP_ID: str = ""
     CHANJING_SECRET_KEY: str = ""
-    # 蝉镜服务部署在 151；仍可通过环境变量覆盖，避免依赖 Docker 特殊 DNS 名称。
-    CHANJING_BASE_URL: str = "http://192.168.166.151:8080"
-    CHANJING_FILES_URL: str = "http://192.168.166.151:8080/files"
+    # 蝉镜服务与文件服务必须配置为公网可达地址（禁止回退到内网 192.168 网段）
+    CHANJING_BASE_URL: str = ""
+    CHANJING_FILES_URL: str = ""
+    # 调试环境可设置为 true，允许使用局域网地址；生产默认 false，禁止内网地址穿透
+    ALLOW_PRIVATE_CHANJING: bool = True
     
     # 文件存储策略配置
     FILE_STORAGE_DAYS: int = 30  # 文件默认保留天数

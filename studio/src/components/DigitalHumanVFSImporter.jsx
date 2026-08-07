@@ -9,6 +9,7 @@ import {
   getCustomPersons,
   getVoices,
   getDigitalHumanImageUrl,
+  getDigitalHumanMediaUrl,
 } from '../api/api'
 
 // =====================================================
@@ -496,7 +497,8 @@ async function waitForTaskCompletion(taskId, onProgress) {
  * 下载视频并导入到 VFS
  */
 async function importVideoToVFS(vfs, projectPath, task, filename) {
-  const videoUrl = task.result?.video_url
+  const rawVideoUrl = task.result?.video_url || task.result?.videoUrl || task.video_url
+  const videoUrl = getDigitalHumanMediaUrl(rawVideoUrl)
   if (!videoUrl) {
     throw new Error('未找到视频 URL')
   }

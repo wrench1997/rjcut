@@ -26,6 +26,19 @@ settings = get_settings()
 logger = logging.getLogger("chanjing.task")
 
 
+def _require_chanjing_base_url() -> str:
+    """数字人服务地址必须配置为公网可达值。"""
+    base_url = (settings.CHANJING_BASE_URL or "").strip()
+    if not base_url:
+        raise RuntimeError("CHANJING_BASE_URL 未配置，请设置可公网访问的数字人服务地址")
+    if not settings.ALLOW_PRIVATE_CHANJING and base_url.startswith((
+        "http://192.168.", "http://10.", "http://172.", "http://127.", "http://localhost",
+        "https://192.168.", "https://10.", "https://172.", "https://127.", "https://localhost",
+    )):
+        raise RuntimeError("当前 CHANJING_BASE_URL 仍为内网地址，不允许用于公网部署")
+    return base_url.rstrip("/")
+
+
 # ============================================================
 # 蝉镜 API 状态码常量定义 (基于 chanjing-openapi.yaml)
 # ============================================================
@@ -68,7 +81,7 @@ def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merch
         app_id=settings.CHANJING_APP_ID,
         secret_key=settings.CHANJING_SECRET_KEY,
         config={
-            "base_url": (settings.CHANJING_BASE_URL or "http://192.168.166.151:8080").rstrip("/"),
+            "base_url": _require_chanjing_base_url(),
             "timeout": 120,  # 视频生成耗时较长
             "max_retries": 5,
             "enable_cache": False,  # 视频状态不缓存，保证实时性
@@ -161,6 +174,9 @@ def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merch
             # 回调
             "callback": payload.get("callback_url"),
         }
+
+        if bg_params:
+            video_params["bg_params"] = bg_params
         
         # 始终传递 audio_man_id 字段，蝉镜 API 需要该字段（空字符串表示使用默认 TTS）
         video_params["audio_man_id"] = audio_man_id or ""
@@ -172,7 +188,11 @@ def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merch
             error_msg = ChanjingStatusCode.get_msg(video_response.get('code'))
             raise Exception(f"蝉镜接口报错：{error_msg} - {video_response}")
 
-        chanjing_video_id = video_response['data']
+        chanjing_video_id = video_response.get("data")
+        if isinstance(chanjing_video_id, dict):
+            chanjing_video_id = chanjing_video_id.get("id") or chanjing_video_id.get("video_id")
+        if not chanjing_video_id:
+            raise Exception(f"蝉镜接口返回数据异常：{video_response}")
         _update_task(task_id, progress=10, stage="waiting_chanjing_render")
 
         chanjing_video_url = None
@@ -283,7 +303,7 @@ def run_dh_create_person_task(task_id: str, payload: dict, trace_id: str, mercha
         app_id=settings.CHANJING_APP_ID,
         secret_key=settings.CHANJING_SECRET_KEY,
         config={
-            "base_url": (settings.CHANJING_BASE_URL or "http://192.168.166.151:8080").rstrip("/"),
+            "base_url": _require_chanjing_base_url(),
             "timeout": 300,  # 数字人训练耗时很长（5-10 分钟）
             "max_retries": 5,
             "enable_cache": False,  # 数字人状态不缓存

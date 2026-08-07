@@ -1,12 +1,12 @@
 // 数字人(蝉镜)接口默认走后端反代前缀 /dh：
-//   <NEXT_PUBLIC_API_BASE_URL>/dh/*  ->  后端内部转发到 CHANJING_BASE_URL(192.168.166.151:8080)
-// 公网用户通过已暴露的后端端口(8801)即可访问，无需为内网 8080 单独开 FRP/EIP。
+//   <NEXT_PUBLIC_API_BASE_URL>/dh/*  ->  后端内部转发到 CHANJING_BASE_URL（公网地址）
+// 公网用户通过已暴露的后端端口(8801)即可访问，无需为 8080 单独开 FRP/EIP。
 // 本地若想直连蝉镜，可在 localStorage 把 rjcut_digital_human_api_base_url
-// 设为 http://192.168.166.151:8080 覆盖。
+// 设为 CHANJING_ORIGIN 覆盖。
 const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://112.111.7.91:8801').replace(/\/$/, '')
 const DEFAULT_DIGITAL_HUMAN_BASE_URL = `${API_BASE_URL}/dh`
-// 蝉镜内网绝对地址前缀，用于把返回体里的内网 URL 改写成走后端 /dh 代理
-const CHANJING_ORIGIN = 'http://192.168.166.151:8080'
+// 蝉镜源服务地址，用于把返回体里的绝对地址改写到 /dh 代理。
+const CHANJING_ORIGIN = process.env.NEXT_PUBLIC_CHANJING_ORIGIN || ''
 
 export function getDigitalHumanBaseUrl() {
   if (typeof localStorage === 'undefined') return DEFAULT_DIGITAL_HUMAN_BASE_URL
@@ -17,10 +17,26 @@ export function toDigitalHumanAssetUrl(pathOrUrl, baseUrl = getDigitalHumanBaseU
   const value = String(pathOrUrl || '').trim()
   if (!value) return ''
   // 蝉镜返回的内网绝对地址 -> 改写为走后端 /dh 代理，公网浏览器才能访问
-  if (value.startsWith(CHANJING_ORIGIN + '/') || value === CHANJING_ORIGIN) {
+  if (
+    CHANJING_ORIGIN &&
+    (value.startsWith(CHANJING_ORIGIN + '/') || value === CHANJING_ORIGIN)
+  ) {
     const rest = value.slice(CHANJING_ORIGIN.length) // 形如 '/files/x.mp4' 或 ''
     return rest ? `${baseUrl}${rest}` : baseUrl
   }
+
+  if (value.startsWith('/v1/dh/proxy-image')) {
+    try {
+      const parsed = new URL(value, baseUrl)
+      const proxyPath = parsed.searchParams.get('path')
+      if (proxyPath) {
+        const decoded = decodeURIComponent(proxyPath)
+        if (decoded.startsWith('/files/')) return `${baseUrl}${decoded}`
+        if (decoded) return decoded
+      }
+    } catch {}
+  }
+
   if (/^https?:\/\//i.test(value)) return value // 其它绝对地址原样返回
   return `${baseUrl}${value.startsWith('/') ? '' : '/'}${value}` // 相对路径前挂 baseUrl
 }

@@ -15,9 +15,10 @@ x-common-env: &common-env
   PYTHONUNBUFFERED: "1"
   CHANJING_APP_ID: itop
   CHANJING_SECRET_KEY: rj-itop+0591
-  # 🐳 蝉镜服务部署在 192.168.166.151，避免依赖 host.docker.internal 的解析和代理行为
-  CHANJING_BASE_URL: http://192.168.166.151:8080
-  CHANJING_FILES_URL: http://192.168.166.151:8080/files
+  # 生产请配置公网可达的蝉镜服务地址（禁止写死内网 IP）
+  CHANJING_BASE_URL: ${CHANJING_BASE_URL}
+  CHANJING_FILES_URL: ${CHANJING_FILES_URL}
+  ALLOW_PRIVATE_CHANJING: ${ALLOW_PRIVATE_CHANJING:-true}
 
 services:
 # --- 新增 Loki 监控组件 ---

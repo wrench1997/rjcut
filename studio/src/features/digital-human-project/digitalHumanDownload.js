@@ -1,4 +1,6 @@
-﻿function trimSlash(value) {
+﻿import { getDigitalHumanMediaUrl } from '../../api/api';
+
+function trimSlash(value) {
   return String(value || '').trim().replace(/\/+$/, '')
 }
 
@@ -17,6 +19,17 @@ function objectUrl(value) {
   if (!value) return ''
   if (typeof value === 'string') return value
   return value.download_url || value.url || value.href || value.path || ''
+}
+
+function addDigitalHumanMediaCandidate(urls, value, baseUrl) {
+  const resolved = getDigitalHumanMediaUrl(value, baseUrl)
+  if (resolved) {
+    addUnique(urls, resolved)
+    return
+  }
+  if (value) {
+    addUnique(urls, value)
+  }
 }
 
 export function extractDigitalHumanVideoReference(result = {}) {
@@ -64,12 +77,12 @@ export function buildDigitalHumanAssetCandidates({
           parsed.protocol = baseParsed.protocol
           parsed.hostname = baseParsed.hostname
           parsed.port = baseParsed.port
-          addUnique(urls, parsed.toString())
+          addDigitalHumanMediaCandidate(urls, parsed.toString(), base)
         }
       } catch {}
-      addUnique(urls, raw)
+      addDigitalHumanMediaCandidate(urls, raw, base)
     } else {
-      addUnique(urls, `${base}/${raw.replace(/^\/+/, '')}`)
+      addDigitalHumanMediaCandidate(urls, `${base}/${raw.replace(/^\/+/, '')}`, base)
     }
 
     let pathname = raw
@@ -84,7 +97,13 @@ export function buildDigitalHumanAssetCandidates({
       pathname.replace('/files/api_tasks/', '/files/tasks/'),
       pathname.replace('/files/tasks/', '/files/api_tasks/'),
       pathname.replace('/files/api-tasks/', '/files/api_tasks/'),
-    ].forEach((path) => addUnique(urls, `${base}/${path.replace(/^\/+/, '')}`))
+    ].forEach((path) => {
+      addDigitalHumanMediaCandidate(
+        urls,
+        `${base}/${path.replace(/^\/+/, '')}`,
+        base,
+      )
+    })
   }
 
   if (taskId) {
@@ -95,7 +114,9 @@ export function buildDigitalHumanAssetCandidates({
       `/files/${id}/digital_human.mp4`,
       `/v1/digital-human/tasks/${id}/files/final_video`,
       `/v1/digital-human/tasks/${id}/files/video`,
-    ].forEach((path) => addUnique(urls, `${base}${path}`))
+    ].forEach((path) => {
+      addDigitalHumanMediaCandidate(urls, `${base}${path}`, base)
+    })
   }
 
   return urls

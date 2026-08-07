@@ -4,6 +4,7 @@ import logging
 import os
 import time
 import urllib.parse
+import ipaddress
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
@@ -33,7 +34,11 @@ def get_chanjing_api():
     
     if _chanjing_api_instance is None:
         settings = get_settings()
-        base_url = (settings.CHANJING_BASE_URL or "http://192.168.166.151:8080").rstrip("/")
+        base_url = _require_public_url(
+            settings.CHANJING_BASE_URL,
+            "CHANJING_BASE_URL",
+            allow_private=settings.ALLOW_PRIVATE_CHANJING,
+        )
         _chanjing_api_instance = create_chanjing_api_v2(
             app_id=settings.CHANJING_APP_ID,
             secret_key=settings.CHANJING_SECRET_KEY,
@@ -54,6 +59,58 @@ def get_chanjing_api():
 
 def ok(data=None): return {"code": 0, "message": "ok", "data": data}
 def fail(code, msg, status_code=400): return {"code": code, "message": msg}
+
+def _require_public_url(url: str | None, name: str, allow_private: bool = False) -> str:
+    """只允许可配置的公网 URL，拒绝空值和明显内网地址。"""
+    raw_url = (url or "").strip()
+    if not raw_url:
+        raise RuntimeError(f"{name} 未配置（请设置可公网访问的 URL）")
+
+    parsed = urllib.parse.urlparse(raw_url if "://" in raw_url else f"//{raw_url}")
+    host = (parsed.hostname or "").strip().lower()
+    if not host:
+        raise RuntimeError(f"{name} 地址格式无效：{raw_url}")
+
+    try:
+        host_ip = ipaddress.ip_address(host)
+    except ValueError:
+        host_ip = None
+
+    if (
+        host in {"localhost", "127.0.0.1"}
+        or (host_ip is not None and (host_ip.is_private or host_ip.is_loopback))
+    ):
+        if allow_private:
+            return raw_url.rstrip("/")
+        raise RuntimeError(f"{name} 当前为内网/回环地址，不允许用于公网访问：{raw_url}")
+
+    return raw_url.rstrip("/")
+
+def _normalize_chanjing_files_path(path: str) -> str | None:
+    """把蝉镜内部文件路径转换为文件服务路径：/files/..."""
+    if path.startswith("/files/"):
+        return path
+    if path.startswith("/root/MuseTalk/data/"):
+        return f"/files{path[len('/root/MuseTalk'):]}"
+    if path.startswith("/app/data/"):
+        return f"/files{path[len('/app'):]}"
+    if path.startswith("/data/"):
+        return f"/files{path}"
+    return None
+
+
+def _to_public_media_url(path: str) -> str:
+    """将内部可见路径转换为前端可通过后端 /dh 路由访问的公共 URL。"""
+    if not path:
+        return ""
+    mapped = _normalize_chanjing_files_path(path)
+    if mapped:
+        return mapped
+    if path.startswith(("http://", "https://", "data:")):
+        return path
+    if len(path) >= 3 and path[1] == ":" and path[2] in ('/', '\\'):
+        return path
+    return f"/v1/dh/proxy-image?path={urllib.parse.quote(path, safe='')}"
 
 
 def _upstream_error_response(operation: str, exc: Exception, logger):
@@ -243,8 +300,8 @@ def list_common_persons(merchant: Merchant = Depends(verify_api_key)):
             )
             if is_local_path:
                 # 转换为代理 URL，让前端能通过 /v1/dh/proxy-image 接口访问
-                cover_url = f"/v1/dh/proxy-image?path={urllib.parse.quote(original_cover_url, safe='')}"
-                logger.info(f"封面 URL 转换为代理 URL: {cover_url}")
+                cover_url = _to_public_media_url(original_cover_url)
+                logger.info(f"封面 URL 转换为媒体 URL: {cover_url}")
             else:
                 cover_url = original_cover_url
         else:
@@ -328,7 +385,7 @@ def get_common_person_detail(
             (len(cover_url) >= 3 and cover_url[1] == ':' and cover_url[2] in ('/', '\\'))
         )
         if is_local_path:
-            cover_url = f"/v1/dh/proxy-image?path={cover_url}"
+            cover_url = _to_public_media_url(cover_url)
             logger.info(f"详情页本地封面路径转换为代理 URL: {cover_url}")
     
     result = {
@@ -421,37 +478,38 @@ def list_custom_persons(
             except Exception as e:
                  logger.error(f"  *** ❌ 调用蝉镜 API 失败：{e}")
         
-        if p.cover_url:
+        if cover_url:
             # 🔗 检查是否是本地路径或 HTTP URL（蝉镜 API 返回的）
             # 支持 Linux 路径（/root/, /data/, /app/）和 Windows 路径（D:/, D:\）
+            source_url = cover_url
             is_local_path = (
-                p.cover_url.startswith('/root/') or 
-                p.cover_url.startswith('/data/') or 
-                p.cover_url.startswith('/app/') or
-                p.cover_url.startswith('http://') or
-                p.cover_url.startswith('https://') or
-                # Windows 路径：盘符 + 冒号 + 斜杠
-                (len(p.cover_url) >= 3 and p.cover_url[1] == ':' and p.cover_url[2] in ('/', '\\'))
+                source_url.startswith('/root/') or 
+                source_url.startswith('/data/') or 
+                source_url.startswith('/app/') or
+                source_url.startswith('http://') or
+                source_url.startswith('https://') or
+                (len(source_url) >= 3 and source_url[1] == ':' and source_url[2] in ('/', '\\'))
             )
+
             if is_local_path:
                 # 转换为代理 URL
-                cover_url = f"/v1/dh/proxy-image?path={urllib.parse.quote(p.cover_url, safe='')}"
-                logger.info(f"  🔄 封面 URL 转换为代理 URL: {cover_url}")
+                cover_url = _to_public_media_url(source_url)
+                logger.info(f"  🔄 封面 URL 转换为媒体 URL: {cover_url}")
             else:
                 # 🎬 为私有 MinIO 文件生成预签名 URL（有效期 7 天）
                 try:
                     from minio.error import S3Error
                     cover_url = minio_client.presigned_get_object(
                         bucket_name=bucket,
-                        object_name=p.cover_url,
+                        object_name=source_url,
                         expires=timedelta(days=7)
                     )
                     logger.info(f"  ✅ 生成预签名 URL: {cover_url[:100]}...")
                 except S3Error as e:
-                    logger.warning(f"  ❌ 生成封面图预签名 URL 失败：{p.cover_url}, 错误：{e}")
+                    logger.warning(f"  ❌ 生成封面图预签名 URL 失败：{source_url}, 错误：{e}")
                     # 如果生成失败，尝试使用公开 URL
                     minio_external = oss_settings.MINIO_EXTERNAL_ENDPOINT.rstrip("/")
-                    cover_url = f"{minio_external}/{bucket}/{p.cover_url}"
+                    cover_url = f"{minio_external}/{bucket}/{source_url}"
                     logger.info(f"  🔄 使用公开 URL: {cover_url}")
         else:
             logger.warning(f"  ⚠️ 无封面图 (cover_url 为空)")
@@ -528,8 +586,8 @@ def get_custom_person_detail(
             (len(cover_url) >= 3 and cover_url[1] == ':' and cover_url[2] in ('/', '\\'))
         )
         if is_local_path:
-            cover_url = f"/v1/dh/proxy-image?path={urllib.parse.quote(cover_url, safe='')}"
-            logger.info(f"详情页封面 URL 转换为代理 URL: {cover_url}")
+            cover_url = _to_public_media_url(cover_url)
+            logger.info(f"详情页封面 URL转换为媒体 URL: {cover_url}")
     
     # 返回详细信息
     result = {
@@ -687,9 +745,9 @@ def sync_custom_persons(
                 # Windows 路径：盘符 + 冒号 + 斜杠
                 (len(cover_url) >= 3 and cover_url[1] == ':' and cover_url[2] in ('/', '\\'))
             )
-            if is_local_path:
-                display_cover_url = f"/v1/dh/proxy-image?path={urllib.parse.quote(cover_url, safe='')}"
-                logger.info(f"  🔄 同步时封面 URL 转换为代理 URL: {display_cover_url}")
+        if is_local_path:
+            display_cover_url = _to_public_media_url(cover_url)
+            logger.info(f"  🔄 同步时封面 URL 转换为代理 URL: {display_cover_url}")
         
         audio_man_id = person_data.get('audio_man_id')  # 🆕 获取声音 ID
         
@@ -1061,12 +1119,15 @@ async def proxy_image(
                         "Cache-Control": "public, max-age=3600",  # 缓存 1 小时
                     }
                 )
-        elif path.startswith('/files/'):
+        mapped_file_path = _normalize_chanjing_files_path(path)
+        if mapped_file_path:
             # 蝉镜文件服务器路径：通过 HTTP 请求文件服务器
-            files_base_url = (get_settings().CHANJING_FILES_URL or "http://192.168.166.151:8080/files").rstrip("/")
-            # 移除路径开头的 /files/，拼接成完整 URL
-            file_subpath = path[7:]  # 移除 '/files/'
-            file_url = f"{files_base_url}/{file_subpath}"
+            files_base_url = _require_public_url(
+                get_settings().CHANJING_FILES_URL,
+                "CHANJING_FILES_URL",
+                allow_private=get_settings().ALLOW_PRIVATE_CHANJING,
+            )
+            file_url = f"{files_base_url}{mapped_file_path}"
             logger.info(f"代理文件服务器图片：{path} -> {file_url}")
             async with httpx.AsyncClient(timeout=30.0) as client:
                 resp = await client.get(file_url)
@@ -1093,8 +1154,12 @@ async def proxy_image(
             # 同时支持 Linux 和 Windows 路径
             allowed_dirs = [
                 "/root/MuseTalk/data/video",
+                "/root/MuseTalk/data/audio/human",
                 "/data/video",
+                "/data/audio",
+                "/data/audio/human",
                 "/app/data",
+                "/app/data/audio",
                 # Windows 开发环境
                 "D:\\workspace\\rjcut",
                 "D:/workspace/rjcut",
@@ -1197,12 +1262,15 @@ async def proxy_image_no_auth(
                         "Cache-Control": "public, max-age=3600",  # 缓存 1 小时
                     }
                 )
-        elif path.startswith('/files/'):
+        mapped_file_path = _normalize_chanjing_files_path(path)
+        if mapped_file_path:
             # 蝉镜文件服务器路径：通过 HTTP 请求文件服务器
-            files_base_url = (get_settings().CHANJING_FILES_URL or "http://192.168.166.151:8080/files").rstrip("/")
-            # 移除路径开头的 /files/，拼接成完整 URL
-            file_subpath = path[7:]  # 移除 '/files/'
-            file_url = f"{files_base_url}/{file_subpath}"
+            files_base_url = _require_public_url(
+                get_settings().CHANJING_FILES_URL,
+                "CHANJING_FILES_URL",
+                allow_private=get_settings().ALLOW_PRIVATE_CHANJING,
+            )
+            file_url = f"{files_base_url}{mapped_file_path}"
             logger.info(f"代理文件服务器图片：{path} -> {file_url}")
             async with httpx.AsyncClient(timeout=30.0) as client:
                 resp = await client.get(file_url)
@@ -1229,8 +1297,12 @@ async def proxy_image_no_auth(
             # 同时支持 Linux 和 Windows 路径
             allowed_dirs = [
                 "/root/MuseTalk/data/video",
+                "/root/MuseTalk/data/audio/human",
                 "/data/video",
+                "/data/audio",
+                "/data/audio/human",
                 "/app/data",
+                "/app/data/audio",
                 # Windows 开发环境
                 "D:\\workspace\\rjcut",
                 "D:/workspace/rjcut",

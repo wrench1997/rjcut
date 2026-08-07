@@ -15,8 +15,41 @@ import threading
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
 from enum import Enum
+import urllib.parse
+import ipaddress
 
 import requests as requests_lib
+
+
+def _require_public_url(url: str | None, name: str, allow_private: bool = False) -> str:
+    """只允许可配置的公网 URL，拒绝空值和明显内网地址。"""
+    raw_url = (url or "").strip()
+    if not raw_url:
+        raise ValueError(f"{name} 未配置（请设置可公网访问的 URL）")
+
+    parsed = urllib.parse.urlparse(raw_url if "://" in raw_url else f"//{raw_url}")
+    host = (parsed.hostname or "").strip().lower()
+    if not host:
+        raise ValueError(f"{name} 地址格式无效：{raw_url}")
+
+    try:
+        host_ip = ipaddress.ip_address(host)
+    except ValueError:
+        host_ip = None
+
+    if (
+        host in {"localhost", "127.0.0.1"}
+        or (host_ip is not None and (host_ip.is_private or host_ip.is_loopback))
+    ):
+        if allow_private:
+            return raw_url.rstrip("/")
+        raise ValueError(f"{name} 当前为内网/回环地址，不允许用于公网访问：{raw_url}")
+
+    return raw_url.rstrip("/")
+
+
+def _allow_private_address() -> bool:
+    return os.getenv("ALLOW_PRIVATE_CHANJING", "").lower() in {"1", "true", "yes", "on", "y"}
 
 
 # ============================================================
@@ -33,6 +66,7 @@ class ChanjingStatusCode:
     SYSTEM_ERROR = 500
     PARAM_ERROR = 400
     AUTH_ERROR = 401
+    ACCESS_TOKEN_ERROR = 10001
     QUOTA_ERROR = 402
     RATE_LIMIT_ERROR = 429
     
@@ -41,6 +75,7 @@ class ChanjingStatusCode:
         0: "成功",
         400: "参数错误",
         401: "认证失败",
+        10001: "授权凭证无效或已过期",
         402: "配额不足",
         429: "请求过于频繁",
         500: "系统错误",
@@ -332,6 +367,10 @@ class ChanjingAPIV2:
     ENDPOINT_CUSTOM_PERSONS = "/list_customised_person"            # 自定义数字人列表
     ENDPOINT_CUSTOM_PERSON_STATUS = "/customised_person/detail"    # ✅ 自定义数字人详情
     ENDPOINT_VIDEO_STATUS = "/video"                               # ✅ 视频状态
+    ENDPOINT_CREATE_VIDEO = "/create_video"
+    ENDPOINT_DELETE_VIDEO = "/delete_video"
+    ENDPOINT_DELETE_FILE = "/common/delete_file"
+    ENDPOINT_DELETE_CUSTOMISED_AUDIO = "/delete_customised_audio"
     
     def __init__(
         self,
@@ -353,7 +392,7 @@ class ChanjingAPIV2:
         Args:
             app_id: 应用 ID（可选，如果为 None 则自动获取）
             secret_key: 密钥（可选，如果为 None 则自动获取）
-            base_url: API 基础 URL（默认使用本地 API 服务 192.168.166.151:8080）
+            base_url: API 基础 URL（建议使用公网地址）
             timeout: 请求超时时间（秒）
             max_retries: 最大重试次数
             enable_cache: 是否启用缓存
@@ -368,8 +407,12 @@ class ChanjingAPIV2:
             - 如果不提供：自动从环境变量或配置文件获取
         """
         # 🆕 先初始化基础配置（在自动认证之前）
-        # 优先使用传入的 base_url，其次从环境变量读取，最后使用默认值
-        self.base_url = base_url if base_url else os.getenv("CHANJING_BASE_URL", "http://192.168.166.151:8080")
+        # 优先使用传入的 base_url，其次从环境变量读取
+        self.base_url = _require_public_url(
+            base_url if base_url else os.getenv("CHANJING_BASE_URL", ""),
+            "CHANJING_BASE_URL",
+            allow_private=_allow_private_address(),
+        )
         self.timeout = timeout
         self.auto_auth = auto_auth
         
@@ -468,7 +511,11 @@ class ChanjingAPIV2:
             (app_id, secret_key) 元组，如果获取失败则返回 (None, None)
         """
         try:
-            url = base_url if base_url else "http://127.0.0.1:8080"
+            url = _require_public_url(
+                base_url,
+                "base_url",
+                allow_private=_allow_private_address(),
+            )
             
             # 尝试从本地 API 服务获取认证信息
             # 假设本地服务提供 /api/auth/chanjing 接口返回认证信息
@@ -576,6 +623,10 @@ class ChanjingAPIV2:
         self._access_token = None
         self._token_expires_at = None
         self._request_logger.warning("⚠️ 已清理缓存的蝉镜 access_token，将重新获取")
+
+    def get_access_token(self) -> str:
+        """公开返回 access_token，用于任务层重试刷新。"""
+        return self._get_access_token()
 
     @staticmethod
     def _is_auth_failure_response(result: Any) -> bool:
@@ -1095,7 +1146,116 @@ class ChanjingAPIV2:
             self._cache_set_v2(cache_key, response, ttl=60)
         
         return response
-    
+
+    def create_video(self, **video_params: Any) -> Dict[str, Any]:
+        """创建合成视频任务（兼容扁平参数和标准请求体）。"""
+        request_data = video_params
+        if "request" in request_data and isinstance(request_data.get("request"), dict):
+            merged = dict(request_data["request"])
+            merged.update({k: v for k, v in request_data.items() if k != "request"})
+            request_data = merged
+
+        payload: Dict[str, Any] = {}
+
+        # ---------- audio ----------
+        audio = request_data.get("audio")
+        if not isinstance(audio, dict):
+            audio = {}
+        else:
+            audio = dict(audio)
+
+        audio_type = audio.get("type") or request_data.get("audio_type")
+        if not audio_type:
+            if request_data.get("audio_file_id") or request_data.get("wav_url"):
+                audio_type = "audio"
+            elif request_data.get("text") is not None or request_data.get("audio_man_id") is not None:
+                audio_type = "tts"
+
+        if audio_type:
+            audio["type"] = audio_type
+
+        if request_data.get("language") is not None:
+            audio["language"] = request_data.get("language")
+        if request_data.get("language_boost") is not None:
+            audio["language_boost"] = request_data.get("language_boost")
+        if request_data.get("volume") is not None:
+            audio["volume"] = request_data.get("volume")
+
+        if audio_type == "audio":
+            if request_data.get("audio_file_id"):
+                audio["file_id"] = request_data.get("audio_file_id")
+            if request_data.get("wav_url"):
+                audio["wav_url"] = request_data.get("wav_url")
+        else:
+            tts_payload = dict(audio.get("tts") or {})
+            text_value = audio.get("tts", {}).get("text") if isinstance(audio.get("tts"), dict) else request_data.get("text")
+            if text_value is not None:
+                tts_payload["text"] = text_value if isinstance(text_value, list) else [text_value]
+            audio_man_id = request_data.get("audio_man_id")
+            if audio_man_id:
+                tts_payload["audio_man"] = audio_man_id
+            if request_data.get("speed") is not None:
+                tts_payload["speed"] = request_data.get("speed")
+            if request_data.get("pitch") is not None:
+                tts_payload["pitch"] = request_data.get("pitch")
+            audio["tts"] = tts_payload
+
+        if audio.get("type") == "tts" and not audio.get("tts"):
+            audio["tts"] = {"text": []}
+
+        payload["audio"] = {k: v for k, v in audio.items() if v is not None}
+
+        # ---------- person ----------
+        person = request_data.get("person")
+        if not isinstance(person, dict):
+            person = {}
+        else:
+            person = dict(person)
+
+        person.setdefault("id", request_data.get("digital_person_id") or request_data.get("person_id"))
+        if not person.get("id"):
+            raise ValueError("create_video 需要 digital_person_id / person_id")
+
+        for key, value in {
+            "figure_type": request_data.get("figure_type"),
+            "drive_mode": request_data.get("drive_mode"),
+            "backway": request_data.get("backway"),
+            "is_rgba_mode": request_data.get("is_rgba_mode"),
+            "x": request_data.get("person_x"),
+            "y": request_data.get("person_y"),
+            "width": request_data.get("person_width"),
+            "height": request_data.get("person_height"),
+            "source": request_data.get("source"),
+        }.items():
+            if value is not None:
+                person[key] = value
+        payload["person"] = {k: v for k, v in person.items() if v is not None}
+
+        # ---------- optional top-level ----------
+        for key, value in {
+            "bg_color": request_data.get("bg_color", "#EDEDED"),
+            "hide_subtitle": request_data.get("hide_subtitle"),
+            "subtitle_config": request_data.get("subtitle_config"),
+            "add_compliance_watermark": request_data.get("add_compliance_watermark"),
+            "compliance_watermark_position": request_data.get("compliance_watermark_position"),
+            "model": request_data.get("model"),
+            "resolution_rate": request_data.get("resolution_rate"),
+            "screen_width": request_data.get("screen_width"),
+            "screen_height": request_data.get("screen_height"),
+            "duration": request_data.get("duration"),
+            "callback": request_data.get("callback") or request_data.get("callback_url"),
+        }.items():
+            if value is not None:
+                payload[key] = value
+
+        bg_payload = request_data.get("bg")
+        if not isinstance(bg_payload, dict):
+            bg_payload = request_data.get("bg_params")
+        if isinstance(bg_payload, dict) and bg_payload:
+            payload["bg"] = {k: v for k, v in bg_payload.items() if v is not None}
+
+        return self._request("POST", self.ENDPOINT_CREATE_VIDEO, data=payload)
+
     def get_video_status(self, video_id: str) -> Dict[str, Any]:
         """
         获取视频制作状态
@@ -1107,11 +1267,51 @@ class ChanjingAPIV2:
             视频状态响应
         """
         params = {
-            "video_id": video_id
+            "id": video_id
         }
         
         return self._request("GET", self.ENDPOINT_VIDEO_STATUS, params=params)
-    
+
+    def delete_video(self, video_id: str) -> Dict[str, Any]:
+        """删除数字人视频任务。"""
+        return self._request("POST", self.ENDPOINT_DELETE_VIDEO, data={"id": video_id})
+
+    def delete_customised_audio(self, audio_id: str) -> Dict[str, Any]:
+        """删除定制声音。"""
+        return self._request("POST", self.ENDPOINT_DELETE_CUSTOMISED_AUDIO, data={"id": audio_id})
+
+    def delete_file(self, file_id: str) -> Dict[str, Any]:
+        """删除已上传文件。"""
+        return self._request("POST", self.ENDPOINT_DELETE_FILE, data={"id": file_id})
+
+    def download_video(self, video_url: str, output_path: str, timeout: Optional[int] = None) -> str:
+        """下载数字人视频文件到本地。"""
+        if not video_url:
+            raise ValueError("download_video 缺少 video_url")
+        if not output_path:
+            raise ValueError("download_video 缺少 output_path")
+
+        request_url = video_url
+        if video_url.startswith("/"):
+            request_url = f"{self.base_url.rstrip('/')}{video_url}"
+        elif not video_url.startswith(("http://", "https://")):
+            request_url = f"{self.base_url.rstrip('/')}/{video_url.lstrip('/')}"
+
+        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+        with requests_lib.get(request_url, stream=True, timeout=timeout or self.timeout) as response:
+            if response.status_code != 200:
+                raise Exception(f"下载数字人视频失败：HTTP {response.status_code} {response.text[:200]}")
+            with open(output_path, "wb") as file_obj:
+                for chunk in response.iter_content(chunk_size=1024 * 1024):
+                    if chunk:
+                        file_obj.write(chunk)
+        return output_path
+
+    def set_debug(self, enabled: bool = True):
+        """兼容旧版客户端，调整请求日志级别。"""
+        self._request_logger.setLevel(logging.DEBUG if enabled else logging.INFO)
+        return self
+
     # ============================================================
     # 健康检查方法
     # ============================================================
@@ -1228,7 +1428,7 @@ def create_chanjing_api_v2(
         app_id: 应用 ID（可选，不提供则自动获取）
         secret_key: 密钥（可选，不提供则自动获取）
         config: 配置字典，可包含：
-            - base_url: API 地址（默认：http://127.0.0.1:8080）
+            - base_url: API 地址（建议配置 CHANJING_BASE_URL）
             - timeout: 超时时间（默认：30）
             - max_retries: 最大重试次数（默认：3）
             - enable_cache: 是否启用缓存（默认：True）
@@ -1251,7 +1451,7 @@ def create_chanjing_api_v2(
         api = create_chanjing_api_v2(config={"timeout": 60, "max_retries": 5})
     """
     default_config = {
-        "base_url": os.getenv("CHANJING_BASE_URL", "http://192.168.166.151:8080"),
+        "base_url": os.getenv("CHANJING_BASE_URL", ""),
         "timeout": 30,
         "max_retries": 3,
         "enable_cache": True,

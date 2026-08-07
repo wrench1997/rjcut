@@ -32,6 +32,10 @@ export const getApiKey = () => {
   return DEFAULT_API_KEY;
 };
 
+function trimSlash(value) {
+  return String(value || '').trim().replace(/\/+$/, '');
+}
+
 // 创建 axios 实例
 const apiClient = axios.create({
   baseURL: getBaseUrl(),
@@ -265,6 +269,85 @@ export const getPersonSampleVideos = (person_id, limit = 10) => {
   if (person_id) params.append('person_id', person_id);
   return apiClient.get(`/v1/tasks?${params.toString()}&type=dh_generate`);
 };
+
+function toDigitalHumanPublicFilesPath(path) {
+  const value = String(path || '').trim();
+  if (!value) return '';
+  if (value.startsWith('/files/')) return value;
+  if (value.startsWith('/root/MuseTalk/data/')) return `/files${value.slice('/root/MuseTalk'.length)}`;
+  if (value.startsWith('/app/data/')) return `/files${value.slice('/app'.length)}`;
+  if (value.startsWith('/app/')) return `/files${value.slice('/app'.length)}`;
+  if (value.startsWith('/data/')) return `/files${value}`;
+  return '';
+}
+
+export const getDigitalHumanMediaUrl = (mediaUrl, baseUrl = getBaseUrl()) => {
+  const value = String(mediaUrl || '').trim();
+  if (!value) return '';
+
+  const base = trimSlash(baseUrl);
+
+  if (value.startsWith('data:') || value.startsWith('blob:')) {
+    return value;
+  }
+
+  if (value.startsWith('/dh/files/')) {
+    return `${base}${value}`;
+  }
+
+  if (value.startsWith('/files/')) {
+    return `${base}/dh${value}`;
+  }
+
+  if (
+    value.startsWith('/api_tasks/') ||
+    value.startsWith('/tasks/') ||
+    value.startsWith('/api-tasks/')
+  ) {
+    return `${base}/dh${value.startsWith('/') ? value : `/${value}`}`;
+  }
+
+  const normalizedPath = toDigitalHumanPublicFilesPath(value);
+  if (normalizedPath) {
+    return `${base}/dh${normalizedPath}`;
+  }
+
+  const v1DigitalHumanMatch = value.match(/^\/v1\/digital-human\/tasks\/([^/]+)\/files\/(.+)$/);
+  if (v1DigitalHumanMatch) {
+    return `${base}/dh/files/${v1DigitalHumanMatch[1]}/${v1DigitalHumanMatch[2]}`;
+  }
+
+  if (value.startsWith('/v1/dh/proxy-image')) {
+    try {
+      const parsed = new URL(value, base);
+      const proxyPath = parsed.searchParams.get('path');
+      if (proxyPath) {
+        const decoded = decodeURIComponent(proxyPath);
+        const resolved = getDigitalHumanMediaUrl(decoded, baseUrl);
+        if (resolved) return resolved;
+      }
+    } catch {}
+  }
+
+  if (/^https?:\/\//i.test(value)) {
+    try {
+      const parsed = new URL(value);
+      const pathname = parsed.pathname || '';
+      const mappedPath = toDigitalHumanPublicFilesPath(pathname);
+      if (mappedPath) return `${base}/dh${mappedPath}${parsed.search}`;
+      if (pathname.startsWith('/files/')) return `${base}/dh${pathname}${parsed.search}`;
+      if (pathname.startsWith('/api_tasks/')) return `${base}/dh${pathname}`;
+
+      const match = pathname.match(/^\/v1\/digital-human\/tasks\/([^/]+)\/files\/(.+)$/);
+      if (match) {
+        return `${base}/dh/files/${match[1]}/${match[2]}`;
+      }
+    } catch {}
+  }
+
+  return value;
+};
+
 // =====================================================
 // 图片代理
 // =====================================================
@@ -272,14 +355,59 @@ export const getPersonSampleVideos = (person_id, limit = 10) => {
 export const getImageProxyUrl = (imageUrl) => {
   if (!imageUrl) return null;
   const baseUrl = getBaseUrl();
+  const value = String(imageUrl || '').trim();
   
   // 获取 API Key
   const apiKey = typeof localStorage !== 'undefined'
     ? localStorage.getItem('rjcut_api_key') || DEFAULT_API_KEY
     : DEFAULT_API_KEY;
+
+  if (!value) return null;
+
+  const publicMediaUrl = getDigitalHumanMediaUrl(value, baseUrl);
+  if (publicMediaUrl && publicMediaUrl !== value) return publicMediaUrl;
+
+  // /files 路径直接走后端 /dh 反代，避免 fallback 到本地 proxy-image 接口。
+  if (value.startsWith('/files/')) {
+    return `${baseUrl}/dh${value}`;
+  }
+  
+  // 如果是 proxy-image 的返回式 URL，解析 path 参数后优先改写到 /dh/files。
+  if (value.startsWith('/v1/dh/proxy-image')) {
+    try {
+      const parsed = new URL(value, baseUrl);
+      const proxyPath = parsed.searchParams.get('path');
+      if (proxyPath) {
+        const decoded = decodeURIComponent(proxyPath);
+        if (decoded.startsWith('/files/')) {
+          return `${baseUrl}/dh${decoded}`;
+        }
+      }
+    } catch {}
+    
+    return `${baseUrl}${value}`;
+  }
+  
+  try {
+    const parsed = new URL(value, baseUrl);
+    if (parsed.pathname === '/v1/dh/proxy-image') {
+      const proxyPath = parsed.searchParams.get('path');
+      if (proxyPath) {
+        const decoded = decodeURIComponent(proxyPath);
+        if (decoded.startsWith('/files/')) {
+          return `${baseUrl}/dh${decoded}`;
+        }
+      }
+    }
+    if (parsed.pathname.startsWith('/files/')) {
+      return `${baseUrl}/dh${parsed.pathname}${parsed.search}`;
+    }
+  } catch {
+    // 不是合法 URL，交给后端 proxy-image 兜底。
+  }
   
   // 直接使用完整 URL 作为 path 参数（后端支持远程 URL 代理）
-  const path = imageUrl;
+  const path = value;
   
   // 使用 URL 编码传递图片路径和 API Key（通过 URL 参数传递，因为<img>标签无法携带 header）
   return `${baseUrl}/v1/dh/proxy-image?path=${encodeURIComponent(path)}&api_key=${encodeURIComponent(apiKey)}`;
@@ -293,13 +421,13 @@ export const getDigitalHumanImageUrl = (imageUrl) => {
   if (!value || value.startsWith('data:') || value.startsWith('blob:')) return value || null;
 
   if (value.startsWith('/v1/dh/proxy-image')) {
-    return `${getBaseUrl()}${value}`;
+    return getImageProxyUrl(value);
   }
 
   try {
     const parsed = new URL(value, getBaseUrl());
     if (parsed.pathname === '/v1/dh/proxy-image') {
-      return `${getBaseUrl()}${parsed.pathname}${parsed.search}`;
+      return getImageProxyUrl(`${parsed.pathname}${parsed.search}`);
     }
 
     // 文件服务地址可能来自后端数据库，也可能已经被旧前端拼成

@@ -2,11 +2,12 @@
 import uuid
 from datetime import datetime, timezone
 
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from sqlalchemy.orm import Session
 from redis import Redis
 from rq import Queue
 from rq.job import Job
+from urllib.parse import urlparse, urlunparse
 
 from config import get_settings
 from database import get_db
@@ -59,6 +60,59 @@ from fastapi.middleware.cors import CORSMiddleware
 settings = get_settings()
 app = FastAPI(title="RJCut Commercial API", version="1.0.0")
 
+
+def _normalize_chanjing_file_path(path: str) -> str | None:
+    if not path or not isinstance(path, str):
+        return None
+    if path.startswith("/files/"):
+        return path
+    if path.startswith("/root/MuseTalk/data/"):
+        return f"/files{path[len('/root/MuseTalk'): ]}"
+    if path.startswith("/app/data/"):
+        return f"/files{path[len('/app'):]}"
+    if path.startswith("/data/"):
+        return f"/files{path}"
+    return None
+
+
+def _normalize_chanjing_url(value: str) -> str:
+    raw = value.strip()
+    if not raw:
+        return raw
+
+    if raw.startswith("/files/"):
+        return raw
+
+    mapped = _normalize_chanjing_file_path(raw)
+    if mapped:
+        return mapped
+
+    parsed = urlparse(raw)
+    if parsed.scheme not in ("http", "https"):
+        return raw
+
+    normalized_path = _normalize_chanjing_file_path(parsed.path)
+    if not normalized_path:
+        return raw
+
+    rebuilt = parsed._replace(path=normalized_path)
+    return urlunparse(rebuilt)
+
+
+def _normalize_chanjing_payload(payload):
+    if isinstance(payload, dict):
+        return {k: _normalize_chanjing_payload(v) for k, v in payload.items()}
+    if isinstance(payload, list):
+        return [_normalize_chanjing_payload(item) for item in payload]
+    if isinstance(payload, str):
+        return _normalize_chanjing_url(payload)
+    return payload
+
+
+def _is_json_like_response(content_type: str) -> bool:
+    value = (content_type or "").lower()
+    return "json" in value or "+json" in value
+
 # 配置 CORS 中间件，允许跨域请求
 app.add_middleware(
     CORSMiddleware,
@@ -107,13 +161,41 @@ _DH_STRIP = {
     include_in_schema=False,
 )
 async def proxy_to_chanjing(rest: str, request: Request):
-    base = (settings.CHANJING_BASE_URL or "http://192.168.166.151:8080").rstrip("/")
+    base = (settings.CHANJING_BASE_URL or "").strip().rstrip("/")
+    if not base:
+        return JSONResponse(status_code=500, content={"code": 50000, "message": "数字人代理未配置：CHANJING_BASE_URL 为空", "data": None})
+    if (
+        not settings.ALLOW_PRIVATE_CHANJING and
+        base.startswith((
+            "http://192.168.", "http://10.", "http://172.", "http://127.", "http://localhost",
+            "https://192.168.", "https://10.", "https://172.", "https://127.", "https://localhost",
+        ))
+    ):
+        return JSONResponse(
+            status_code=500,
+            content={
+                "code": 50000,
+                "message": "数字人代理已拒绝内网地址：CHANJING_BASE_URL 当前为内网/回环地址",
+                "data": None
+            },
+        )
     target = f"{base}/{rest.lstrip('/')}"
     if request.url.query:
         target = f"{target}?{request.url.query}"
 
     fwd_headers = {k: v for k, v in request.headers.items() if k.lower() not in _DH_STRIP}
     body = await request.body()
+    content_type = request.headers.get("content-type", "").lower()
+    if body and request.method in {"POST", "PUT", "PATCH"} and "application/json" in content_type:
+        try:
+            payload = json.loads(body.decode("utf-8"))
+            normalized_payload = _normalize_chanjing_payload(payload)
+            if normalized_payload != payload:
+                normalized_body = json.dumps(normalized_payload, ensure_ascii=False).encode("utf-8")
+                body = normalized_body
+                fwd_headers["content-length"] = str(len(normalized_body))
+        except Exception:
+            pass
 
     client = _httpx.AsyncClient(timeout=_httpx.Timeout(connect=30.0, read=1800.0, write=1800.0, pool=30.0))
     try:
@@ -125,9 +207,34 @@ async def proxy_to_chanjing(rest: str, request: Request):
         await client.aclose()
         return JSONResponse(status_code=502, content={"code": 50200, "message": f"数字人代理失败：{exc}", "data": None})
 
-    # 透传响应头（去掉 hop-by-hop 与 content-length，保留 content-encoding 等），
-    # 用 aiter_raw 原样流式透传，由客户端按 content-encoding 自行解压。
+    # 透传响应头（去掉 hop-by-hop 与 content-length）
     resp_headers = {k: v for k, v in upstream.headers.items() if k.lower() not in _DH_STRIP}
+    upstream_content_type = upstream.headers.get("content-type", "")
+    if _is_json_like_response(upstream_content_type):
+        raw = await upstream.aread()
+        await upstream.aclose()
+        await client.aclose()
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+        except Exception:
+            resp_headers.pop("content-length", None)
+            return Response(
+                content=raw,
+                status_code=upstream.status_code,
+                headers=resp_headers,
+                media_type=upstream_content_type or "application/json",
+            )
+
+        normalized_payload = _normalize_chanjing_payload(payload)
+        body_bytes = json.dumps(normalized_payload, ensure_ascii=False).encode("utf-8")
+        resp_headers.pop("content-encoding", None)
+        resp_headers.pop("content-length", None)
+        return Response(
+            content=body_bytes,
+            status_code=upstream.status_code,
+            headers=resp_headers,
+            media_type="application/json",
+        )
 
     async def _stream():
         try:
