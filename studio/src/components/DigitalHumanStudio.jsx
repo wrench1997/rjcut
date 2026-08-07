@@ -2056,6 +2056,10 @@ const [cRes, pRes, vRes] = [commonPersonsRes, customPersonsRes, voicesRes]
 
     try {
       const apiKey = localStorage.getItem('rjcut_api_key')
+      const resolvedAudioManId = selectedVoice || selectedPersonDetails?.audio_man_id || ''
+      if (!resolvedAudioManId) {
+        throw new Error(`当前数字人“${selectedPerson.name || '未命名'}”缺少可用配音音色，请先选择配音后再生成`)
+      }
       const vfs = getVFS()
       
       // 以用户选择的 VFS 项目实际路径为准。
@@ -2086,12 +2090,12 @@ const [cRes, pRes, vRes] = [commonPersonsRes, customPersonsRes, voicesRes]
           // 8080 只接收一次完整口播。segments 只保存在 RJCut，用于后续模板混剪。
           const fullSpokenText = requireFullSpokenText(copywritingPlan, script.text)
           copywritingPlan.spoken_text = fullSpokenText
-          const audioManId = selectedVoice || selectedPersonDetails?.audio_man_id || ''
+          const audioManId = resolvedAudioManId
           const taskPayload = {
             text: fullSpokenText,
             // 不能再发送 selectedPerson.id：旧列表可能让多张卡片共用同一个 ID。
             person_id: selectedGenerationPersonId,
-            audio_man_id: audioManId || undefined,
+            audio_man_id: audioManId,
             figure_type: selectedPerson.figure_type || selectedPersonDetails?.figure_type || advancedSettings.figure_type || 'whole_body',
             hide_subtitle: advancedSettings.hide_subtitle !== false,
             extra: {

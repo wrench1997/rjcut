@@ -106,8 +106,8 @@ def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merch
             chanjing_file_id = api.upload_file(local_bg, service="background")
             bg_params = {"file_id": chanjing_file_id, "x": 0, "y": 0, "width": 1080, "height": 1920}
 
-        # 🆕 获取 audio_man_id：如果 payload 中未提供，则从数字人详情中获取原生声音 ID
-        # 前端发送的字段名是 audio_man_id
+        # 🆕 获取 audio_man_id：如果 payload 中未提供，则从数字人详情中获取原生声音 ID。
+        # 前端发送的字段名是 audio_man_id，禁止提交空字符串导致服务端回退到默认 TTS 音源。
         audio_man_id = payload.get("audio_man_id")
         logger.info(f"[DEBUG] payload keys: {list(payload.keys())}")
         logger.info(f"[DEBUG] audio_man_id from payload: {audio_man_id}")
@@ -122,9 +122,15 @@ def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merch
                 if audio_man_id:
                     logger.info(f"获取到数字人原生声音 ID: {audio_man_id}")
                 else:
-                    # 如果定制数字人没有 audio_man_id，返回错误，提示用户选择公共数字人
-                    logger.warning(f"数字人 {digital_person_id} 未关联声音 ID，将使用默认 TTS 配置")
-                    # 不抛出异常，允许继续执行（蝉镜 API 会处理）
+                    raise ValueError(
+                        f"数字人 {digital_person_id} 未关联声音 ID（audio_man_id 为空），"
+                        "请先在蝉镜端完成声音配置后再试"
+                    )
+        if not audio_man_id:
+            raise ValueError(
+                "数字人生成任务缺少 audio_man_id，"
+                "当前未提供配音且数字人原生音色不可用。请先选择配音角色或配置数字人声音"
+            )
         
         # 🎭 获取 figure_type：优先使用 payload 中传递的值（前端已根据数字人类型正确设置）
         figure_type = payload.get("figure_type")
@@ -178,8 +184,8 @@ def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merch
         if bg_params:
             video_params["bg_params"] = bg_params
         
-        # 始终传递 audio_man_id 字段，蝉镜 API 需要该字段（空字符串表示使用默认 TTS）
-        video_params["audio_man_id"] = audio_man_id or ""
+        # 必须传递 audio_man_id，空值会触发蝉镜默认人声导致“参考音频不存在”错误
+        video_params["audio_man_id"] = audio_man_id
         
         logger.info(f"调用蝉镜 create_video，参数：{json.dumps(video_params, ensure_ascii=False, default=str)}")
         

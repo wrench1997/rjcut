@@ -9,9 +9,9 @@ import {
   getCustomPersons,
   getVoices,
   getDigitalHumanImageUrl,
-  getBaseUrl,
 } from '../api/api'
 import { downloadDigitalHumanVideo } from '../features/digital-human-project/digitalHumanDownload'
+import { getDigitalHumanBaseUrl } from '../features/digital-human-project/digitalHumanApi'
 
 // =====================================================
 // 状态徽章组件
@@ -501,7 +501,7 @@ async function importVideoToVFS(vfs, projectPath, task, filename) {
   const taskPayload = task?.payload || task || {}
   const taskResult = task?.result || task || {}
   const taskId = task?.task_id || task?.id
-  const baseUrl = getBaseUrl()
+  const baseUrl = getDigitalHumanBaseUrl()
   try {
     const { blob, url, attempts } = await downloadDigitalHumanVideo({
       result: taskResult,

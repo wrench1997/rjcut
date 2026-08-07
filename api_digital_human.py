@@ -596,8 +596,10 @@ def get_custom_person_detail(
         "status": data.get('status', 0),
         "status_text": _get_person_status_text(data.get('status', 0)),
         "progress": data.get('progress', 0),
+        "audio_man_id": data.get('audio_man_id'),
         "cover_url": cover_url,
         "video_url": data.get('video_url'),  # 训练完成的示例视频
+        "figure_type": data.get('type', ''),
         "created_at": local_person.created_at.isoformat() if local_person and local_person.created_at else None
     }
     
