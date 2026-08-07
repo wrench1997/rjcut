@@ -643,8 +643,22 @@ def get_custom_person_detail(
         return _upstream_error_response("获取自定义数字人详情", RuntimeError(f"上游响应格式异常: {status_resp}"), logger)
 
     if not ChanjingStatusCode.is_success(status_resp.get('code')):
-        msg = ChanjingStatusCode.get_msg(status_resp.get('code')) if status_resp.get('code') is not None else "获取自定义数字人详情失败"
-        return fail(50000, msg, status_code=400)
+        upstream_code = status_resp.get("code")
+        upstream_msg = (
+            status_resp.get("msg")
+            or status_resp.get("message")
+            or status_resp.get("error_message")
+            or status_resp.get("error")
+            or ChanjingStatusCode.get_msg(upstream_code)
+        )
+        if isinstance(upstream_msg, dict):
+            upstream_msg = upstream_msg.get("message") or str(upstream_msg)
+        # 对于 code_map 未覆盖的码，不再直接隐藏为“未知错误”
+        if upstream_msg == "未知错误" and upstream_code is not None:
+            upstream_msg = f"未知错误(上游码: {upstream_code})"
+        detail = f"获取自定义数字人详情失败：{upstream_msg}"
+        logger.error("自定义数字人详情上游失败: code=%s msg=%s raw=%r", upstream_code, upstream_msg, status_resp)
+        return fail(50000, detail, status_code=400)
     
     data = status_resp.get('data', {})
     
