@@ -38,7 +38,7 @@ class SubtitleConfig(BaseModel):
     highlight_color: str = "gold"
     font_url: Optional[str] = None
     font_size: int = 88
-    max_chars_per_line: int = 15
+    max_chars_per_line: int = 18
     position: str = "bottom"
     margin_v: int = 50
     margin_l: int = 10
@@ -392,3 +392,4 @@ class VisualScriptTaskResult(BaseModel):
     selected_clips: int = 0  # 选中镜头数
     uncovered_beats: int = 0  # 未覆盖的脚本行数
     total_duration: float = 0.0  # 总时长（秒）
+

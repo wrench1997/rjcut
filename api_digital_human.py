@@ -503,12 +503,8 @@ def get_custom_person_detail(
     # 在更新本地数据库记录时，添加 audio_man_id 的同步
     if local_person:
         chanjing_status = data.get('status', 0)
-        # 映射蝉镜状态到本地状态，与 worker (tasks/chanjing_video.py:413) 判定保持一致：
-        # 1=已完成, 2=已完成(实际 API 返回，需配合 progress=100) → 30
-        # 4/40/-1 → 40 失败；其余(含 0 定制中) → 10 训练中
-        # 注意：原注释“1=制作中”是错误的，蝉镜 OpenAPI 文档定义 1=已完成
-        local_status = 30 if chanjing_status in (1, 2) else (40 if chanjing_status in (4, 40, -1) else 10)
-        
+        # 根据 chanjing_api.py 定义：1=制作中，2=成功，4=失败
+        local_status = 30 if chanjing_status in (1, 2) else (40 if chanjing_status in (4, 40, -1) else 10)        
         local_person.status = local_status
         # 🎬 不要覆盖本地封面！本地存储的是从源视频第一帧提取的封面，比蝉镜的默认头像更有意义
         # local_person.cover_url = data.get('cover_url')
@@ -697,11 +693,8 @@ def sync_custom_persons(
         
         audio_man_id = person_data.get('audio_man_id')  # 🆕 获取声音 ID
         
-        # 映射蝉镜状态到本地状态，与 worker (tasks/chanjing_video.py:413) 判定保持一致：
-        # 1=已完成, 2=已完成(实际 API 返回，需配合 progress=100) → 30
-        # 4/40/-1 → 40 失败；其余(含 0 定制中) → 10 训练中
-        # 注意：原注释“1=制作中”是错误的，蝉镜 OpenAPI 文档定义 1=已完成
-        local_status = 30 if chanjing_status in (1, 2) else (40 if chanjing_status in (4, 40, -1) else 10)
+        # 映射蝉镜状态到本地状态 (根据 chanjing_api.py：1=制作中，2=成功，4=失败)
+        local_status = 30 if chanjing_status == 2 else (40 if chanjing_status in (4, 40, -1) else 10)
         
         # 检查是否已存在
         existing = (

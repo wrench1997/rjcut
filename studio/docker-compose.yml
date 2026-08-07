@@ -53,7 +53,7 @@ services:
       - /app/node_modules
     environment:
       - NODE_ENV=development
-      - NEXT_PUBLIC_API_BASE_URL=http://192.168.166.151:8001
+      - VITE_API_BASE_URL=http://localhost:8000
     command: npm run dev -- --host 0.0.0.0
     restart: unless-stopped
 
@@ -66,7 +66,7 @@ services:
     ports:
       - "80:80"
     environment:
-      - NEXT_PUBLIC_API_BASE_URL=http://192.168.166.151:8001
+      - VITE_API_BASE_URL=http://localhost:8000
     restart: unless-stopped
     depends_on:
       - studio-dev
