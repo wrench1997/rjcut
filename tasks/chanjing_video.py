@@ -197,9 +197,9 @@ def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merch
             "add_compliance_watermark": payload.get("add_compliance_watermark", True),
             "compliance_watermark_position": payload.get("compliance_watermark_position", 0),
             
-            # 回调
-            "callback": payload.get("callback_url"),
-        }
+        # 回调
+        "callback": payload.get("callback_url"),
+    }
 
         if bg_params:
             video_params["bg_params"] = bg_params
@@ -225,11 +225,16 @@ def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merch
         _update_task(task_id, progress=10, stage="waiting_chanjing_render")
 
         chanjing_video_url = None
+        render_timeout_seconds = int(payload.get("timeout_seconds") or 600)
+        if render_timeout_seconds < 60:
+            render_timeout_seconds = 60
+        render_poll_interval = 10
+        max_poll_count = max(1, int(render_timeout_seconds / render_poll_interval))
         if hasattr(api, "set_debug"):
             api.set_debug(True)  # 兼容旧客户端的调试开关
         poll_count = 0
         last_status = None
-        for _ in range(180):
+        for _ in range(max_poll_count):
             poll_count += 1
             if _is_task_cancelled(task_id):
                 raise InterruptedError("task cancelled")
@@ -282,7 +287,7 @@ def run_dh_generate_video_task(task_id: str, payload: dict, trace_id: str, merch
             time.sleep(10)
 
         if not chanjing_video_url:
-            raise Exception("等待蝉镜渲染超时 (30 分钟)")
+            raise Exception(f"等待蝉镜渲染超时 ({render_timeout_seconds} 秒)")
 
         _update_task(task_id, progress=90, stage="uploading_results")
         local_result = os.path.join(task_dir, "final.mp4")
