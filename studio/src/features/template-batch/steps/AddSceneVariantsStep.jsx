@@ -2,7 +2,7 @@
  * 模板混剪 - 步骤 3：添加场景版本
  * 支持添加多个场景版本，每个版本对应一条最终视频
  */
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { CirclePlus, Copy, Trash2, AlertTriangle, BadgeCheck, Loader2, WandSparkles, ArrowUp, X, Layers, Film, FolderOpen, FileVideo, House, Sparkles as SparklesIcon } from 'lucide-react'
 import { getTemplateById } from '../templateRegistry.js'
 import { aiSuggestSlotFiles, aiAutoCreateScene } from '../aiAssistant.js'
@@ -64,7 +64,8 @@ export default function AddSceneVariantsStep({ draft, updateDraft, vfs, apiKey }
       alert(`AI 分析完成，已生成 ${suggestions.length} 个素材位推荐`)
     } catch (error) {
       console.error('AI 素材分析失败:', error)
-      alert('AI 分析失败，请稍后重试')
+      const reason = error?.message || String(error) || '未知错误'
+      alert(`AI 分析失败：${reason}\n\n若反复失败，请检查后端 AI Gateway 服务是否正常，以及模型名是否正确`)
     } finally {
       setIsAnalyzing(false)
     }
@@ -109,7 +110,8 @@ export default function AddSceneVariantsStep({ draft, updateDraft, vfs, apiKey }
       setAiSuggestion(null)
     } catch (error) {
       console.error('AI 自动生成失败:', error)
-      alert('AI 生成失败，请稍后重试')
+      const reason = error?.message || String(error) || '未知错误'
+      alert(`AI 生成失败：${reason}`)
     } finally {
       setIsAutoCreating(false)
     }
@@ -365,15 +367,15 @@ export default function AddSceneVariantsStep({ draft, updateDraft, vfs, apiKey }
                         <span className="text-xs font-medium text-purple-700">
                           {slotSuggestion.slotTitle}
                         </span>
-                        {slotSuggestion.files.length > 0 && (
+                        {(slotSuggestion.files?.length > 0) && (
                           <span className="text-xs px-2 py-0.5 bg-green-100 text-green-700 rounded-full">
-                            匹配度 {(slotSuggestion.confidence * 100).toFixed(0)}%
+                            匹配度 {((slotSuggestion.confidence || 0) * 100).toFixed(0)}%
                           </span>
                         )}
                       </div>
-                      {slotSuggestion.files.length > 0 ? (
+                      {(slotSuggestion.files?.length > 0) ? (
                         <div className="flex flex-wrap gap-1">
-                          {slotSuggestion.files.map((file) => (
+                          {(slotSuggestion.files || []).map((file) => (
                             <div
                               key={file.path}
                               className="inline-flex items-center gap-1 px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs"
@@ -733,10 +735,11 @@ function VfsFileBrowser({ vfs, currentPath, onSelect, onClose, acceptTypes }) {
 
   const [items, setItems] = useState([])
 
-  // 使用正确的 useEffect 方式
-  if (typeof window !== 'undefined' && items.length === 0 && path === '/') {
+  // 初次挂载加载根目录（避免在渲染过程中 setState，原代码注释与实现不符）
+  useEffect(() => {
     loadDirectory('/').then(setItems)
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const parentPath = path === '/' ? '/' : path.substring(0, path.lastIndexOf('/')) || '/'
 
