@@ -631,15 +631,59 @@ def get_custom_person_detail(
     import logging
     logger = logging.getLogger("uvicorn.error")
     api = get_chanjing_api()
-    
+
+    # 先取本地记录，用于上游异常时的降级返回
+    local_person = (
+        db.query(DhCustomPerson)
+        .filter(
+            DhCustomPerson.merchant_id == merchant.id,
+            DhCustomPerson.chanjing_person_id == person_id
+        )
+        .first()
+    )
+
+    def _to_local_fallback(person):
+        if not person:
+            return None
+        cover_url = person.cover_url or ''
+        if cover_url:
+            is_local_path = (
+                cover_url.startswith('/root/') or
+                cover_url.startswith('/data/') or
+                cover_url.startswith('/app/') or
+                cover_url.startswith('http://') or
+                cover_url.startswith('https://') or
+                (len(cover_url) >= 3 and cover_url[1] == ':' and cover_url[2] in ('/', '\\'))
+            )
+            if is_local_path:
+                cover_url = _to_public_media_url(cover_url)
+        return {
+            "id": person_id,
+            "name": person.name,
+            "status": person.status,
+            "status_text": _get_person_status_text(person.status),
+            "progress": 0,
+            "audio_man_id": person.audio_man_id or '',
+            "cover_url": cover_url,
+            "video_url": None,
+            "figure_type": person.figure_type or '',
+            "created_at": person.created_at.isoformat() if person.created_at else None,
+        }
+
     # 先从蝉镜 API 获取最新状态（使用缓存降低并发）
     try:
         status_resp = api.get_customised_person_status(person_id, use_cache=True)
     except Exception as e:
+        if local_person:
+            logger.warning("上游获取自定义数字人详情失败，已降级返回本地数据: %s", str(e))
+            return ok(_to_local_fallback(local_person))
         return _upstream_error_response("获取自定义数字人详情", e, logger)
 
     # 兼容返回空 / 非字典 / 缺失 code 的异常数据
     if not isinstance(status_resp, dict) or 'data' not in status_resp:
+        if local_person:
+            logger.warning("上游响应格式异常，已降级返回本地数据: %r", status_resp)
+            return ok(_to_local_fallback(local_person))
         return _upstream_error_response("获取自定义数字人详情", RuntimeError(f"上游响应格式异常: {status_resp}"), logger)
 
     if not ChanjingStatusCode.is_success(status_resp.get('code')):
@@ -658,20 +702,16 @@ def get_custom_person_detail(
             upstream_msg = f"未知错误(上游码: {upstream_code})"
         detail = f"获取自定义数字人详情失败：{upstream_msg}"
         logger.error("自定义数字人详情上游失败: code=%s msg=%s raw=%r", upstream_code, upstream_msg, status_resp)
+        # 某些自定义数字人可能已完成训练但上游状态接口偶发返回不存在，给 UI 降级可用本地数据继续使用。
+        if local_person and (str(upstream_code) in {"404", "40400", "400"} or "不存在" in str(upstream_msg)):
+            fallback = _to_local_fallback(local_person)
+            fallback["detail"] = detail
+            return ok(fallback)
         return fail(50000, detail, status_code=400)
     
     data = status_resp.get('data', {})
     
     # 更新本地数据库记录（如果存在）
-    local_person = (
-        db.query(DhCustomPerson)
-        .filter(
-            DhCustomPerson.merchant_id == merchant.id,
-            DhCustomPerson.chanjing_person_id == person_id
-        )
-        .first()
-    )
-    
     # 在更新本地数据库记录时，添加 audio_man_id 的同步
     if local_person:
         chanjing_status = data.get('status', 0)
