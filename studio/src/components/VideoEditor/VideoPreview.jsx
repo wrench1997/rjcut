@@ -87,7 +87,7 @@ export default function VideoPreview({ project = null }) {
   const activeClip = getActiveClip()
   const activeMedia = activeClip ? mediaFiles[activeClip.mediaId] : null
   const activeMediaKey = activeMedia ? `${activeMedia.id}:${activeMedia.type}` : ''
-  const subtitle = getActiveSubtitle(project, currentTime_ms)
+  const subtitle = getActiveSubtitle(project, currentTime_ms, clips)
 
   const clearCanvas = () => {
     const canvas = canvasRef.current
@@ -342,7 +342,31 @@ export default function VideoPreview({ project = null }) {
   )
 }
 
-function getActiveSubtitle(project, currentTimeMs) {
+function getActiveSubtitle(project, currentTimeMs, timelineClips = []) {
+  const subtitleClip = timelineClips.find((clip) => (
+    clip.type === 'subtitle'
+    && currentTimeMs >= clip.start_ms
+    && currentTimeMs < clip.start_ms + clip.duration_ms
+  ))
+  if (subtitleClip) {
+    const textCharacters = Array.from(String(subtitleClip.content || ''))
+    const sourceTimings = Array.isArray(subtitleClip.char_timings) ? subtitleClip.char_timings : []
+    const activeCharacterIndex = sourceTimings.findIndex((character) => {
+      const sourceStart = Number(character.start_ms ?? Number(character.start || 0) * 1000)
+      const sourceEnd = Number(character.end_ms ?? Number(character.end || 0) * 1000)
+      const relocatedStart = subtitleClip.start_ms + sourceStart - (Number(sourceTimings[0]?.start_ms) || sourceStart)
+      const relocatedEnd = relocatedStart + Math.max(1, sourceEnd - sourceStart)
+      return currentTimeMs >= relocatedStart && currentTimeMs < relocatedEnd
+    })
+    return {
+      chars: textCharacters.map((char, index) => ({
+        ...(sourceTimings[index] || {}),
+        char,
+        index,
+        active: index === activeCharacterIndex,
+      })),
+    }
+  }
   const segments = Array.isArray(project?.segments)
     ? project.segments
     : Array.isArray(project?.timeline?.segments) ? project.timeline.segments : []

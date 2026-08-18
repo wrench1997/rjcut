@@ -5,7 +5,7 @@
  * 不再复用草稿 id，也不会因为旧输出已存在而跳过本次渲染。
  */
 import { getTemplateById } from './templateRegistry.js'
-import { analyzeMaterialCoverage, buildBoundLocalTimeline } from '../digital-human-project/digitalHumanProject.js'
+import { analyzeMaterialCoverage, buildBoundLocalTimeline, validateExclusiveSlotBindings } from '../digital-human-project/digitalHumanProject.js'
 import { buildTemplateTaskPaths, buildTemplateRunDirectory, createTemplateRunId } from './templateRunPaths.js'
 import { clampTemplateTimelineToSpeechEnd, getTemplateSpeechEndMs } from './templateTimeline.js'
 import { hydrateSceneMaterialDurations } from './templateMediaDuration.js'
@@ -86,6 +86,9 @@ export function validateTemplateRunDraft(draft, stepId) {
           .filter((slot) => (scene.bindings?.[slot.id]?.files?.length || 0) < slot.minFiles)
           .map((slot) => slot.title)
         if (missing.length) errors.push(`${scene.name || `场景版本 ${index + 1}`} 缺少素材：${missing.join('、')}`)
+        errors.push(...validateExclusiveSlotBindings(template, scene).map(
+          (message) => `${scene.name || `场景版本 ${index + 1}`}：${message}`,
+        ))
       })
     }
   }

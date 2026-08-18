@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from redis import Redis
 from rq import Queue
 from rq.job import Job
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import quote, unquote, urlparse, urlunparse
 
 from config import get_settings
 from database import get_db
@@ -37,6 +37,7 @@ from oss import (
 from admin_api import router as admin_router
 from api_digital_human import router as dh_router
 from api_ai_copywriting import router as ai_copywriting_router
+from api_text_to_video import router as text_to_video_router
 
 from draft_utils import (
     apply_corrections_to_editable_script,
@@ -125,12 +126,34 @@ def _normalize_chanjing_url(value: str) -> str:
 
 def _normalize_chanjing_payload(payload):
     if isinstance(payload, dict):
-        return {k: _normalize_chanjing_payload(v) for k, v in payload.items()}
+        normalized = {k: _normalize_chanjing_payload(v) for k, v in payload.items()}
+        # audio_man_id 是 MuseTalk 的本地音色引用，不是给浏览器播放的 URL。
+        # EXE 经公网 /dh 代理时可能把 audition URL 带回来；转发到 151:8080 前
+        # 必须还原成 data/audio 下的文件名，避免 MuseTalk 把 http:/... 当目录名。
+        if "audio_man_id" in normalized:
+            normalized["audio_man_id"] = _normalize_chanjing_audio_ref(normalized["audio_man_id"])
+        return normalized
     if isinstance(payload, list):
         return [_normalize_chanjing_payload(item) for item in payload]
     if isinstance(payload, str):
         return _normalize_chanjing_url(payload)
     return payload
+
+
+def _normalize_chanjing_audio_ref(value):
+    if not isinstance(value, str):
+        return value
+    raw = value.strip()
+    if not raw:
+        return raw
+    parsed = urlparse(raw)
+    path = unquote(parsed.path if parsed.scheme in ("http", "https") else raw)
+    marker = "/files/data/audio/"
+    if marker in path:
+        filename = path.split(marker, 1)[1].strip("/")
+        if filename and "/" not in filename and "\\" not in filename:
+            return filename
+    return raw
 
 
 def _is_json_like_response(content_type: str) -> bool:
@@ -157,6 +180,7 @@ app.add_middleware(
 app.include_router(admin_router)
 app.include_router(dh_router)
 app.include_router(ai_copywriting_router)
+app.include_router(text_to_video_router)
 
 # 🖼️ 单独注册不需要认证的代理图片接口（在 router 之后注册，覆盖需要认证版本）
 from api_digital_human import proxy_image_no_auth
@@ -1019,6 +1043,48 @@ def get_task_file_download_url(
     })
 
 
+@app.get("/v1/tasks/{task_id}/files/{file_key}/content")
+def stream_task_file(
+    task_id: str,
+    file_key: str,
+    merchant: Merchant = Depends(verify_api_key),
+    db: Session = Depends(get_db),
+):
+    """通过系统 API 下载任务文件，避免 EXE 直接访问内部 MinIO 地址。"""
+    task = db.query(Task).filter(Task.id == task_id, Task.merchant_id == merchant.id).first()
+    if not task:
+        return fail(40400, "task not found", status_code=404)
+
+    file_info = ((task.result or {}).get("files") or {}).get(file_key)
+    if not file_info:
+        return fail(40401, f"file key not found: {file_key}", status_code=404)
+    oss_key = file_info.get("oss_key")
+    if not oss_key:
+        return fail(40402, f"file not ready: {file_key}", status_code=404)
+
+    try:
+        response = get_minio_client().get_object(settings.MINIO_BUCKET, oss_key)
+    except Exception as exc:
+        return fail(50201, f"storage read failed: {exc}", status_code=502)
+
+    def _stream():
+        try:
+            for chunk in response.stream(1024 * 1024):
+                if chunk:
+                    yield chunk
+        finally:
+            response.close()
+            response.release_conn()
+
+    filename = str(file_info.get("filename") or file_key)
+    media_type = str(file_info.get("content_type") or file_info.get("mime_type") or "application/octet-stream")
+    headers = {
+        "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}",
+        "Cache-Control": "private, no-store",
+    }
+    return StreamingResponse(_stream(), media_type=media_type, headers=headers)
+
+
 @app.post("/v1/admin/storage/cleanup")
 def cleanup_expired_files(
     batch_size: int = Query(100, ge=1, le=1000),
@@ -1255,6 +1321,8 @@ async def generate_script(
     farm_scale = body.get("farm_scale", "自家鹿场养殖")
     identification_points = body.get("identification_points", "颜色、状态、溯源信息")
     call_to_action = body.get("call_to_action", "点击下方链接/评论区留言")
+    target_min_chars = body.get("target_min_chars", 180)
+    target_max_chars = body.get("target_max_chars", 260)
 
     try:
         result = await ai_generate_script_via_gateway(
@@ -1268,6 +1336,9 @@ async def generate_script(
             farm_scale=farm_scale,
             identification_points=identification_points,
             call_to_action=call_to_action,
+            target_min_chars=target_min_chars,
+            target_max_chars=target_max_chars,
+            request=request,
         )
     except ValueError as exc:
         # 参数或提示词问题属于客户端可修复错误，不能冒泡成 ASGI 500。
@@ -1321,6 +1392,7 @@ async def recommend_templates(
         product_keyword=product_keyword,
         category=category,
         templates=templates,
+        request=request,
     )
 
     if result["success"]:
@@ -1357,6 +1429,7 @@ async def analyze_videos(
     result = await ai_analyze_videos_via_gateway(
         video_files=video_files,
         template_slots=template_slots,
+        request=request,
     )
 
     if result["success"]:
@@ -1413,6 +1486,7 @@ async def generate_template(
         style=style,
         transition_count=transition_count,
         file_names=file_names,
+        request=request,
     )
 
     if result["success"]:

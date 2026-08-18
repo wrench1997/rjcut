@@ -1,4 +1,4 @@
-# codex_qwen_gateway.py
+# rjcut_ai_gateway.py
 import asyncio
 import json
 import os
@@ -19,7 +19,34 @@ from fastapi.responses import JSONResponse, StreamingResponse
 # =========================================================
 
 VLLM_BASE_URL = os.getenv("VLLM_BASE_URL", "http://yourserver:7980")
-MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen3.5-397B-A17B-FP8")
+MODEL_NAME = os.getenv("MODEL_NAME", "DeepSeek-V4-Flash-0731")
+# 上游 GenVideos 网关统一 API Key（DeepSeek / H3 共用一把 Key）。
+GENVIDEOS_API_KEY = os.getenv("GENVIDEOS_API_KEY", "")
+
+
+def _upstream_headers(req: Request = None) -> dict:
+    """上游 GenVideos 网关 Bearer 鉴权头。
+
+    优先从 incoming header 读取（X-Genvideos-Api-Key / X-Deepseek-Api-Key），
+    未提供时回退到环境变量 GENVIDEOS_API_KEY。
+    """
+    key = ""
+    if req is not None:
+        headers = getattr(req, "headers", None)
+        if headers:
+            for name in ("X-Genvideos-Api-Key", "X-Deepseek-Api-Key", "X-H3-Api-Key"):
+                value = headers.get(name)
+                if value and value.strip():
+                    key = value.strip()
+                    break
+    if not key:
+        key = (GENVIDEOS_API_KEY or "").strip()
+    return {"Authorization": f"Bearer {key}"} if key else {}
+
+
+def is_qwen_model(model_name: str) -> bool:
+    """Qwen-only chat-template switches must not leak into other models."""
+    return "qwen" in str(model_name or "").lower()
 # vLLM Metrics 端点 URL（从基础 URL 派生）
 METRICS_URL = VLLM_BASE_URL.rstrip("/") + "/metrics"
 # 数据刷新频率（秒）
@@ -44,7 +71,7 @@ async def readyz():
     """网关就绪探针：用于人工/监控判断当前能否访问模型。"""
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(connect=3, read=5, write=3, pool=3)) as client:
-            response = await client.get(f"{VLLM_BASE_URL}/v1/models")
+            response = await client.get(f"{VLLM_BASE_URL}/v1/models", headers=_upstream_headers())
         response.raise_for_status()
         return {"status": "ready", "upstream": "ok"}
     except Exception as exc:
@@ -57,7 +84,7 @@ async def readyz():
 def fetch_metrics(url):
     """从 vLLM metrics 端点获取数据"""
     try:
-        req = urllib.request.Request(url)
+        req = urllib.request.Request(url, headers=_upstream_headers())
         with urllib.request.urlopen(req, timeout=5) as response:
             metrics_text = response.read().decode('utf-8')
             
@@ -78,8 +105,8 @@ def fetch_metrics(url):
 def extract_metric(metrics_text, metric_name, label_value=None):
     """
     正则匹配 Prometheus 格式数据，支持 label 过滤
-    例如：vllm:gpu_prefix_cache_hit_rate{model="Qwen/Qwen3.5-397B-A17B-FP8"} 0.452
-    或：vllm:prefix_cache_hits_total{engine="0",model_name="Qwen/Qwen3.5-397B-A17B-FP8"} 102432.0
+    例如：vllm:gpu_prefix_cache_hit_rate{model="DeepSeek-V4-Flash-0731"} 0.452
+    或：vllm:prefix_cache_hits_total{engine="0",model_name="DeepSeek-V4-Flash-0731"} 102432.0
     """
     if label_value:
         # 带 label 过滤的匹配
@@ -555,7 +582,7 @@ def convert_responses_input(input_items, tools=None):
 # VLLM STREAM
 # =========================================================
 
-async def vllm_stream(payload):
+async def vllm_stream(payload, req: Request = None):
     """流式请求 vLLM，并测量 TTFT 用于缓存命中判断"""
     # 添加 stream_options 以请求 vLLM 返回 usage 信息
     payload_with_usage = payload.copy()
@@ -566,7 +593,7 @@ async def vllm_stream(payload):
     first_token_received = False
     
     async with httpx.AsyncClient(timeout=None) as client:
-        async with client.stream("POST", f"{VLLM_BASE_URL}/v1/chat/completions", json=payload_with_usage) as r:
+        async with client.stream("POST", f"{VLLM_BASE_URL}/v1/chat/completions", json=payload_with_usage, headers=_upstream_headers(req)) as r:
             async for line in r.aiter_lines():
                 if not line or not line.startswith("data:"): continue
                 data = line[5:].strip()
@@ -616,7 +643,7 @@ def _is_retryable_status(status_code: int) -> bool:
     return status_code in (408, 429, 500, 502, 503, 504)
 
 
-async def request_vllm_json(payload: dict) -> dict:
+async def request_vllm_json(payload: dict, req: Request = None) -> dict:
     """稳定地请求上游并返回标准 Chat Completions JSON。
 
     旧实现把 *所有* 非流式请求强行改成 SSE 再自行拼接；上游在连接中断、
@@ -633,6 +660,7 @@ async def request_vllm_json(payload: dict) -> dict:
                 response = await client.post(
                     f"{VLLM_BASE_URL}/v1/chat/completions",
                     json=request_payload,
+                    headers=_upstream_headers(req),
                 )
             if _is_retryable_status(response.status_code) and attempt < UPSTREAM_MAX_RETRIES:
                 last_error = httpx.HTTPStatusError(
@@ -687,7 +715,7 @@ def gateway_error_response(exc: Exception) -> JSONResponse:
 async def models():
     return {
         "object": "list",
-        "data": [{"id": MODEL_NAME, "object": "model", "owned_by": "qwen", "permission": [], "context_length": 262144}],
+        "data": [{"id": MODEL_NAME, "object": "model", "owned_by": "deepseek", "permission": [], "context_length": 131072}],
     }
 
 # =========================================================
@@ -704,31 +732,15 @@ async def responses(req: Request):
     
     messages = convert_responses_input(body.get("input", []), tools)
     
-    # Qwen3.5 开启思考模式的参数
-    extra_body = {
-        "enable_thinking": True,
-        "thinking_enabled": True,
-    }
-    # 传递用户请求中的 thinking 参数
-    if body.get("enable_thinking") is not None:
-        extra_body["enable_thinking"] = body.get("enable_thinking")
-    if body.get("thinking_enabled") is not None:
-        extra_body["thinking_enabled"] = body.get("thinking_enabled")
-
     payload = {
         "model": model,
         "messages": messages,
         "stream": stream,
         "temperature": body.get("temperature", 0.2),
-        "extra_body": extra_body,
-        # 某些 vLLM 版本需要在顶层传递
-        "enable_thinking": True,
-        "thinking_enabled": True,
     }
-
-    # 调试：打印请求参数
-    print(f"[Gateway] 完整 payload extra_body: {extra_body}")
-    print(f"[Gateway] 顶层 enable_thinking: {payload.get('enable_thinking')}")
+    if is_qwen_model(model):
+        enable_thinking = body.get("enable_thinking", body.get("thinking_enabled", True))
+        payload["chat_template_kwargs"] = {"enable_thinking": bool(enable_thinking)}
 
     # =====================================
     # STREAM
@@ -751,7 +763,7 @@ async def responses(req: Request):
             message_item_created = False
             content_part_created = False
 
-            async for chunk in vllm_stream(payload):
+            async for chunk in vllm_stream(payload, req):
                 # ------------------------------------
                 # 遇到 [DONE] 时统一结算：支持 纯文本 / 纯工具 / 文本+工具混合
                 # ------------------------------------
@@ -855,7 +867,7 @@ async def responses(req: Request):
     # NON-STREAMING (兜底)
     # =====================================
     async with httpx.AsyncClient(timeout=1800) as client:
-        r = await client.post(f"{VLLM_BASE_URL}/v1/chat/completions", json=payload)
+        r = await client.post(f"{VLLM_BASE_URL}/v1/chat/completions", json=payload, headers=_upstream_headers(req))
     data = r.json()
     
     # 统计 token 使用（非流式模式）
@@ -914,19 +926,17 @@ async def chat_completions(req: Request):
         if body.get("response_format"):
             chat_payload["response_format"] = body["response_format"]
         
-        # vLLM 不会读取 OpenAI SDK 内部的 extra_body 字段；Qwen 的开关必须
-        # 放在 chat_template_kwargs。旧写法导致“关闭思考”被静默忽略，模型把
-        # 输出额度耗在 reasoning，最终 content 为空。
-        extra_body = body.get("extra_body") if isinstance(body.get("extra_body"), dict) else {}
         template_kwargs = dict(body.get("chat_template_kwargs") or {})
-        if "enable_thinking" in extra_body:
-            template_kwargs["enable_thinking"] = bool(extra_body["enable_thinking"])
-        elif "thinking_enabled" in extra_body:
-            template_kwargs["enable_thinking"] = bool(extra_body["thinking_enabled"])
+        if is_qwen_model(model):
+            extra_body = body.get("extra_body") if isinstance(body.get("extra_body"), dict) else {}
+            if "enable_thinking" in extra_body:
+                template_kwargs["enable_thinking"] = bool(extra_body["enable_thinking"])
+            elif "thinking_enabled" in extra_body:
+                template_kwargs["enable_thinking"] = bool(extra_body["thinking_enabled"])
         if template_kwargs:
             chat_payload["chat_template_kwargs"] = template_kwargs
         
-        response_data = await request_vllm_json(chat_payload)
+        response_data = await request_vllm_json(chat_payload, req)
         print("[Gateway] upstream JSON completed")
 
         # 直接返回 vLLM 的 Chat Completions 格式响应

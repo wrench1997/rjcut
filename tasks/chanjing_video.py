@@ -11,6 +11,7 @@ import subprocess
 import traceback
 import time
 import binascii
+from urllib.parse import unquote, urlparse
 from datetime import datetime, timezone
 from typing import Dict, Any
 
@@ -19,7 +20,7 @@ from database import get_db_session
 from models import Task, TaskStatus, DhCustomPerson
 from quota import confirm_quota, refund_quota
 from oss import download_file_from_oss, is_oss_key, upload_file_to_oss
-from chanjing_api_v2 import create_chanjing_api_v2, ChanjingStatusCode
+from chanjing_api_v2 import APIError, create_chanjing_api_v2, ChanjingStatusCode
 from tasks import register_task
 from tasks.components import TaskContext, FileManagerComponent
 
@@ -32,6 +33,13 @@ def _normalize_voice_id(value):
     normalized = str(value).strip()
     if normalized.lower() in {'', 'null', 'none', 'undefined'}:
         return ''
+    parsed = urlparse(normalized)
+    path = unquote(parsed.path if parsed.scheme in {'http', 'https'} else normalized)
+    marker = '/files/data/audio/'
+    if marker in path:
+        filename = path.split(marker, 1)[1].strip('/')
+        if filename and '/' not in filename and '\\' not in filename:
+            return filename
     return normalized
 
 
@@ -545,6 +553,9 @@ def run_dh_create_person_task(task_id: str, payload: dict, trace_id: str, mercha
             train_resp = api.create_customised_person(
                 name=payload.get("name"),
                 file_id=chanjing_file_id,
+                audio_source=payload.get("audio_source", "video"),
+                audio_file_id=payload.get("audio_file_id", ""),
+                clone_preset_audio_id=payload.get("clone_preset_audio_id", ""),
                 train_type=payload.get("train_type", "both"),
                 language=payload.get("language", "cn"),
                 error_skip=payload.get("error_skip", False),
@@ -595,12 +606,62 @@ def run_dh_create_person_task(task_id: str, payload: dict, trace_id: str, mercha
             api.set_debug(True)
         logger.info(f"开始监控数字人训练状态，person_id: {person_id}")
 
+        # MuseTalk 容器启动、模型加载或运维重启时，8080 可能短暂不可用。
+        # 训练本身仍在服务端继续，轮询端不应因为一次连接失败就把任务判死。
+        transient_failure_started_at = None
+        transient_failure_grace_seconds = 300
+
         for i in range(480):
             if _is_task_cancelled(task_id):
                 raise InterruptedError("task cancelled")
 
-            status_resp = api.get_customised_person_status(person_id)
+            try:
+                status_resp = api.get_customised_person_status(person_id, use_cache=False)
+            except APIError as exc:
+                if not exc.is_retryable():
+                    raise
+                now = time.monotonic()
+                if transient_failure_started_at is None:
+                    transient_failure_started_at = now
+                unavailable_seconds = now - transient_failure_started_at
+                if unavailable_seconds >= transient_failure_grace_seconds:
+                    raise RuntimeError(
+                        f"数字人训练服务连续不可用超过 {transient_failure_grace_seconds} 秒：{exc}"
+                    ) from exc
+                logger.warning(
+                    "数字人训练状态服务暂时不可用，保留任务并继续等待 "
+                    "(已等待 %.1fs/%ss)：%s",
+                    unavailable_seconds,
+                    transient_failure_grace_seconds,
+                    exc,
+                )
+                time.sleep(15)
+                continue
+
             logger.info(f"第 {i+1} 次轮询 - 完整响应：{json.dumps(status_resp, ensure_ascii=False, indent=2)}")
+
+            # HTTP 已恢复但服务刚重启时，内存状态可能尚未从磁盘恢复。
+            # 给服务端恢复任务索引留出同一段宽限期。
+            if status_resp.get("code") == 404:
+                now = time.monotonic()
+                if transient_failure_started_at is None:
+                    transient_failure_started_at = now
+                unavailable_seconds = now - transient_failure_started_at
+                if unavailable_seconds >= transient_failure_grace_seconds:
+                    raise RuntimeError(
+                        f"数字人训练任务在服务恢复后仍不存在：person_id={person_id}, response={status_resp}"
+                    )
+                logger.warning(
+                    "数字人训练服务正在恢复任务索引，继续等待 "
+                    "(已等待 %.1fs/%ss)：person_id=%s",
+                    unavailable_seconds,
+                    transient_failure_grace_seconds,
+                    person_id,
+                )
+                time.sleep(15)
+                continue
+
+            transient_failure_started_at = None
             
             if ChanjingStatusCode.is_success(status_resp.get('code')):
                 data = status_resp.get('data', {})

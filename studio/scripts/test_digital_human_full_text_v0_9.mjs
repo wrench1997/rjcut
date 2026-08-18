@@ -51,11 +51,20 @@ const good = validateDigitalHumanResult({
 assert(good.verified && good.request_contract === 'full_spoken_text_once', '完整结果未通过')
 
 expectThrow(() => validateDigitalHumanResult({
+  video_url: '/estimated.mp4',
+  duration_ms: timings.at(-1).end_ms,
+  text,
+  normalized_text: text,
+  char_timings: timings,
+  char_timing_estimated: true,
+}, text), '只返回了估算时间')
+
+expectThrow(() => validateDigitalHumanResult({
   video_url: '/short.mp4',
   duration_ms: 4700,
   text,
   char_timings: timings.slice(-8).map((item, index) => ({ ...item, index })),
-}, text), '字符未对齐')
+}, text), '数字人生成不完整')
 
 expectThrow(() => validateDigitalHumanResult({
   video_url: '/short.mp4',

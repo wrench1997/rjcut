@@ -217,6 +217,7 @@ export const timelineStore = {
   addClip: (clip) => {
     saveToHistory('ADD_CLIP')
     const newClip = {
+      ...clip,
       id: clip.id || `clip_${Date.now()}`,
       mediaId: clip.mediaId,
       start_ms: clip.start_ms || 0,
@@ -444,6 +445,7 @@ export const timelineStore = {
   // 添加字幕片段
   addSubtitleClip: (subtitleData) => {
     const newClip = {
+      ...subtitleData,
       id: subtitleData.id || `subtitle_${Date.now()}`,
       mediaId: subtitleData.mediaId,
       start_ms: subtitleData.start_ms || 0,
@@ -570,6 +572,7 @@ export const timelineStore = {
     
     // 创建新片段（后半部分）
     const newClip = {
+      ...clip,
       id: `clip_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
       mediaId: clip.mediaId,
       start_ms: splitTime_ms,
@@ -577,6 +580,19 @@ export const timelineStore = {
       track: clip.track,
       type: clip.type,
       offset_ms: clip.offset_ms + splitOffset_ms,
+    }
+    if (clip.type === 'subtitle') {
+      const characters = Array.from(String(clip.content || ''))
+      const splitIndex = Math.max(1, Math.min(characters.length - 1, Math.round(characters.length * splitOffset_ms / clip.duration_ms)))
+      const timings = Array.isArray(clip.char_timings) ? clip.char_timings : []
+      state.clips[index].content = characters.slice(0, splitIndex).join('')
+      state.clips[index].char_timings = timings.slice(0, splitIndex)
+      newClip.content = characters.slice(splitIndex).join('')
+      newClip.char_timings = timings.slice(splitIndex)
+      if (Number.isFinite(Number(clip.char_start))) {
+        state.clips[index].char_end = Number(clip.char_start) + splitIndex - 1
+        newClip.char_start = Number(clip.char_start) + splitIndex
+      }
     }
     
     // 修改原片段（保留前半部分）

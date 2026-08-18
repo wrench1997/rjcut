@@ -397,7 +397,35 @@ export default function AdvancedVideoEditor({ vfs, initialMediaRequest = null, o
         // 有数字人 JSON 时按原始 segment 建立可见的“原生视频 / 素材视频 / 配音”
         // 三层结构。原生视频始终保留，素材视频叠在上方，用户可以独立移动、切割、
         // 隐藏或替换；导出仍能通过 clip 元数据回到原始 JSON。
-        const rawSegments = Array.isArray(timelinePayload?.segments)
+        const savedEditorClips = Array.isArray(sidecarProject?.clips)
+          ? sidecarProject.clips
+          : Array.isArray(sidecarProject?.advanced_edit?.timeline_clips)
+            ? sidecarProject.advanced_edit.timeline_clips
+            : []
+        let restoredEditorClips = 0
+        for (const savedClip of savedEditorClips) {
+          if (cancelled) break
+          if (savedClip.type === 'subtitle') {
+            timelineStore.addSubtitleClip(savedClip)
+            restoredEditorClips += 1
+            continue
+          }
+          const savedMediaPath = await resolveExistingLinkedPath(
+            savedClip.media_vfs_path || savedClip.source_vfs_path || savedClip.scene_vfs_path,
+          )
+          if (!savedMediaPath) continue
+          const savedMediaId = mediaIdByPath.get(savedMediaPath)
+            || await importMedia(savedMediaPath, savedClip.media_name, 'saved-editor-project')
+          if (!savedMediaId) continue
+          timelineStore.addClip({
+            ...savedClip,
+            mediaId: savedMediaId,
+            source_vfs_path: savedClip.source_vfs_path || savedMediaPath,
+          })
+          restoredEditorClips += 1
+        }
+
+        const rawSegments = restoredEditorClips === 0 && Array.isArray(timelinePayload?.segments)
           ? timelinePayload.segments
           : []
         const toTimelineMs = (milliseconds, seconds, fallback = 0) => {
@@ -463,6 +491,26 @@ export default function AdvancedVideoEditor({ vfs, initialMediaRequest = null, o
               scene_vfs_path: scenePath,
             })
           }
+
+          const segmentCharacters = Array.isArray(sidecarProject?.char_timings)
+            ? sidecarProject.char_timings.filter((character) => {
+                const characterIndex = Number(character.index)
+                return Number.isFinite(characterIndex)
+                  && characterIndex >= Number(segment.char_start)
+                  && characterIndex <= Number(segment.char_end)
+              })
+            : []
+          timelineStore.addSubtitleClip({
+            id: `subtitle_${segmentId}`,
+            start_ms: startMs,
+            duration_ms: durationMs,
+            track: 'subtitle_1',
+            content: segment.text || segment.content || '',
+            source_segment_id: segmentId,
+            char_start: segment.char_start,
+            char_end: segment.char_end,
+            char_timings: segmentCharacters,
+          })
         }
 
         const audioPath = await resolveExistingLinkedPath(
@@ -482,7 +530,7 @@ export default function AdvancedVideoEditor({ vfs, initialMediaRequest = null, o
           })
         }
 
-        if (generatedSegmentClips === 0 && primaryType === 'video') {
+        if (restoredEditorClips === 0 && generatedSegmentClips === 0 && primaryType === 'video') {
           timelineStore.addClip({
             mediaId: primaryId,
             start_ms: 0,
@@ -853,6 +901,7 @@ export default function AdvancedVideoEditor({ vfs, initialMediaRequest = null, o
               metadataByMediaId={metadataByMediaId}
               onSave={handleSaveMetadata}
               isSaving={isSavingMetadata}
+              onUpdateClip={(clipId, updates) => timelineStore.updateClip(clipId, updates)}
             />
           )}
         </aside>
@@ -874,6 +923,7 @@ function MetadataInspector({
   onSelectMedia,
   onSave,
   isSaving,
+  onUpdateClip,
 }) {
   const metadataMedia = Object.keys(metadataByMediaId)
     .map((id) => mediaFiles[id])
@@ -925,6 +975,18 @@ function MetadataInspector({
             <Detail label="源素材入点" value={formatDuration(selectedClip.offset_ms)} />
             <Detail label="片段时长" value={formatDuration(selectedClip.duration_ms)} />
           </div>
+          {selectedClip.type === 'subtitle' && (
+            <div className="advanced-editor-field mt-3">
+              <label>字幕文本</label>
+              <textarea
+                value={selectedClip.content || ''}
+                onChange={(event) => onUpdateClip(selectedClip.id, { content: event.target.value })}
+                className="min-h-24"
+                placeholder="输入字幕内容"
+              />
+              <p className="advanced-editor-hint">字幕是独立轨道，可拖动、切割和删除；导出时按当前轨道位置烧录。</p>
+            </div>
+          )}
         </div>
       )}
 

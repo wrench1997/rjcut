@@ -364,12 +364,15 @@ class ChanjingAPIV2:
     ENDPOINT_ACCESS_TOKEN = "/access_token"
     ENDPOINT_COMMON_PERSONS = "/list_common_dp"                    # ✅ 公共数字人列表
     ENDPOINT_COMMON_AUDIO = "/list_common_audio"                   # ✅ 公共声音列表
-    ENDPOINT_CUSTOM_PERSONS = "/list_customised_person"            # 自定义数字人列表
+    ENDPOINT_CUSTOM_PERSONS = "/list_customised_person_v2"         # 自定义数字人列表（磁盘持久化兼容）
     ENDPOINT_CUSTOM_PERSON_STATUS = "/customised_person/detail"    # ✅ 自定义数字人详情
     ENDPOINT_VIDEO_STATUS = "/video"                               # ✅ 视频状态
     ENDPOINT_CREATE_VIDEO = "/create_video"
     ENDPOINT_DELETE_VIDEO = "/delete_video"
     ENDPOINT_DELETE_FILE = "/common/delete_file"
+    ENDPOINT_FILE_DETAIL = "/common/file_detail"
+    ENDPOINT_CREATE_CUSTOMISED_AUDIO = "/create_customised_audio"
+    ENDPOINT_CUSTOMISED_AUDIO_DETAIL = "/customised_audio"
     ENDPOINT_DELETE_CUSTOMISED_AUDIO = "/delete_customised_audio"
     
     def __init__(
@@ -957,7 +960,19 @@ class ChanjingAPIV2:
     def upload_file(self, file_path: str, service: str = "customised_person") -> str:
         """通过 V2 服务的 multipart 接口上传文件，返回 file_id。"""
         file_name = os.path.basename(file_path)
-        content_type = "video/mp4" if file_name.lower().endswith(".mp4") else "application/octet-stream"
+        suffix = os.path.splitext(file_name)[1].lower()
+        content_type = {
+            ".mp4": "video/mp4",
+            ".mov": "video/quicktime",
+            ".webm": "video/webm",
+            ".mp3": "audio/mpeg",
+            ".wav": "audio/wav",
+            ".m4a": "audio/mp4",
+            ".aac": "audio/aac",
+            ".flac": "audio/flac",
+            ".ogg": "audio/ogg",
+            ".wma": "audio/x-ms-wma",
+        }.get(suffix, "application/octet-stream")
         for attempt in range(2):
             access_token = self._get_access_token()
             with open(file_path, "rb") as file_handle:
@@ -989,6 +1004,9 @@ class ChanjingAPIV2:
         self,
         name: str,
         file_id: str,
+        audio_source: str = "video",
+        audio_file_id: str = "",
+        clone_preset_audio_id: str = "",
         train_type: str = "both",
         language: str = "cn",
         error_skip: bool = False,
@@ -999,6 +1017,9 @@ class ChanjingAPIV2:
         data = {
             "name": name,
             "video_file_id": file_id,
+            "audio_source": audio_source,
+            "audio_file_id": audio_file_id,
+            "clone_preset_audio_id": clone_preset_audio_id,
             "train_type": train_type,
             "language": language,
             "error_skip": error_skip,
@@ -1011,6 +1032,35 @@ class ChanjingAPIV2:
     def delete_customised_person(self, person_id: str) -> Dict[str, Any]:
         """删除自定义数字人。"""
         return self._request("POST", "/delete_customised_person", data={"id": person_id})
+
+    def get_file_detail(self, file_id: str) -> Dict[str, Any]:
+        """获取蝉镜上传文件详情，主要用于拿到可提交给业务接口的文件地址。"""
+        return self._request("GET", self.ENDPOINT_FILE_DETAIL, params={"id": file_id})
+
+    def create_customised_audio(
+        self,
+        name: str,
+        url: str,
+        language: str = "cn",
+        text: str = "",
+        denoise_flag: bool = True,
+        callback: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """提交定制声音任务，返回蝉镜生成的声音 ID。"""
+        data = {
+            "name": name,
+            "url": url,
+            "language": language,
+            "text": text,
+            "denoise_flag": denoise_flag,
+        }
+        if callback:
+            data["callback"] = callback
+        return self._request("POST", self.ENDPOINT_CREATE_CUSTOMISED_AUDIO, data=data)
+
+    def get_customised_audio(self, audio_id: str) -> Dict[str, Any]:
+        """获取定制声音详情和处理状态。"""
+        return self._request("GET", self.ENDPOINT_CUSTOMISED_AUDIO_DETAIL, params={"id": audio_id})
     
     def list_common_digital_persons(self, page: int = 1, size: int = 20, use_cache: bool = True) -> Dict[str, Any]:
         """

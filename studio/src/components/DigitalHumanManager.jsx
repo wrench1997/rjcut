@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { User, Users, UserPlus, Trash2, RefreshCw, Sparkles, AlertCircle, History, X, Upload, CheckCircle, Folder, Film, Play, HardDrive, ArrowUpToLine, FileText, ChevronRight, ArrowUp, Minus, Maximize2 } from 'lucide-react'
+import { User, Users, UserPlus, Trash2, RefreshCw, Sparkles, AlertCircle, History, X, Upload, CheckCircle, Folder, Film, Play, HardDrive, ArrowUpToLine, FileText, ChevronRight, ArrowUp, Minus, Maximize2, Volume2, Mic2 } from 'lucide-react'
 import FileBrowser from './FileBrowser'
 import useStudioStore from '../store/studioStore'
 import {
@@ -16,7 +16,10 @@ import {
   getDigitalHumanImageUrl,
   getBaseUrl,
   relayUpload,
+  createCustomVoice,
+  getCustomVoiceStatus,
 } from '../api/api'
+import { dedupePersonsForDisplay, isCustomTrainingPerson } from '../features/digital-human-project/personIdentity.js'
 
 function PersonCover({ person, iconSize = 32, alt }) {
   const [failed, setFailed] = useState(false)
@@ -190,7 +193,7 @@ function PersonPreview({ person, apiKey }) {
 // =====================================================
 // 训练数字人弹窗组件
 // =====================================================
-function TrainPersonDialog({ onClose, onTrainingComplete, apiKey, apiBaseUrl, vfs }) {
+function TrainPersonDialog({ onClose, onTrainingComplete, apiKey, apiBaseUrl, vfs, voices = [] }) {
   const [step, setStep] = useState('upload') // upload, training, done
   const [file, setFile] = useState(null)
   const [uploading, setUploading] = useState(false)
@@ -198,12 +201,23 @@ function TrainPersonDialog({ onClose, onTrainingComplete, apiKey, apiBaseUrl, vf
   const [personName, setPersonName] = useState('')
   const [trainType, setTrainType] = useState('both')
   const [language, setLanguage] = useState('cn')
+  const [audioSource, setAudioSource] = useState('video')
+  const [presetAudioId, setPresetAudioId] = useState('')
+  const [uploadedAudioId, setUploadedAudioId] = useState('')
+  const [audioFile, setAudioFile] = useState(null)
+  const [audioUploading, setAudioUploading] = useState(false)
+  const [audioUploadProgress, setAudioUploadProgress] = useState(0)
+  const [audioVoiceStatus, setAudioVoiceStatus] = useState('idle')
+  const [audioVoiceMessage, setAudioVoiceMessage] = useState('')
   const [taskId, setTaskId] = useState(null)
   const [trainingProgress, setTrainingProgress] = useState(0)
   const [trainingStage, setTrainingStage] = useState('')
   const [error, setError] = useState('')
   const [sourceType, setSourceType] = useState('vfs') // 'vfs' = 从文件管理选择，'upload' = 上传文件
   const [selectedVfsPath, setSelectedVfsPath] = useState('')
+  const [videoPreviewUrl, setVideoPreviewUrl] = useState('')
+  const [videoPreviewLoading, setVideoPreviewLoading] = useState(false)
+  const [videoPreviewError, setVideoPreviewError] = useState('')
   const [showFileBrowser, setShowFileBrowser] = useState(false)
   const [isMinimized, setIsMinimized] = useState(false)
   
@@ -213,15 +227,51 @@ function TrainPersonDialog({ onClose, onTrainingComplete, apiKey, apiBaseUrl, vf
   const [vfsBrowserLoading, setVfsBrowserLoading] = useState(false)
   
   const fileInputRef = useRef(null)
+  const audioInputRef = useRef(null)
   const pollTimerRef = useRef(null)
+  const voicePollTimerRef = useRef(null)
   const mountedRef = useRef(true)
 
   useEffect(() => {
     return () => {
       mountedRef.current = false
       if (pollTimerRef.current) clearTimeout(pollTimerRef.current)
+      if (voicePollTimerRef.current) clearTimeout(voicePollTimerRef.current)
     }
   }, [])
+
+  useEffect(() => {
+    let disposed = false
+    let objectUrl = ''
+
+    const loadPreview = async () => {
+      setVideoPreviewUrl('')
+      setVideoPreviewError('')
+
+      try {
+        if (sourceType === 'upload' && file) {
+          objectUrl = URL.createObjectURL(file)
+        } else if (sourceType === 'vfs' && selectedVfsPath) {
+          if (!vfs?.readFileAsBlob) throw new Error('当前文件系统不支持视频预览')
+          setVideoPreviewLoading(true)
+          const blob = await vfs.readFileAsBlob(selectedVfsPath)
+          objectUrl = URL.createObjectURL(blob)
+        }
+
+        if (!disposed) setVideoPreviewUrl(objectUrl)
+      } catch (err) {
+        if (!disposed) setVideoPreviewError(err.message || '视频预览加载失败')
+      } finally {
+        if (!disposed) setVideoPreviewLoading(false)
+      }
+    }
+
+    loadPreview()
+    return () => {
+      disposed = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [file, selectedVfsPath, sourceType, vfs])
   
   // 加载 VFS 目录（简化版）
   const loadVfsBrowserDirectory = useCallback(async (path) => {
@@ -306,6 +356,107 @@ function TrainPersonDialog({ onClose, onTrainingComplete, apiKey, apiBaseUrl, vf
     setError('')
   }
 
+  // 选择声音样本。声音会由后台上传到蝉镜并创建定制声音，不在浏览器暴露蝉镜密钥。
+  const handleAudioFileSelect = (e) => {
+    const selectedFile = e.target.files?.[0]
+    if (!selectedFile) return
+
+    const extension = selectedFile.name.split('.').pop()?.toLowerCase()
+    const allowedExtensions = new Set(['mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg', 'wma'])
+    if (!selectedFile.type.startsWith('audio/') && !allowedExtensions.has(extension)) {
+      setError('请选择 MP3、WAV、M4A、AAC、FLAC、OGG 或 WMA 音频')
+      e.target.value = ''
+      return
+    }
+    if (selectedFile.size > 500 * 1024 * 1024) {
+      setError('声音文件大小不能超过 500MB')
+      e.target.value = ''
+      return
+    }
+
+    setAudioFile(selectedFile)
+    setUploadedAudioId('')
+    setAudioVoiceStatus('selected')
+    setAudioVoiceMessage('等待上传并检测')
+    setAudioUploadProgress(0)
+    setError('')
+  }
+
+  const waitForCustomVoiceReady = async (audioId) => {
+    const normalizedId = String(audioId || '').trim()
+    if (!normalizedId) throw new Error('缺少声音 ID')
+
+    setAudioVoiceStatus('processing')
+    setAudioVoiceMessage('声音处理中，请稍候…')
+
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const response = await getCustomVoiceStatus(normalizedId)
+      const payload = response?.data?.data?.data || response?.data?.data || {}
+      const rawStatus = payload?.status
+      const status = String(rawStatus ?? '').toLowerCase()
+      const statusCode = Number(rawStatus)
+      const progress = Number(payload?.progress)
+
+      if (Number.isFinite(progress)) {
+        setAudioUploadProgress(Math.max(60, Math.min(99, progress)))
+      }
+
+      const failed = ['failed', 'failure', 'error', 'cancelled'].includes(status) || [40, -1].includes(statusCode)
+      if (failed) {
+        throw new Error(payload?.err_msg || payload?.message || '声音训练失败')
+      }
+
+      const ready =
+        progress >= 100 ||
+        ['success', 'succeeded', 'completed', 'complete', 'done', 'ready'].includes(status) ||
+        [1, 30].includes(statusCode)
+      if (ready) {
+        setAudioVoiceStatus('ready')
+        setAudioVoiceMessage('声音已就绪，可以开始训练')
+        setAudioUploadProgress(100)
+        return normalizedId
+      }
+
+      await new Promise((resolve) => {
+        voicePollTimerRef.current = setTimeout(resolve, 3000)
+      })
+    }
+
+    throw new Error('声音处理超时，请稍后在“我的声音”中重试')
+  }
+
+  const createUploadedVoice = async () => {
+    if (!audioFile) throw new Error('请先选择声音文件')
+    if (audioUploading) throw new Error('声音正在处理中，请稍候')
+
+    try {
+      setAudioUploading(true)
+      setAudioUploadProgress(10)
+      setAudioVoiceStatus('uploading')
+      setAudioVoiceMessage('正在上传声音样本…')
+
+      const response = await createCustomVoice({
+        file: audioFile,
+        name: `${personName.trim() || audioFile.name.replace(/\.[^.]+$/, '')} 的声音`,
+        language,
+        apiBaseUrl,
+        apiKey,
+      })
+      const audioId = response?.data?.audio_file_id || response?.data?.audio_id
+      if (!audioId) throw new Error('后台未返回 audio_file_id')
+
+      setUploadedAudioId(String(audioId))
+      setAudioUploadProgress(60)
+      return await waitForCustomVoiceReady(String(audioId))
+    } catch (err) {
+      setAudioVoiceStatus('error')
+      setAudioVoiceMessage(err.message || '声音处理失败')
+      throw err
+    } finally {
+      setAudioUploading(false)
+    }
+  }
+
   // 提交训练任务
   const handleSubmit = async () => {
     if (!file && !selectedVfsPath) {
@@ -316,9 +467,27 @@ function TrainPersonDialog({ onClose, onTrainingComplete, apiKey, apiBaseUrl, vf
       setError('请输入数字人名称')
       return
     }
+    if (audioSource === 'preset' && !presetAudioId) {
+      setError('请选择公共配音')
+      return
+    }
+    if (audioSource === 'my' && !uploadedAudioId.trim() && !audioFile) {
+      setError('请选择声音文件，或填写已有声音 ID')
+      return
+    }
 
     try {
       setError('')
+
+      let resolvedAudioId = uploadedAudioId.trim()
+      if (audioSource === 'my') {
+        if (audioFile && audioVoiceStatus !== 'ready') {
+          resolvedAudioId = await createUploadedVoice()
+        } else if (resolvedAudioId && audioVoiceStatus !== 'ready') {
+          resolvedAudioId = await waitForCustomVoiceReady(resolvedAudioId)
+        }
+        if (!resolvedAudioId) throw new Error('声音尚未就绪，请先上传并检测')
+      }
       
       let ossKey = ''
       
@@ -343,6 +512,9 @@ function TrainPersonDialog({ onClose, onTrainingComplete, apiKey, apiBaseUrl, vf
       const taskRes = await createDhPersonTask({
         name: personName.trim(),
         source_video_oss_key: ossKey,
+        audio_source: audioSource,
+        audio_file_id: audioSource === 'my' ? resolvedAudioId : '',
+        clone_preset_audio_id: audioSource === 'preset' ? presetAudioId : '',
         train_type: trainType,
         language: language,
         error_skip: false,
@@ -538,7 +710,7 @@ function TrainPersonDialog({ onClose, onTrainingComplete, apiKey, apiBaseUrl, vf
                       <div className="flex items-center gap-2">
                         <button 
                           className="px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded transition-colors"
-                          onClick={() => setVfsBrowserPath('/projects')}
+                          onClick={() => loadVfsBrowserDirectory('/')}
                         >
                           项目
                         </button>
@@ -662,6 +834,34 @@ function TrainPersonDialog({ onClose, onTrainingComplete, apiKey, apiBaseUrl, vf
               </div>
             )}
 
+            {(videoPreviewUrl || videoPreviewLoading || videoPreviewError) && (
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <h4 className="text-sm font-semibold text-slate-800">视频预览</h4>
+                    <p className="mt-0.5 text-xs text-slate-500">可播放画面和视频原声，确认素材无误后再提交训练。</p>
+                  </div>
+                  <span className="shrink-0 rounded-full bg-white px-3 py-1 text-xs text-slate-500 shadow-sm">可替换</span>
+                </div>
+                {videoPreviewLoading ? (
+                  <div className="flex h-52 items-center justify-center rounded-xl bg-slate-900 text-sm text-slate-300">正在加载视频预览...</div>
+                ) : videoPreviewError ? (
+                  <div className="flex h-32 items-center justify-center rounded-xl bg-red-50 px-4 text-sm text-red-600">{videoPreviewError}</div>
+                ) : (
+                  <video
+                    key={videoPreviewUrl}
+                    src={videoPreviewUrl}
+                    controls
+                    playsInline
+                    preload="metadata"
+                    className="mx-auto max-h-80 w-full rounded-xl bg-black object-contain shadow-lg"
+                  >
+                    当前环境不支持视频播放。
+                  </video>
+                )}
+              </div>
+            )}
+
             {/* 表单 */}
             <div className="space-y-4">
               <div>
@@ -701,6 +901,142 @@ function TrainPersonDialog({ onClose, onTrainingComplete, apiKey, apiBaseUrl, vf
                   </select>
                 </div>
               </div>
+
+              <div>
+                <div className="mb-2">
+                  <label className="block text-sm font-semibold text-slate-800">声音设置</label>
+                  <p className="mt-0.5 text-xs text-slate-500">选择训练口音；数字人原声默认使用视频中的完整声音。</p>
+                </div>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  {[
+                    { value: 'video', label: '完整视频声音', detail: '默认，保留数字人原声', icon: Film },
+                    { value: 'preset', label: '公共声音', detail: '选择并试听公共音色', icon: Volume2 },
+                    { value: 'my', label: '我的声音', detail: '使用已上传声音 ID', icon: Mic2 },
+                  ].map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => {
+                        setAudioSource(option.value)
+                        setError('')
+                      }}
+                      className={`relative min-h-24 rounded-xl border p-3 text-left transition-all ${
+                        audioSource === option.value
+                          ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-sm'
+                          : 'border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-white'
+                      }`}
+                    >
+                      <span className={`absolute right-3 top-3 flex h-4 w-4 items-center justify-center rounded-full border ${audioSource === option.value ? 'border-blue-500' : 'border-slate-300'}`}>
+                        {audioSource === option.value && <span className="h-2 w-2 rounded-full bg-blue-500" />}
+                      </span>
+                      <span className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-white shadow-sm">
+                        <option.icon size={18} />
+                      </span>
+                      <span className="block pr-5 text-sm font-medium">{option.label}</span>
+                      <span className="mt-0.5 block text-xs opacity-75">{option.detail}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {audioSource === 'preset' && (
+                <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-4">
+                  <label className="block text-sm font-medium text-slate-700 mb-2">公共声音试听</label>
+                  <select
+                    value={presetAudioId}
+                    onChange={(e) => setPresetAudioId(e.target.value)}
+                    className="input w-full"
+                  >
+                    <option value="">请选择公共声音</option>
+                    {voices.map((voice) => (
+                      <option key={voice.id} value={voice.id}>{voice.name || voice.id}</option>
+                    ))}
+                  </select>
+                  {presetAudioId && (() => {
+                    const selectedVoice = voices.find((voice) => String(voice.id) === String(presetAudioId))
+                    const auditionUrl = selectedVoice?.audition || selectedVoice?.audio_url || selectedVoice?.preview_url || selectedVoice?.url
+                    return (
+                      <div className="mt-3 rounded-xl bg-white p-3 shadow-sm">
+                        <div className="mb-2 flex items-center gap-2 text-sm text-slate-700">
+                          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 text-blue-600"><Play size={15} fill="currentColor" /></span>
+                          <span className="font-medium">{selectedVoice?.name || presetAudioId}</span>
+                        </div>
+                        {auditionUrl ? (
+                          <audio key={auditionUrl} src={auditionUrl} controls preload="none" className="h-10 w-full">
+                            当前环境不支持声音播放。
+                          </audio>
+                        ) : (
+                          <p className="text-xs text-amber-600">该声音没有返回可试听地址。</p>
+                        )}
+                      </div>
+                    )
+                  })()}
+                  {voices.length === 0 && <p className="mt-1 text-xs text-amber-600">公共声音列表暂不可用，请稍后重试。</p>}
+                </div>
+              )}
+
+              {audioSource === 'my' && (
+                <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700">上传我的声音</label>
+                      <p className="mt-0.5 text-xs text-slate-500">支持 MP3、WAV、M4A 等，后台会自动创建并检测声音。</p>
+                    </div>
+                    <input
+                      ref={audioInputRef}
+                      type="file"
+                      accept="audio/*,.mp3,.wav,.m4a,.aac,.flac,.ogg,.wma"
+                      onChange={handleAudioFileSelect}
+                      className="hidden"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => audioInputRef.current?.click()}
+                      disabled={audioUploading}
+                      className="inline-flex items-center gap-2 rounded-lg bg-slate-800 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400"
+                    >
+                      <Upload size={15} />
+                      {audioFile ? '重新选择' : '选择声音文件'}
+                    </button>
+                  </div>
+
+                  {audioFile && (
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white bg-white px-3 py-2 text-sm">
+                      <span className="min-w-0 truncate text-slate-700">{audioFile.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => createUploadedVoice().catch((err) => setError(err.message || '声音处理失败'))}
+                        disabled={audioUploading || audioVoiceStatus === 'ready'}
+                        className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                      >
+                        <Mic2 size={13} />
+                        {audioVoiceStatus === 'ready' ? '声音已就绪' : audioUploading ? '处理中…' : '上传并检测'}
+                      </button>
+                    </div>
+                  )}
+
+                  {audioVoiceMessage && (
+                    <p className={`mt-2 text-xs ${audioVoiceStatus === 'error' ? 'text-red-600' : audioVoiceStatus === 'ready' ? 'text-emerald-600' : 'text-slate-500'}`}>
+                      {audioVoiceMessage}
+                    </p>
+                  )}
+
+                  <div className="mt-3 border-t border-blue-100 pt-3">
+                    <label className="block text-xs font-medium text-slate-600 mb-1">已有声音 ID（兼容旧流程）</label>
+                    <input
+                      type="text"
+                      value={uploadedAudioId}
+                      onChange={(e) => {
+                        setUploadedAudioId(e.target.value)
+                        setAudioVoiceStatus(e.target.value.trim() ? 'manual' : 'idle')
+                        setAudioVoiceMessage(e.target.value.trim() ? '提交前会自动校验声音是否就绪' : '')
+                      }}
+                      placeholder="上传后自动回填，也可填写已有 audio_file_id"
+                      className="input w-full"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* 上传进度 */}
@@ -715,6 +1051,17 @@ function TrainPersonDialog({ onClose, onTrainingComplete, apiKey, apiBaseUrl, vf
                 </div>
               </div>
             )}
+            {audioUploading && (
+              <div className="space-y-2">
+                <div className="flex justify-between text-xs text-slate-500">
+                  <span>声音处理中...</span>
+                  <span>{audioUploadProgress}%</span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-slate-200">
+                  <div className="h-full bg-violet-600 transition-all" style={{ width: `${audioUploadProgress}%` }} />
+                </div>
+              </div>
+            )}
 
             <div className="flex justify-end gap-3 pt-4">
               <button onClick={onClose} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
@@ -722,10 +1069,10 @@ function TrainPersonDialog({ onClose, onTrainingComplete, apiKey, apiBaseUrl, vf
               </button>
               <button 
                 onClick={handleSubmit} 
-                disabled={uploading || (!file && !selectedVfsPath) || !personName.trim()}
+                disabled={uploading || audioUploading || (!file && !selectedVfsPath) || !personName.trim() || (audioSource === 'my' && !uploadedAudioId.trim() && !audioFile)}
                 className="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors"
               >
-                {uploading ? '上传中...' : '开始训练'}
+                {audioUploading ? '处理声音...' : uploading ? '上传中...' : '开始训练'}
               </button>
             </div>
           </div>
@@ -917,9 +1264,6 @@ const getListErrorMessage = (reason, fallback) => {
   return `${message || fallback}${code}`
 }
 
-const uniquePersons = (persons) =>
-  Array.from(new Map(persons.filter(Boolean).map((person) => [person.id, person])).values())
-
 export default function DigitalHumanManager({ apiKey, apiBaseUrl, vfs, onCreateVideo }) {
   const [activeTab, setActiveTab] = useState('common')
   const [commonPersons, setCommonPersons] = useState([])
@@ -966,7 +1310,10 @@ export default function DigitalHumanManager({ apiKey, apiBaseUrl, vfs, onCreateV
     const [commonResult, customResult, voicesResult] = results
 
     if (commonResult.status === 'fulfilled' && commonResult.value?.data?.code === 0) {
-      setCommonPersons(uniquePersons(getPersonList(commonResult.value)))
+      setCommonPersons(dedupePersonsForDisplay(
+        getPersonList(commonResult.value).filter((person) => !isCustomTrainingPerson(person)),
+        'common',
+      ))
     } else {
       const reason = commonResult.status === 'rejected' ? commonResult.reason : commonResult.value?.data
       nextErrors.common = getListErrorMessage(reason, '公共数字人加载失败')
@@ -974,7 +1321,7 @@ export default function DigitalHumanManager({ apiKey, apiBaseUrl, vfs, onCreateV
     }
 
     if (customResult.status === 'fulfilled' && customResult.value?.data?.code === 0) {
-      setCustomPersons(uniquePersons(getPersonList(customResult.value)))
+      setCustomPersons(dedupePersonsForDisplay(getPersonList(customResult.value), 'custom'))
     } else {
       const reason = customResult.status === 'rejected' ? customResult.reason : customResult.value?.data
       nextErrors.custom = getListErrorMessage(reason, '自定义数字人加载失败')
@@ -1206,6 +1553,7 @@ export default function DigitalHumanManager({ apiKey, apiBaseUrl, vfs, onCreateV
           apiKey={apiKey}
           apiBaseUrl={apiBaseUrl}
           vfs={vfs}
+          voices={voices}
         />
       )}
     </div>

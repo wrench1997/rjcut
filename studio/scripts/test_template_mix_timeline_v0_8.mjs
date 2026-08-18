@@ -26,6 +26,7 @@ const {
   buildDigitalHumanProject,
   buildBoundLocalTimeline,
   normalizeCopywritingPlan,
+  validateExclusiveSlotBindings,
 } = projectModule
 
 const plan = normalizeCopywritingPlan({
@@ -75,6 +76,67 @@ const bound = buildBoundLocalTimeline(
 )
 if (bound.transition_clips?.[0]?.scene_vfs_path !== '/12344/素材/farm.mp4') {
   throw new Error('bound transition clip missing scene path')
+}
+
+// 素材位是合成时的权威顺序：即使旧项目的 scene segment 重复了
+// slot_id，也必须消费全部已填素材位，且每个文件只出现一次。
+const legacyRepeatedSlotProject = {
+  ...project,
+  digital_human: { ...project.digital_human, duration_ms: 6000 },
+  timeline: {
+    ...project.timeline,
+    duration_ms: 6000,
+    segments: [
+      { id: 'h1', type: 'human', visual_mode: 'human', start_ms: 0, end_ms: 600 },
+      { id: 'old1', type: 'scene', visual_mode: 'scene', slot_id: 'slot_2', start_ms: 600, end_ms: 2200 },
+      { id: 'old2', type: 'scene', visual_mode: 'scene', slot_id: 'slot_2', start_ms: 2200, end_ms: 4000 },
+      { id: 'old3', type: 'scene', visual_mode: 'scene', slot_id: 'slot_1', start_ms: 4000, end_ms: 5400 },
+      { id: 'h2', type: 'human', visual_mode: 'human', start_ms: 5400, end_ms: 6000 },
+    ],
+  },
+}
+const strictSlots = Array.from({ length: 6 }, (_, index) => ({
+  id: `slot_${index + 1}`,
+  order: index + 1,
+  title: `素材位 ${index + 1}`,
+}))
+const strictBindings = Object.fromEntries(strictSlots.map((slot, index) => [
+  slot.id,
+  {
+    files: [
+      { name: `slot-${index + 1}-a.mp4`, path: `/materials/slot-${index + 1}-a.mp4` },
+      { name: `slot-${index + 1}-b.mp4`, path: `/materials/slot-${index + 1}-b.mp4` },
+    ],
+  },
+]))
+const strictBound = buildBoundLocalTimeline(
+  legacyRepeatedSlotProject,
+  { slots: strictSlots },
+  { bindings: strictBindings },
+)
+const strictClips = strictBound.transition_clips || []
+const strictPaths = strictClips.map((clip) => clip.scene_vfs_path)
+const expectedPaths = strictSlots.flatMap((slot, index) => [
+  `/materials/slot-${index + 1}-a.mp4`,
+  `/materials/slot-${index + 1}-b.mp4`,
+])
+if (JSON.stringify(strictPaths) !== JSON.stringify(expectedPaths)) {
+  throw new Error(`slot material order mismatch: ${JSON.stringify(strictPaths)}`)
+}
+if (new Set(strictPaths).size !== strictPaths.length) {
+  throw new Error('a material file was reused by another slot')
+}
+strictClips.forEach((clip, index) => {
+  const expectedSlotId = strictSlots[Math.floor(index / 2)].id
+  if (clip.slot_id !== expectedSlotId) {
+    throw new Error(`clip escaped its material slot: ${clip.scene_vfs_path} -> ${clip.slot_id}`)
+  }
+})
+
+const duplicateBindings = structuredClone(strictBindings)
+duplicateBindings.slot_2.files[0] = { ...duplicateBindings.slot_1.files[0] }
+if (validateExclusiveSlotBindings({ slots: strictSlots }, { bindings: duplicateBindings }).length !== 1) {
+  throw new Error('cross-slot duplicate material was not rejected')
 }
 
 let pathSource = read('src', 'features', 'template-batch', 'templateRunPaths.js')
@@ -133,8 +195,12 @@ const studioSource = read('src', 'components', 'DigitalHumanStudio.jsx')
 if (!studioSource.includes('已写入 JSON 的场景替换时间')) {
   throw new Error('DigitalHumanStudio does not display timed transition ranges')
 }
-if (!studioSource.includes('生成数字人后按 char_timings 写入精确毫秒时间')) {
-  throw new Error('AI copywriting UI does not explain semantic-to-time mapping')
+const aiAssistantSource = read('src', 'features', 'template-batch', 'aiAssistant.js')
+if (!aiAssistantSource.includes('if (isTransitionSegment) sceneIndex += 1')) {
+  throw new Error('copywriting template slot ids are not based on scene order')
+}
+if (aiAssistantSource.includes('isTransitionSegment ? `slot_${index + 1}`')) {
+  throw new Error('copywriting template still counts human segments as material slots')
 }
 
 console.log('TEMPLATE_MIX_TIMELINE_V0_8=PASS')

@@ -187,6 +187,43 @@ async function concatNativeVideoParts(ffmpeg, parts, output, profile, duration =
   await runFfmpeg(ffmpeg, args)
 }
 
+async function concatNativeVisualPartsWithContinuousAudio(ffmpeg, parts, audioSource, output, profile, duration) {
+  const safeDuration = Number(duration)
+  if (!Number.isFinite(safeDuration) || safeDuration <= 0) throw new Error('模板混剪总时长无效')
+
+  const args = ['-y']
+  parts.forEach((file) => args.push('-i', file))
+  // 数字人口播必须作为一条连续音轨读取。不能随画面段逐段裁切并分别编码，
+  // 否则 AAC priming/边界重采样会吃掉场景切换处的句首和句尾。
+  args.push('-i', audioSource)
+
+  const filters = []
+  for (let index = 0; index < parts.length; index += 1) {
+    filters.push(`[${index}:v:0]setpts=PTS-STARTPTS[v${index}]`)
+  }
+  const videoInputs = parts.map((_, index) => `[v${index}]`).join('')
+  filters.push(`${videoInputs}concat=n=${parts.length}:v=1:a=0[outv]`)
+  filters.push(`[${parts.length}:a:0]asetpts=PTS-STARTPTS,aresample=async=1:first_pts=0,apad=whole_dur=${safeDuration},atrim=start=0:duration=${safeDuration}[outa]`)
+
+  args.push(
+    '-filter_complex', filters.join(';'),
+    '-map', '[outv]',
+    '-map', '[outa]',
+    '-t', String(safeDuration),
+    '-c:v', 'libx264',
+    '-preset', profile[0],
+    '-crf', profile[1],
+    '-pix_fmt', 'yuv420p',
+    '-fps_mode', 'cfr',
+    '-c:a', 'aac',
+    '-b:a', '192k',
+    '-movflags', '+faststart',
+    '-avoid_negative_ts', 'make_zero',
+    output,
+  )
+  await runFfmpeg(ffmpeg, args)
+}
+
 function assTime(seconds) {
   const value = Math.max(0, Number(seconds) || 0)
   const hours = Math.floor(value / 3600)
@@ -387,11 +424,11 @@ function registerIPCHandlers() {
         const part = path.join(tempDir, `part-${index}.mp4`)
         const scenePath = segment.type === 'scene' ? (segment.scene_vfs_path || segment.scene_file) : null
         if (scenePath) {
-          await runFfmpeg(ffmpeg, ['-y', '-stream_loop', '-1', '-i', resolveExistingVfsFile(scenePath), '-ss', String(start), '-i', source, '-map', '0:v:0', '-map', '1:a:0', '-t', String(duration), '-vf', 'scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,fps=30,setpts=N/(30*TB),format=yuv420p', '-c:v', 'libx264', '-preset', profile[0], '-crf', profile[1], '-c:a', 'aac', '-shortest', '-avoid_negative_ts', 'make_zero', part])
+          await runFfmpeg(ffmpeg, ['-y', '-stream_loop', '-1', '-i', resolveExistingVfsFile(scenePath), '-map', '0:v:0', '-an', '-t', String(duration), '-vf', 'scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,fps=30,setpts=N/(30*TB),format=yuv420p', '-c:v', 'libx264', '-preset', profile[0], '-crf', profile[1], '-avoid_negative_ts', 'make_zero', part])
         } else {
           // 人物段也循环输入，最后一段超过源视频尾部时不会截断。
-          // 同时统一画布、帧率和 PTS，避免与场景段拼接时发生中间段跳帧。
-          await runFfmpeg(ffmpeg, ['-y', '-stream_loop', '-1', '-ss', String(start), '-i', source, '-t', String(duration), '-vf', 'scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,fps=30,setpts=N/(30*TB),format=yuv420p', '-af', 'aresample=async=1:first_pts=0', '-c:v', 'libx264', '-preset', profile[0], '-crf', profile[1], '-c:a', 'aac', '-shortest', '-avoid_negative_ts', 'make_zero', part])
+          // 这里只切画面；口播音轨在所有画面合并后一次性挂载，避免边界吞字。
+          await runFfmpeg(ffmpeg, ['-y', '-stream_loop', '-1', '-ss', String(start), '-i', source, '-map', '0:v:0', '-an', '-t', String(duration), '-vf', 'scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,fps=30,setpts=N/(30*TB),format=yuv420p', '-c:v', 'libx264', '-preset', profile[0], '-crf', profile[1], '-avoid_negative_ts', 'make_zero', part])
         }
         parts.push(part)
       }
@@ -400,7 +437,7 @@ function registerIPCHandlers() {
         const end = Number(segment.end ?? Number(segment.end_ms) / 1000)
         return Number.isFinite(end) ? Math.max(max, end) : max
       }, 0)
-      await concatNativeVideoParts(ffmpeg, parts, merged, profile, timelineDuration)
+      await concatNativeVisualPartsWithContinuousAudio(ffmpeg, parts, source, merged, profile, timelineDuration)
       const anchor = getSubtitleAnchor(subtitle)
       const maxCharsPerLine = Math.max(8, Math.min(15, Number(subtitle.max_chars_per_line) || 15))
       const staticDialogues = timeline.segments.map((segment) => {
@@ -443,6 +480,84 @@ function registerIPCHandlers() {
       }
       return { outputPath, engine: 'native' }
     } finally { fs.rmSync(tempDir, { recursive: true, force: true }) }
+  })
+
+  // 高级剪辑通用导出：真正调用 EXE 内置 FFmpeg，不再返回占位 MP4。
+  ipcMain.handle('video:nativeTimelineExport', async (_event, payload) => {
+    const { outputPath, clips = [], quality = 'balanced', subtitle = {}, subtitleClips = [] } = payload || {}
+    if (!outputPath || !Array.isArray(clips) || !clips.length) throw new Error('时间轴导出参数不完整')
+    const ffmpeg = findFfmpeg()
+    const output = fsUtils.validatePath(outputPath)
+    fs.mkdirSync(path.dirname(output), { recursive: true })
+    const tempDir = path.join(path.dirname(output), `.rjcut-export-${Date.now()}`)
+    const profile = { performance: ['ultrafast', '28'], balanced: ['veryfast', '23'], quality: ['medium', '18'] }[quality] || ['veryfast', '23']
+    fs.mkdirSync(tempDir, { recursive: true })
+    try {
+      const parts = []
+      for (let index = 0; index < clips.length; index += 1) {
+        const clip = clips[index]
+        const duration = Math.max(0.1, Number(clip.duration_ms) / 1000)
+        const part = path.join(tempDir, `part-${index}.mp4`)
+        if (clip.kind === 'gap') {
+          await runFfmpeg(ffmpeg, ['-y', '-f', 'lavfi', '-i', 'color=c=black:s=1080x1920:r=30', '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo', '-t', String(duration), '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'libx264', '-preset', profile[0], '-crf', profile[1], '-c:a', 'aac', '-shortest', part])
+        } else {
+          const source = resolveExistingVfsFile(clip.vfsPath)
+          const offset = Math.max(0, Number(clip.offset_ms) / 1000)
+          const probe = await runCommandCapture(ffmpeg, ['-hide_banner', '-i', source], true).catch((error) => String(error.message || error))
+          const hasAudio = /Stream\s+#\S+(?:\([^)]*\))?:\s+Audio:/i.test(probe)
+          const separateAudio = clip.audioVfsPath && clip.audioVfsPath !== clip.vfsPath
+          const args = ['-y', '-ss', String(offset), '-i', source]
+          if (separateAudio) args.push('-ss', String(Math.max(0, Number(clip.audioOffsetMs) / 1000)), '-i', resolveExistingVfsFile(clip.audioVfsPath))
+          else if (!hasAudio) args.push('-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo')
+          const audioMap = separateAudio ? '1:a:0' : hasAudio ? '0:a:0' : '1:a:0'
+          args.push('-t', String(duration), '-map', '0:v:0', '-map', audioMap, '-vf', 'scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black,fps=30,setpts=N/(30*TB),format=yuv420p', '-af', 'aresample=async=1:first_pts=0', '-c:v', 'libx264', '-preset', profile[0], '-crf', profile[1], '-c:a', 'aac', '-shortest', '-avoid_negative_ts', 'make_zero', part)
+          await runFfmpeg(ffmpeg, args)
+        }
+        parts.push(part)
+      }
+      const merged = path.join(tempDir, 'merged.mp4')
+      const duration = clips.reduce((sum, clip) => sum + Math.max(0, Number(clip.duration_ms) || 0), 0) / 1000
+      await concatNativeVideoParts(ffmpeg, parts, merged, profile, duration)
+
+      const subtitleTimeline = {
+        segments: subtitleClips.map((clip) => ({
+          start_ms: Number(clip.start_ms) || 0,
+          end_ms: (Number(clip.start_ms) || 0) + (Number(clip.duration_ms) || 0),
+          text: clip.content || '',
+          char_start: clip.char_start,
+          char_end: clip.char_end,
+        })),
+        char_timings: subtitleClips.flatMap((clip) => Array.isArray(clip.char_timings) ? clip.char_timings : []),
+      }
+      const anchor = getSubtitleAnchor(subtitle)
+      const maxCharsPerLine = Math.max(8, Math.min(15, Number(subtitle.max_chars_per_line) || 15))
+      const baseColor = assColor(subtitle.color, '&H00FFFFFF')
+      const highlightColor = assColor(subtitle.highlight_color, '&H0000D4FF')
+      const characterDialogues = getTimelineSubtitleGroups(subtitleTimeline).flatMap((group) =>
+        buildCharacterSubtitleDialogues(group, subtitleTimeline, anchor, maxCharsPerLine, baseColor, highlightColor),
+      )
+      const staticDialogues = subtitleTimeline.segments.map((segment) => {
+        const text = wrapSubtitleText(segment.text, maxCharsPerLine)
+        return text.trim() ? `Dialogue: 0,${assTime(segment.start_ms / 1000)},${assTime(segment.end_ms / 1000)},Default,,0,0,0,,{\\an5\\pos(${anchor.x},${anchor.y})}${assText(text)}` : null
+      }).filter(Boolean)
+      const dialogues = subtitle.word_by_word_highlight !== false && characterDialogues.length ? characterDialogues : staticDialogues
+      if (dialogues.length) {
+        const assPath = path.join(tempDir, 'subtitles.ass')
+        const fontSize = Number(subtitle.font_size) || 68
+        const fontFamily = String(subtitle.font_family || 'Microsoft YaHei').replace(/[,\r\n]/g, ' ')
+        const outline = Number(subtitle.stroke_width) || 2
+        const style = `Style: Default,${fontFamily},${fontSize},${baseColor},${baseColor},${assColor(subtitle.stroke_color, '&H00000000')},&H00000000,1,0,0,0,100,100,0,0,1,${outline},0,5,0,0,0,1`
+        const karaokeStyle = `Style: Karaoke,${fontFamily},${fontSize},${highlightColor},${baseColor},${assColor(subtitle.stroke_color, '&H00000000')},&H00000000,1,0,0,0,100,100,0,0,1,${outline},0,5,0,0,0,1`
+        fs.writeFileSync(assPath, `[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\n${style}\n${karaokeStyle}\n\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n${dialogues.join('\n')}\n`, 'utf8')
+        const filterPath = assPath.replace(/\\/g, '/').replace(':', '\\:').replace(/'/g, "\\'")
+        await runFfmpeg(ffmpeg, ['-y', '-i', merged, '-vf', `subtitles='${filterPath}'`, '-c:v', 'libx264', '-preset', profile[0], '-crf', profile[1], '-c:a', 'copy', '-movflags', '+faststart', output])
+      } else {
+        fs.renameSync(merged, output)
+      }
+      return { outputPath, size: fs.statSync(output).size, engine: 'native-ffmpeg' }
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true })
+    }
   })
   // ==================== 文件系统操作 ====================
   

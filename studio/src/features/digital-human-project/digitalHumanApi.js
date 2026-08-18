@@ -42,9 +42,64 @@ export function toDigitalHumanAssetUrl(pathOrUrl, baseUrl = getDigitalHumanBaseU
   return `${baseUrl}${value.startsWith('/') ? '' : '/'}${value}` // 相对路径前挂 baseUrl
 }
 
-async function requestJson(url, options = {}) {
-  const response = await fetch(url, options)
-  const text = await response.text()
+function sanitizeDigitalHumanAudioRef(value, baseUrl) {
+  const raw = String(value || '').trim()
+  if (!raw) return ''
+
+  const localAudioName = (candidate) => {
+    try {
+      const parsed = /^https?:\/\//i.test(candidate)
+        ? new URL(candidate)
+        : new URL(candidate, 'http://rjcut.local')
+      const marker = '/files/data/audio/'
+      const index = parsed.pathname.indexOf(marker)
+      if (index < 0) return ''
+      const filename = decodeURIComponent(parsed.pathname.slice(index + marker.length)).replace(/^\/+|\/+$/g, '')
+      return filename && !filename.includes('/') && !filename.includes('\\') ? filename : ''
+    } catch {
+      return ''
+    }
+  }
+  const audioName = localAudioName(raw)
+  if (audioName) return audioName
+
+  const base = String(baseUrl || getDigitalHumanBaseUrl()).replace(/\/+$/, '')
+  const toAudioUrl = (path) => {
+    try {
+      return new URL(path, `${base}/`).toString()
+    } catch {
+      return `${base}${path.startsWith('/') ? '' : '/'}${path}`
+    }
+  }
+
+  if (/^https?:\/\//i.test(raw)) return raw
+  if (raw.startsWith('/dh/files/')) return toAudioUrl(raw)
+  if (raw.startsWith('/files/')) return toAudioUrl(raw)
+  if (raw.startsWith('/root/MuseTalk/data/')) {
+    return toAudioUrl(`/files${raw.slice('/root/MuseTalk'.length)}`)
+  }
+  if (raw.startsWith('/app/data/')) return toAudioUrl(`/files${raw.slice('/app'.length)}`)
+  if (raw.startsWith('/app/')) return toAudioUrl(`/files${raw.slice('/app'.length)}`)
+  if (raw.startsWith('/data/')) return toAudioUrl(`/files${raw}`)
+  return raw
+}
+
+async function requestJson(url, { timeoutMs = 30 * 1000, ...options } = {}) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  let response
+  let text
+  try {
+    response = await fetch(url, { ...options, signal: controller.signal })
+    text = await response.text()
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw new Error(`数字人接口请求超时（${Math.round(timeoutMs / 1000)} 秒）：${url}`)
+    }
+    throw error
+  } finally {
+    clearTimeout(timer)
+  }
   let data = null
   try {
     data = text ? JSON.parse(text) : {}
@@ -62,7 +117,7 @@ export async function createTimelineDigitalHumanTask(payload, baseUrl = getDigit
   if (!personId) {
     throw new Error('数字人生成请求缺少 person_id，前端禁止静默回退到默认 human')
   }
-  const audioManId = String(payload.audio_man_id || '').trim()
+  const audioManId = sanitizeDigitalHumanAudioRef(payload.audio_man_id, baseUrl)
   const rawTimeoutSeconds = Number(payload?.timeout_seconds)
   const timeoutSeconds = Number.isFinite(rawTimeoutSeconds)
     ? rawTimeoutSeconds
@@ -75,6 +130,7 @@ export async function createTimelineDigitalHumanTask(payload, baseUrl = getDigit
     hide_subtitle: payload.hide_subtitle !== false,
     return_char_timing: true,
     char_timing_level: 'char',
+    speed: Math.max(0.5, Math.min(2, Number(payload.speed) || 1)),
     callback_url: payload.callback_url || undefined,
     extra: payload.extra || undefined,
     timeout_seconds: timeoutSeconds,
@@ -87,6 +143,7 @@ export async function createTimelineDigitalHumanTask(payload, baseUrl = getDigit
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+    timeoutMs: 60 * 1000,
   })
 
   if (!result?.ok || !result?.task_id) {

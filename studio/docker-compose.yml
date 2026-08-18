@@ -11,7 +11,7 @@ services:
       - "8888:8888"
     environment:
       - VLLM_BASE_URL=http://112.111.7.91:7980
-      - MODEL_NAME=Qwen/Qwen3.5-397B-A17B-FP8
+      - MODEL_NAME=DeepSeek-V4-Flash-0731
       - POLL_INTERVAL=5
       - INPUT_PRICE_PER_1M=3.0
       - OUTPUT_PRICE_PER_1M=6.0

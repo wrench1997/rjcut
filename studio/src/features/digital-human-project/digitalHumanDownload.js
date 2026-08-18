@@ -1,4 +1,4 @@
-﻿import { getDigitalHumanMediaUrl } from '../../api/api';
+﻿import { getDigitalHumanMediaUrl } from '../../api/api.js';
 
 function trimSlash(value) {
   return String(value || '').trim().replace(/\/+$/, '')
@@ -134,6 +134,9 @@ export async function downloadDigitalHumanVideo({
   baseUrl,
   taskId,
   fetchImpl = globalThis.fetch,
+  readinessTimeoutMs = 60 * 1000,
+  requestTimeoutMs = 120 * 1000,
+  sleepImpl = (delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)),
 } = {}) {
   const originalVideoUrl = extractDigitalHumanVideoReference(result)
   const candidates = buildDigitalHumanAssetCandidates({
@@ -148,51 +151,76 @@ export async function downloadDigitalHumanVideo({
   }
 
   const attempts = []
-  for (const url of candidates) {
-    try {
-      console.log('[DigitalHumanDownload] 尝试:', url)
-      const response = await fetchImpl(url, {
-        cache: 'no-store',
-        headers: {
-          Accept: 'video/mp4,video/*;q=0.9,application/octet-stream;q=0.8,*/*;q=0.5',
-        },
-      })
-      const contentType = String(response.headers.get('content-type') || '')
+  const readinessDeadline = Date.now() + readinessTimeoutMs
+  let round = 0
 
-      if (!response.ok) {
+  while (true) {
+    let shouldRetry = false
+    for (const url of candidates) {
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), requestTimeoutMs)
+      try {
+        console.log('[DigitalHumanDownload] 尝试:', url)
+        const response = await fetchImpl(url, {
+          cache: 'no-store',
+          signal: controller.signal,
+          headers: {
+            Accept: 'video/mp4,video/*;q=0.9,application/octet-stream;q=0.8,*/*;q=0.5',
+          },
+        })
+        const contentType = String(response.headers.get('content-type') || '')
+
+        if (!response.ok) {
+          attempts.push({
+            url,
+            status: response.status,
+            body: await readErrorBody(response),
+          })
+          if ([404, 409, 425, 503].includes(response.status)) shouldRetry = true
+          continue
+        }
+
+        if (contentType.includes('json') || contentType.includes('text/html')) {
+          attempts.push({
+            url,
+            status: response.status,
+            body: await readErrorBody(response),
+            reason: '返回的不是视频',
+          })
+          continue
+        }
+
+        const blob = await response.blob()
+        if (blob.size < 1024) {
+          attempts.push({
+            url,
+            status: response.status,
+            size: blob.size,
+            reason: '文件过小',
+          })
+          shouldRetry = true
+          continue
+        }
+
+        return { blob, url, attempts, originalVideoUrl }
+      } catch (error) {
         attempts.push({
           url,
-          status: response.status,
-          body: await readErrorBody(response),
+          status: 0,
+          reason: error?.name === 'AbortError'
+            ? `下载请求超时（${Math.round(requestTimeoutMs / 1000)} 秒）`
+            : (error?.message || String(error)),
         })
-        continue
+        shouldRetry = true
+      } finally {
+        clearTimeout(timer)
       }
-
-      if (contentType.includes('json') || contentType.includes('text/html')) {
-        attempts.push({
-          url,
-          status: response.status,
-          body: await readErrorBody(response),
-          reason: '返回的不是视频',
-        })
-        continue
-      }
-
-      const blob = await response.blob()
-      if (blob.size < 1024) {
-        attempts.push({
-          url,
-          status: response.status,
-          size: blob.size,
-          reason: '文件过小',
-        })
-        continue
-      }
-
-      return { blob, url, attempts, originalVideoUrl }
-    } catch (error) {
-      attempts.push({ url, status: 0, reason: error?.message || String(error) })
     }
+
+    if (!shouldRetry || Date.now() >= readinessDeadline) break
+    const delayMs = Math.min(1000 * (2 ** round), 8000)
+    round += 1
+    await sleepImpl(delayMs)
   }
 
   const lines = attempts.map((item) => {

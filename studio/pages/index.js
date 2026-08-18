@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { getSharedFileSystem } from '../src/utils/virtualFileSystem'
-import { getBaseUrl } from '../src/api/api'
-import { FolderOpen, Folder, Sparkles, Settings, HelpCircle, Gem, Users, WandSparkles, Book, Scissors, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { getBaseUrl, getUpstreamKeys, setUpstreamKeys as persistUpstreamKeys } from '../src/api/api'
+import { FolderOpen, Folder, Sparkles, Settings, HelpCircle, Gem, Users, WandSparkles, Book, Scissors, Clapperboard, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import Tooltip from '../src/components/Tooltip'
 
 // 导入你的各个组件
@@ -12,6 +12,7 @@ import DigitalHumanStudio from '../src/components/DigitalHumanStudio'
 import DigitalHumanManager from '../src/components/DigitalHumanManager'
 import HelpGuide from '../src/components/HelpGuide'
 import AdvancedVideoEditor from '../src/components/AdvancedVideoEditor'
+import TextToVideoStudio from '../src/components/TextToVideoStudio'
 import OnboardingGuide from '../src/components/OnboardingGuide'
 import TemplateBatchPage from '../src/features/template-batch/TemplateBatchPage'
 import TemplateManager from '../src/components/TemplateManager'
@@ -53,6 +54,7 @@ const NAV_SECTIONS = [
     label: '创作工作流',
     items: [
       { id: 'digital-human-studio', label: '数字人创作', icon: Sparkles, tip: '选择数字人和场景，创作专属数字人视频', description: '从数字人、场景和文案开始' },
+      { id: 'text-to-video', label: 'AI 视频生成', icon: Clapperboard, tip: '支持文生视频与图片+文字生成视频', description: '生成后自动导入当前项目素材库' },
       { id: 'campaign', label: '模板混剪', icon: WandSparkles, tip: '选择已生成的数字人视频，按模板补充素材自动混剪', description: '将一条视频扩展为多条成片' },
       { id: 'advanced-editor', label: '高级剪辑', icon: Scissors, tip: '像传统剪辑软件一样二次加工视频，并同步保留 JSON 信息', description: '切割、修剪和校准数字人时间轴' },
     ],
@@ -110,6 +112,12 @@ export default function Home() {
     setActiveTab('advanced-editor')
   }, [])
 
+  const handleNavigateToFiles = useCallback((target) => {
+    const targetPath = typeof target === 'string' ? target : target?.path
+    setFileBrowserPath(targetPath || '/')
+    setActiveTab('files')
+  }, [])
+
   useEffect(() => {
     // 高级剪辑默认收起外层导航，用户仍可点击左上角按钮恢复。
     setSidebarCollapsed(activeTab === 'advanced-editor')
@@ -122,6 +130,11 @@ export default function Home() {
   const [merchantInfo, setMerchantInfo] = useState(null)
   const [showHelp, setShowHelp] = useState(false)
   const [toast, setToast] = useState({ show: false, msg: '', type: 'success' })
+  const [upstreamKeys, setUpstreamKeysState] = useState(() =>
+    typeof window !== 'undefined'
+      ? getUpstreamKeys()
+      : { genvideos: '', chanjing_app_id: '', chanjing_secret: '' }
+  )
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -342,7 +355,13 @@ export default function Home() {
   />
 )}
 {activeTab === 'batch' && <BatchProcessor vfs={vfs} apiKey={apiKey} />}
-            {activeTab === 'projects' && <VideoProjectManager vfs={vfs} onOpenProject={() => setActiveTab('files')} onNavigate={() => setActiveTab('files')} />}
+            {activeTab === 'projects' && (
+              <VideoProjectManager
+                vfs={vfs}
+                onOpenProject={handleNavigateToFiles}
+                onNavigate={handleNavigateToFiles}
+              />
+            )}
             {activeTab === 'files' && (
   <FileBrowser 
     vfs={vfs} 
@@ -359,13 +378,16 @@ export default function Home() {
     preselectedPerson={preselectedPerson}
     onPreselectedPersonUsed={() => setPreselectedPerson(null)}
     vfs={vfs}
-    onNavigateToFiles={(targetPath) => {
-      setFileBrowserPath(targetPath)
-      setActiveTab('files')
-    }}
+    onNavigateToFiles={handleNavigateToFiles}
   />
 )}
-            {activeTab === 'digital-human' && <DigitalHumanManager apiKey={apiKey} apiBaseUrl={apiBaseUrl} onCreateVideo={handleCreateVideoFromManager} />}
+            {activeTab === 'text-to-video' && !vfsLoading && vfs && (
+              <TextToVideoStudio
+                vfs={vfs}
+                onNavigateToFiles={handleNavigateToFiles}
+              />
+            )}
+            {activeTab === 'digital-human' && <DigitalHumanManager apiKey={apiKey} apiBaseUrl={apiBaseUrl} vfs={vfs} onCreateVideo={handleCreateVideoFromManager} />}
             {activeTab === 'template-manager' && <TemplateManager />}
             {activeTab === 'advanced-editor' && !vfsLoading && vfs && (
               <AdvancedVideoEditor
@@ -407,10 +429,47 @@ export default function Home() {
                         onChange={(e) => setApiBaseUrlState(e.target.value)}
                       />
                     </div>
+                    <div className="border-t border-slate-200 pt-5 mt-5">
+                      <h4 className="text-sm font-bold text-slate-800 mb-3">上游服务 Key</h4>
+                      <p className="text-xs text-slate-500 mb-4">各上游尚未统一管控，在此填写各自的 Key，保存后随请求透传给后端；未填则后端回退服务器环境变量。</p>
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-1.5">GenVideos API Key（视频 + 文案共用）</label>
+                          <input
+                            type="text"
+                            className="w-full bg-white border border-slate-300 rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                            value={upstreamKeys.genvideos}
+                            onChange={(e) => setUpstreamKeysState({ ...upstreamKeys, genvideos: e.target.value })}
+                            placeholder="在上游管控台 112.111.7.91:7980/admin 获取"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-1.5">蝉镜 App ID（数字人）</label>
+                          <input
+                            type="text"
+                            className="w-full bg-white border border-slate-300 rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                            value={upstreamKeys.chanjing_app_id}
+                            onChange={(e) => setUpstreamKeysState({ ...upstreamKeys, chanjing_app_id: e.target.value })}
+                            placeholder="itop"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-1.5">蝉镜 Secret Key（数字人）</label>
+                          <input
+                            type="text"
+                            className="w-full bg-white border border-slate-300 rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                            value={upstreamKeys.chanjing_secret}
+                            onChange={(e) => setUpstreamKeysState({ ...upstreamKeys, chanjing_secret: e.target.value })}
+                            placeholder=""
+                          />
+                        </div>
+                      </div>
+                    </div>
                     <Tooltip tip="保存 API 配置并测试连接是否成功" delay={1000}>
                       <button 
                         className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
                         onClick={() => {
+                          persistUpstreamKeys(upstreamKeys);
                           fetchMerchantInfo();
                           showToast('已保存并尝试连接');
                         }}

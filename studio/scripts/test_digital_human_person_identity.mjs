@@ -1,6 +1,8 @@
 import {
   decoratePersonsForGeneration,
+  dedupePersonsForDisplay,
   findMatchingPerson,
+  isCustomTrainingPerson,
   personSelectionKey,
   resolvePersonIdentity,
   verifyGeneratedPersonIdentity,
@@ -35,6 +37,51 @@ if (personSelectionKey(persons[0]) === personSelectionKey(persons[1])) {
 }
 if (persons.some((person) => person.identityConflict)) {
   throw new Error('distinct preview files must not be marked as identity conflicts')
+}
+
+const duplicateCustomPersons = dedupePersonsForDisplay(decoratePersonsForGeneration([
+  { id: 'dp_custom_810', name: '鹿茸血_810', cover_url: '/files/custom/810.png' },
+  { id: 'dp_custom_810', name: '鹿茸血_810', cover_url: '/files/custom/810.png' },
+], 'custom'), 'custom')
+if (duplicateCustomPersons.length !== 1) {
+  throw new Error(`duplicate custom persons were not collapsed: ${duplicateCustomPersons.length}`)
+}
+
+const duplicatedAcrossCommonAndCustom = dedupePersonsForDisplay([
+  ...decoratePersonsForGeneration([{
+    id: 'custom_966ed1ce',
+    name: '812',
+    figures: [{ cover: '/files/api_tasks/training/custom_966ed1ce/cover.png' }],
+  }], 'common'),
+  ...decoratePersonsForGeneration([{
+    id: 'custom_966ed1ce',
+    name: '812',
+    cover_url: 'merchant/covers/4fc1b7e4eff0.jpg',
+  }], 'custom'),
+], 'all')
+if (duplicatedAcrossCommonAndCustom.length !== 1) {
+  throw new Error(`same custom model from common/private lists was not collapsed: ${duplicatedAcrossCommonAndCustom.length}`)
+}
+if (duplicatedAcrossCommonAndCustom[0].type !== 'custom') {
+  throw new Error('private custom-person record should win when the same model appears in both lists')
+}
+
+if (!isCustomTrainingPerson({ id: 'dp_custom_966ed1ce' })) {
+  throw new Error('dp_custom_* record was not recognized as a private training asset')
+}
+if (!isCustomTrainingPerson({
+  id: 'dp_human',
+  figures: [{ cover: '/files/api_tasks/training/custom_966ed1ce/cover.png' }],
+})) {
+  throw new Error('training-path record was not recognized as a private training asset')
+}
+if (isCustomTrainingPerson({ id: 'dp_human', name: '平台数字人' })) {
+  throw new Error('platform person was incorrectly classified as custom')
+}
+
+const publicPersonsWithSharedLegacyId = dedupePersonsForDisplay(persons, 'common')
+if (publicPersonsWithSharedLegacyId.length !== 2) {
+  throw new Error('public persons with a shared legacy id were incorrectly collapsed')
 }
 
 const matched = findMatchingPerson(persons, {

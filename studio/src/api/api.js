@@ -32,6 +32,34 @@ export const getApiKey = () => {
   return DEFAULT_API_KEY;
 };
 
+// =====================================================
+// 上游服务 Key（由 exe 设置页填写，随请求透传给后端，后端再用于调用上游）
+// 因各上游尚未统一管控，数字人(蝉镜)、生成视频/文案(GenVideos)各自配置。
+// =====================================================
+const UPSTREAM_KEYS_STORAGE = 'rjcut_upstream_keys';
+const DEFAULT_UPSTREAM_KEYS = {
+  genvideos: '',       // GenVideos 网关 API Key（H3 视频与 DeepSeek 文案共用一把）
+  chanjing_app_id: '', // 蝉镜数字人 App ID
+  chanjing_secret: '', // 蝉镜数字人 Secret Key
+};
+
+export const getUpstreamKeys = () => {
+  if (typeof localStorage === 'undefined') return { ...DEFAULT_UPSTREAM_KEYS };
+  try {
+    const stored = JSON.parse(localStorage.getItem(UPSTREAM_KEYS_STORAGE) || 'null');
+    return { ...DEFAULT_UPSTREAM_KEYS, ...(stored || {}) };
+  } catch {
+    return { ...DEFAULT_UPSTREAM_KEYS };
+  }
+};
+
+export const setUpstreamKeys = (keys) => {
+  if (typeof localStorage === 'undefined') return;
+  const merged = { ...getUpstreamKeys(), ...(keys || {}) };
+  localStorage.setItem(UPSTREAM_KEYS_STORAGE, JSON.stringify(merged));
+  return merged;
+};
+
 function trimSlash(value) {
   return String(value || '').trim().replace(/\/+$/, '');
 }
@@ -56,6 +84,11 @@ apiClient.interceptors.request.use((config) => {
   if (apiKey) {
     config.headers.Authorization = `Bearer ${apiKey}`;
   }
+  // 上游服务 Key 透传给后端（后端优先使用，未传则回退环境变量）
+  const upstream = getUpstreamKeys();
+  if (upstream.genvideos) config.headers['X-Genvideos-Api-Key'] = upstream.genvideos;
+  if (upstream.chanjing_app_id) config.headers['X-Chanjing-App-Id'] = upstream.chanjing_app_id;
+  if (upstream.chanjing_secret) config.headers['X-Chanjing-Secret-Key'] = upstream.chanjing_secret;
   return config;
 });
 
@@ -158,6 +191,45 @@ export const relayUpload = async (
   return payload;
 };
 
+// 上传声音样本并创建蝉镜定制声音，密钥只由系统 API 服务端持有。
+export const createCustomVoice = async ({
+  file,
+  name,
+  language = 'cn',
+  text = '',
+  denoiseFlag = true,
+  signal,
+  apiBaseUrl,
+  apiKey,
+} = {}) => {
+  if (!file) throw new Error('请选择声音文件');
+  const baseUrl = (apiBaseUrl || getBaseUrl()).replace(/\/$/, '');
+  const formData = new FormData();
+  formData.append('file', file, file.name || 'custom-voice.audio');
+  formData.append('name', name || file.name || '我的声音');
+  formData.append('language', language);
+  formData.append('text', text);
+  formData.append('denoise_flag', String(Boolean(denoiseFlag)));
+
+  const response = await fetch(`${baseUrl}/v1/dh/voices/customize`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey || getApiKey()}`,
+    },
+    body: formData,
+    signal,
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || (payload.code !== undefined && payload.code !== 0 && payload.code !== 200)) {
+    const message = payload?.message || payload?.detail || `声音上传失败（HTTP ${response.status}）`;
+    throw new Error(message);
+  }
+  return payload;
+};
+
+export const getCustomVoiceStatus = (audioId) =>
+  apiClient.get(`/v1/dh/voices/${encodeURIComponent(audioId)}`);
+
 // =====================================================
 // 任务发起
 // =====================================================
@@ -175,6 +247,14 @@ export const getDraftDetail = (task_id) => apiClient.get(`/v1/drafts/${task_id}`
 // =====================================================
 export const getTaskFileUrl = (task_id, file_key) => 
   apiClient.get(`/v1/tasks/${task_id}/files/${file_key}`);
+
+// H3 AI 视频生成：文生/图生请求都经过 RJCut 系统 API，EXE 不直接连接上游服务。
+export const getTextToVideoHealth = (config = {}) => apiClient.get('/v1/text-to-video/health', config);
+export const createTextToVideoTask = (payload) => apiClient.post('/v1/text-to-video/tasks', payload);
+export const downloadTaskFileContent = (task_id, file_key = 'final_video') =>
+  apiClient.get(`/v1/tasks/${encodeURIComponent(task_id)}/files/${encodeURIComponent(file_key)}/content`, {
+    responseType: 'blob',
+  });
 
 // =====================================================
 // 取消任务
@@ -225,8 +305,54 @@ export const syncCustomPersons = () => apiClient.post('/v1/dh/persons/custom/syn
 // 删除自定义数字人
 export const deleteCustomPerson = (person_id) => apiClient.post(`/v1/dh/persons/custom/${person_id}/delete`);
 
-// 获取声音列表
-export const getVoices = () => apiClient.get('/v1/dh/voices');
+const VOICES_CACHE_KEY = 'rjcut_dh_voices_cache_v1';
+const VOICES_CACHE_TTL_MS = 30 * 60 * 1000;
+let voicesCache = null;
+let voicesRequest = null;
+
+function readVoicesCache() {
+  if (voicesCache && Date.now() - voicesCache.savedAt < VOICES_CACHE_TTL_MS) {
+    return voicesCache.response;
+  }
+  if (typeof localStorage === 'undefined') return null;
+
+  try {
+    const stored = JSON.parse(localStorage.getItem(VOICES_CACHE_KEY) || 'null');
+    if (!stored?.savedAt || !stored?.data || Date.now() - stored.savedAt >= VOICES_CACHE_TTL_MS) {
+      return null;
+    }
+    const response = { data: stored.data, status: 200, statusText: 'OK (cache)', headers: {}, config: {} };
+    voicesCache = { savedAt: stored.savedAt, response };
+    return response;
+  } catch {
+    return null;
+  }
+}
+
+// 声音列表变化频率低：复用页内请求并短时持久化，避免每次进入创作页都重新等待慢接口。
+export const getVoices = ({ force = false } = {}) => {
+  if (!force) {
+    const cached = readVoicesCache();
+    if (cached) return Promise.resolve(cached);
+    if (voicesRequest) return voicesRequest;
+  }
+
+  voicesRequest = apiClient.get('/v1/dh/voices')
+    .then((response) => {
+      const savedAt = Date.now();
+      voicesCache = { savedAt, response };
+      if (typeof localStorage !== 'undefined') {
+        try {
+          localStorage.setItem(VOICES_CACHE_KEY, JSON.stringify({ savedAt, data: response.data }));
+        } catch {}
+      }
+      return response;
+    })
+    .finally(() => {
+      voicesRequest = null;
+    });
+  return voicesRequest;
+};
 
 // 删除定制声音
 export const deleteVoice = (audio_id) => apiClient.post(`/v1/dh/voices/${audio_id}/delete`);

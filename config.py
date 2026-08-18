@@ -35,6 +35,14 @@ class Settings(BaseSettings):
     # AI Gateway 配置
     GATEWAY_BASE_URL: str = "http://gateway:8888"  # Docker 容器内默认地址
 
+    # MiniMax H3 文生视频服务。仅后端访问，桌面客户端不直连上游。
+    H3_BASE_URL: str = "http://112.111.7.91:7980/h3"
+    # 上游 GenVideos 网关统一 API Key（H3 文生视频 / DeepSeek 共用一把 Key）。
+    # 在上游管控台 http://112.111.7.91:7980/admin 获取后填入 .env 的 GENVIDEOS_API_KEY。
+    GENVIDEOS_API_KEY: str = ""
+    TEXT_TO_VIDEO_DAILY_BYTES_LIMIT: int = 10 * 1024 * 1024 * 1024
+    TEXT_TO_VIDEO_RETENTION_HOURS: int = 24
+
     BASE_TASK_DIR: str = os.path.abspath("./service_data")
 
     class Config:

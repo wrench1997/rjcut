@@ -125,6 +125,12 @@ export function validateDigitalHumanResult(result, requestedText, options = {}) 
   if (!timings.length) {
     throw new Error('数字人结果缺少 char_timings')
   }
+  if (result?.char_timing_estimated === true) {
+    throw new Error(
+      '数字人字幕时间轴提取失败，服务端只返回了估算时间。' +
+      '已停止保存该结果，避免字幕与语音错位，请重试'
+    )
+  }
 
   const requiredIndices = []
   requestedChars.forEach((char, index) => {

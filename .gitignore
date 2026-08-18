@@ -24,3 +24,9 @@ studio/release/*
 studio/electron/bin/*.exe
 studio/public/wasm/ffmpeg-core/ffmpeg-core.js
 studio/public/wasm/ffmpeg-core/ffmpeg-core.wasm
+
+
+.codex_doc_review/
+.mcodex/
+.codex_remote/
+.workbuddy/

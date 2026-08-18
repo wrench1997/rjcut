@@ -177,14 +177,16 @@ export async function aiRecommendTemplates(productKeyword, category = '', templa
  * @param {string} params.callToAction - 成交方式（鹿场直销风格专用）
  * @returns {Promise<{ spoken_text: string, segments: Array, meta: Object }>}
  */
-function sanitizeCopywritingTemplateStructure(segments = []) {
+export function sanitizeCopywritingTemplateStructure(segments = []) {
   const directorWords = /^(?:转场|切镜|镜头切到|画面切到|画面给到)$/i
+  let sceneIndex = 0
   return (Array.isArray(segments) ? segments : []).map((segment, index) => {
     const item = segment && typeof segment === 'object' ? segment : {}
     const rawText = String(item.text || '').trim()
     const flag = String(item.flag || item.visual_mode || 'auto').toLowerCase()
     const isTransitionSegment = ['scene', 'transition'].includes(flag)
-    const slotId = item.slot_id || (isTransitionSegment ? `slot_${index + 1}` : null)
+    if (isTransitionSegment) sceneIndex += 1
+    const slotId = item.slot_id || (isTransitionSegment ? `slot_${sceneIndex}` : null)
     return {
       ...item,
       id: item.id || `template_${index + 1}`,
@@ -226,6 +228,8 @@ export async function aiGenerateScript({
     const requestBody = {
       template_structure: sanitizeCopywritingTemplateStructure(segments),
       tone: tone,
+      target_min_chars: 180,
+      target_max_chars: 260,
     }
     
     // 如果提供了自定义提示词，优先使用

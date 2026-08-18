@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import httpx
 
 GATEWAY_BASE_URL = os.getenv("GATEWAY_BASE_URL", "http://gateway:8888")
-MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen3.5-397B-A17B-FP8")
+MODEL_NAME = os.getenv("MODEL_NAME", "DeepSeek-V4-Flash-0731")
 
 AD_PROMPT_PRESETS: List[Dict[str, str]] = [
     {

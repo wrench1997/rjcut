@@ -14,6 +14,7 @@ import {
 } from './templateRunAdapter.js'
 
 import {
+  deleteTemplateRunDraft,
   loadLastTemplateRunDraft,
   saveTemplateRunDraft,
 } from './templateRunStorage.js'
@@ -42,9 +43,12 @@ export default function TemplateBatchPage({
   onStartBatch,
   focusProgress = false,
 }) {
+  const [resumeDraft, setResumeDraft] = useState(() => {
+    if (typeof window === 'undefined') return null
+    return loadLastTemplateRunDraft()
+  })
   const [draft, setDraft] = useState(() => {
-    if (typeof window === 'undefined') return createTemplateRunDraft()
-    return loadLastTemplateRunDraft() || createTemplateRunDraft()
+    return createTemplateRunDraft()
   })
 
   const [activeStepIndex, setActiveStepIndex] = useState(0)
@@ -61,6 +65,20 @@ export default function TemplateBatchPage({
   const saveTimerRef = useRef(null)
   const activeStep = STEPS[activeStepIndex]
   const template = getTemplateById(draft.templateId)
+
+  const continuePreviousDraft = () => {
+    if (!resumeDraft) return
+    setDraft(resumeDraft)
+    setLastRunInfo(resumeDraft.lastRun || null)
+    setActiveStepIndex(0)
+    setError('')
+    setResumeDraft(null)
+  }
+
+  const discardPreviousDraft = () => {
+    if (resumeDraft?.id) deleteTemplateRunDraft(resumeDraft.id)
+    setResumeDraft(null)
+  }
 
   useEffect(() => {
     if (focusProgress && tasks.length > 0) {
@@ -316,6 +334,31 @@ export default function TemplateBatchPage({
             })}
           </div>
         </header>
+
+        {resumeDraft && !focusProgress ? (
+          <div className="mb-5 flex items-center justify-between gap-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+            <div>
+              <p className="text-sm font-semibold text-amber-900">发现上次未完成的模板混剪草稿</p>
+              <p className="mt-0.5 text-xs text-amber-700">当前已为你新建空白任务，不会再自动带入上次选择。</p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                onClick={discardPreviousDraft}
+                className="rounded-lg px-3 py-2 text-xs font-medium text-amber-800 hover:bg-amber-100"
+              >
+                放弃旧草稿
+              </button>
+              <button
+                type="button"
+                onClick={continuePreviousDraft}
+                className="rounded-lg bg-amber-600 px-3 py-2 text-xs font-semibold text-white hover:bg-amber-700"
+              >
+                继续上次草稿
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         {/* 进度显示区域（只在第五步显示，由 TaskProgressStep 组件内部渲染） */}
         {/* 前四步不显示进度，保持界面简洁 */}

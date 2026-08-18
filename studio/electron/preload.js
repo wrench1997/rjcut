@@ -134,6 +134,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   probeMediaDuration: (filePath) => ipcRenderer.invoke('video:probeDuration', filePath),
   previewTranscode: (payload) => ipcRenderer.invoke('video:previewTranscode', payload),
   nativeCompose: (payload) => ipcRenderer.invoke('video:nativeCompose', payload),
+  nativeTimelineExport: (payload) => ipcRenderer.invoke('video:nativeTimelineExport', payload),
   
   // ==================== 平台信息 ====================
   

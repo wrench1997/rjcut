@@ -71,6 +71,21 @@ function normalizeGenerationId(value) {
   return normalized
 }
 
+export function isCustomTrainingPerson(person) {
+  const ids = [person?.id, person?.person_id, person?.generation_person_id]
+    .map(normalizeGenerationId)
+  if (ids.some((value) => value.startsWith('custom_'))) return true
+
+  const figures = collectFigures(person)
+  const mediaPaths = [
+    person?.cover_url,
+    person?.preview_video_url,
+    person?.video_url,
+    ...figures.flatMap((figure) => [figure?.cover, figure?.preview_video_url, figure?.video_url]),
+  ]
+  return mediaPaths.some((value) => decodeRepeated(value).replace(/\\/gu, '/').includes('/api_tasks/training/custom_'))
+}
+
 function normalizedComparable(value) {
   return normalizeGenerationId(value)
     .replace(/\.(mp4|mov|m4v|avi|webm|mkv|png|jpe?g|webp)$/iu, '')
@@ -278,6 +293,52 @@ export function decoratePersonsForGeneration(rawPersons, type = 'common') {
       identityConflict: Boolean(generationKey) && (generationCounts.get(generationKey) || 0) > 1,
     }
   })
+}
+
+export function dedupePersonsForDisplay(rawPersons, type = 'common') {
+  const decorated = rawPersons?.every?.((person) => person?.selectionKey)
+    ? rawPersons.filter(Boolean)
+    : decoratePersonsForGeneration(rawPersons, type)
+  const seen = new Map()
+
+  for (const person of decorated) {
+    const identity = resolvePersonIdentity(person, {
+      preferMediaIdentity: type === 'common' || person.hasDuplicateLegacyId,
+    })
+    const normalizedIdentity = normalizedComparable(identity.generationPersonId)
+    const normalizedMedia = normalizedComparable(
+      videoIdentityFromPerson(person) || imageIdentityFromPerson(person),
+    )
+    const selectionKey = personSelectionKey(person)
+    const canonicalCustomId = [
+      person?.generation_person_id,
+      person?.generationPersonId,
+      person?.person_id,
+      person?.digital_person_id,
+      person?.id,
+      identity.generationPersonId,
+    ]
+      .map(normalizeGenerationId)
+      .find((value) => /^custom_/iu.test(value)) || ''
+
+    // 同一个 custom_* 模型可能同时出现在 MuseTalk 公共列表与商户私有列表中，
+    // 两边封面地址不同（/files/... 与 MinIO），但模型 ID 才是稳定身份。
+    // 公共数字人的旧 ID 可能天然重复，只有 custom_* 才能安全地按 ID 折叠。
+    const key = canonicalCustomId
+      ? `custom-model::${normalizedComparable(canonicalCustomId)}`
+      : (type === 'all' || type === 'custom') && normalizedMedia
+      ? `media::${normalizedMedia}`
+      : type === 'custom' && normalizedIdentity
+        ? `custom::${normalizedIdentity}`
+        : selectionKey
+
+    const existing = seen.get(key)
+    if (!existing || (existing.type !== 'custom' && person.type === 'custom')) {
+      seen.set(key, person)
+    }
+  }
+
+  return Array.from(seen.values())
 }
 
 export function mergePersonDetails(selectedPerson, details) {

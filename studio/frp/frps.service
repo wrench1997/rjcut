@@ -1,0 +1,16 @@
+[Unit]
+Description=RJCut FRP server
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=jirongtech
+WorkingDirectory=/home/jirongtech/rjcut-frp
+ExecStart=/home/jirongtech/rjcut-frp/frps -c /home/jirongtech/rjcut-frp/frps.ini
+Restart=always
+RestartSec=3
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target

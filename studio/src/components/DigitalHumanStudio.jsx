@@ -12,16 +12,90 @@ import { buildDigitalHumanProject, normalizeCopywritingPlan, sidecarPathForVideo
 import { downloadDigitalHumanVideo } from '../features/digital-human-project/digitalHumanDownload.js'
 import { createManualCopywritingPlan, createManualScriptEntry, insertManualSegment, makeManualSegment, moveManualSegment, parseManualCopywritingPlanJson, rebuildManualCopywritingPlan, removeManualSegment, splitManualTextIntoSegments, updateManualSegment } from '../features/digital-human-project/manualCopywritingPlan.js'
 import { requireFullSpokenText, summarizeTextContract, validateDigitalHumanResult } from '../features/digital-human-project/digitalHumanIntegrity.js'
-import { decoratePersonsForGeneration, findMatchingPerson, mergePersonDetails, personSelectionKey, resolvePersonIdentity, safeFilePart, verifyGeneratedPersonIdentity } from '../features/digital-human-project/personIdentity.js'
+import { decoratePersonsForGeneration, dedupePersonsForDisplay, findMatchingPerson, isCustomTrainingPerson, mergePersonDetails, personSelectionKey, resolvePersonIdentity, safeFilePart, verifyGeneratedPersonIdentity } from '../features/digital-human-project/personIdentity.js'
+
+const DIGITAL_HUMAN_PIPELINE_CONCURRENCY = 2
+const NATIVE_VOICE_OPTION = '__rjcut_native_person_voice__'
+
+function personNativeVoiceId(person, details = null) {
+  const candidates = [
+    person?.audio_man_id,
+    person?.audio_id,
+    person?.voice_id,
+    details?.audio_man_id,
+    details?.audio_id,
+    details?.voice_id,
+  ]
+  return candidates
+    .map((value) => String(value ?? '').trim())
+    .find((value) => value && !['undefined', 'null'].includes(value.toLowerCase())) || ''
+}
+
+async function runWithConcurrency(items, concurrency, handler) {
+  let nextIndex = 0
+  const workerCount = Math.min(Math.max(1, concurrency), items.length)
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex
+      nextIndex += 1
+      await handler(items[index], index)
+    }
+  }))
+}
 
 // =====================================================
 // 左侧：资产选择 (数字人与声音) - 9 宫格布局
 // =====================================================
-function AvatarPicker({ persons, voices, selectedPerson, onSelectPerson, selectedVoice, onSelectVoice }) {
+function AvatarPicker({ persons, voices, selectedPerson, selectedPersonDetails, onSelectPerson, selectedVoice, onSelectVoice }) {
+  const [voiceMenuOpen, setVoiceMenuOpen] = useState(false)
+  const voiceMenuRef = useRef(null)
   const normalizeSelectValue = (value) => {
     const normalized = String(value ?? '').trim()
     return normalized === 'undefined' || normalized === 'null' ? '' : normalized
   }
+  const normalizeVoiceOptionValue = (voice) => {
+    const raw = normalizeSelectValue(
+      voice?.id ??
+      voice?.audio_man_id ??
+      voice?.audio_id ??
+      voice?.voice_id ??
+      voice?.source_audio_path ??
+      voice?.audition
+    )
+    if (!raw) return ''
+    if (raw.startsWith('/files/')) return raw
+    if (raw.startsWith('/root/MuseTalk/data/')) return `/files${raw.slice('/root/MuseTalk'.length)}`
+    if (raw.startsWith('/app/data/')) return `/files${raw.slice('/app'.length)}`
+    if (raw.startsWith('/app/')) return `/files${raw.slice('/app'.length)}`
+    if (raw.startsWith('/data/')) return `/files${raw}`
+    return raw
+  }
+  const nativeVoiceId = personNativeVoiceId(selectedPerson, selectedPersonDetails)
+  const voiceOptions = voices
+    .map((voice) => ({
+      value: normalizeVoiceOptionValue(voice),
+      label: voice?.name || '未命名配音',
+    }))
+    .filter((voice, index, items) => voice.value && items.findIndex((item) => item.value === voice.value) === index)
+  const selectedVoiceLabel = selectedVoice === NATIVE_VOICE_OPTION
+    ? (nativeVoiceId ? '数字人原声（当前人物）' : '数字人原声（未同步）')
+    : voiceOptions.find((voice) => voice.value === selectedVoice)?.label || '请选择配音角色'
+
+  useEffect(() => {
+    if (!voiceMenuOpen) return undefined
+    const closeOnPointerDown = (event) => {
+      if (!voiceMenuRef.current?.contains(event.target)) setVoiceMenuOpen(false)
+    }
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setVoiceMenuOpen(false)
+    }
+    document.addEventListener('mousedown', closeOnPointerDown)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('mousedown', closeOnPointerDown)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [voiceMenuOpen])
 
   return (
     <div className="w-[420px] bg-white border-r border-slate-200 flex flex-col h-full z-10 flex-shrink-0">
@@ -74,104 +148,85 @@ function AvatarPicker({ persons, voices, selectedPerson, onSelectPerson, selecte
         </div>
       </div>
       
-      {/* 配音选择区 */}
+        {/* 配音选择区 */}
       <div className="p-4 border-t border-slate-100 bg-slate-50 flex-shrink-0">
-        <Tooltip tip="为数字人视频选择配音角色，留空则使用数字人原声" delay={1000}>
+        <Tooltip tip="可选择公共配音，或使用当前数字人的原生音色" delay={1000}>
           <label className="block text-xs font-bold text-slate-600 mb-2 flex items-center gap-1">
             <Mic size={14} strokeWidth={2} />
-            <span>配音角色 (可选)</span>
+            <span>配音角色 (必选)</span>
           </label>
         </Tooltip>
-        <select 
-          className="w-full text-sm p-2.5 rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all cursor-pointer"
-          value={selectedVoice}
-          onChange={(e) => onSelectVoice(normalizeSelectValue(e.target.value))}
-        >
-          <option value="">使用数字人原声</option>
-          {voices.map((v) => {
-            const optionValue = normalizeSelectValue(v?.id ?? v?.audio_id ?? v?.voice_id)
-            if (!optionValue) return null
-            return (
-              <option key={optionValue} value={optionValue}>
-                {v?.name || '未命名配音'}
-              </option>
-            )
-          })}
-        </select>
+        <div ref={voiceMenuRef} className="relative">
+          <button
+            type="button"
+            aria-haspopup="listbox"
+            aria-expanded={voiceMenuOpen}
+            onClick={() => setVoiceMenuOpen((open) => !open)}
+            className="flex w-full items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-left text-sm transition-all hover:border-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <span className={selectedVoice ? 'truncate text-slate-800' : 'truncate text-slate-400'}>
+              {selectedVoiceLabel}
+            </span>
+            <ChevronDown size={16} className={`shrink-0 text-slate-400 transition-transform ${voiceMenuOpen ? 'rotate-180' : ''}`} />
+          </button>
+
+          {voiceMenuOpen && (
+            <div
+              role="listbox"
+              className="absolute bottom-full left-0 z-[80] mb-2 max-h-64 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-2xl custom-scrollbar"
+            >
+              <button
+                type="button"
+                role="option"
+                aria-selected={!selectedVoice}
+                onClick={() => {
+                  onSelectVoice('')
+                  setVoiceMenuOpen(false)
+                }}
+                className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm text-slate-500 hover:bg-slate-50"
+              >
+                请选择配音角色
+                {!selectedVoice && <Check size={14} className="text-blue-500" />}
+              </button>
+              <button
+                type="button"
+                role="option"
+                aria-selected={selectedVoice === NATIVE_VOICE_OPTION}
+                disabled={!nativeVoiceId}
+                onClick={() => {
+                  onSelectVoice(NATIVE_VOICE_OPTION)
+                  setVoiceMenuOpen(false)
+                }}
+                className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:text-slate-300"
+              >
+                {nativeVoiceId ? '数字人原声（当前人物）' : '数字人原声（未同步）'}
+                {selectedVoice === NATIVE_VOICE_OPTION && <Check size={14} className="text-blue-500" />}
+              </button>
+              <div className="my-1 border-t border-slate-100" />
+              {voiceOptions.map((voice) => (
+                <button
+                  key={voice.value}
+                  type="button"
+                  role="option"
+                  aria-selected={selectedVoice === voice.value}
+                  onClick={() => {
+                    onSelectVoice(normalizeSelectValue(voice.value))
+                    setVoiceMenuOpen(false)
+                  }}
+                  className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-blue-50"
+                >
+                  <span className="truncate">{voice.label}</span>
+                  {selectedVoice === voice.value && <Check size={14} className="shrink-0 text-blue-500" />}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
 }
 
-function getPersonAudioManId(person) {
-  const raw = [
-    person?.audio_man_id,
-    person?.audio_id,
-    person?.audioId,
-    person?.audio_man,
-    person?.voice_id,
-    person?.voiceId,
-  ]
-
-  for (const candidate of raw) {
-    const normalized = String(candidate ?? '').trim()
-    if (normalized && normalized !== 'undefined' && normalized !== 'null') {
-      return normalized
-    }
-  }
-
-  return ''
-}
-
-function getVoiceAudioManId(voice) {
-  const raw = [
-    voice?.audio_man_id,
-    voice?.audio_id,
-    voice?.voice_id,
-    voice?.voiceId,
-    voice?.id,
-  ]
-
-  for (const candidate of raw) {
-    const normalized = String(candidate ?? '').trim()
-    if (normalized && normalized !== 'undefined' && normalized !== 'null') {
-      return normalized
-    }
-  }
-
-  return ''
-}
-
-function getPersonFallbackVoiceId(person, voices) {
-  const personAudio = getPersonAudioManId(person)
-  if (personAudio) return personAudio
-  if (!Array.isArray(voices)) return ''
-
-  const normalizedPersonName = String(person?.name || '').trim()
-  const normalizedGender = String(person?.gender || '').trim().toLowerCase()
-  const byName = voices.find((voice) => {
-    const voiceName = String(voice?.name || '').trim()
-    if (!voiceName || !normalizedPersonName) return false
-    return voiceName === normalizedPersonName || voiceName.includes(normalizedPersonName) || normalizedPersonName.includes(voiceName)
-  })
-  if (byName) {
-    const matched = getVoiceAudioManId(byName)
-    if (matched) return matched
-  }
-
-  const byGender = voices.find((voice) => String(voice?.gender || '').trim().toLowerCase() === normalizedGender)
-  if (byGender) {
-    const matched = getVoiceAudioManId(byGender)
-    if (matched) return matched
-  }
-
-  for (const voice of voices) {
-    const value = getVoiceAudioManId(voice)
-    if (value) return value
-  }
-
-  return ''
-}
 // =====================================================
 // 高级设置面板（折叠式）
 // =====================================================
@@ -1663,26 +1718,33 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
   }, [])
 
   useEffect(() => {
-    const autoVoiceId = sanitizeVoiceId(
-      getPersonFallbackVoiceId(selectedPerson, [selectedPerson, selectedPersonDetails].filter(Boolean))
-    )
-    if (!sanitizeVoiceId(selectedVoice) && autoVoiceId) {
-      console.log('[DigitalHumanStudio] 自动回填配音角色:', {
-        source: getPersonAudioManId(selectedPersonDetails)
-          ? 'personDetails'
-          : (getPersonAudioManId(selectedPerson) ? 'selectedPerson' : 'voicesFallback'),
-        voiceId: autoVoiceId,
-        personName: selectedPerson?.name,
-      })
-      setSelectedVoice(autoVoiceId)
+    if (!sanitizeVoiceId(selectedVoice) && voices.length === 0) {
+      console.log('[DigitalHumanStudio] 当前无可用配音角色，需同步声音列表或检查权限', { personName: selectedPerson?.name })
     }
   }, [
     selectedPerson,
-    selectedPersonDetails,
     selectedPerson?.name,
     selectedVoice,
     voices,
     sanitizeVoiceId,
+  ])
+
+  // 当前人物的原生音色优先作为默认选项；详情接口补回音色 ID 后同步刷新。
+  useEffect(() => {
+    if (!selectedPerson) return
+    const nativeVoiceId = personNativeVoiceId(selectedPerson, selectedPersonDetails)
+    if (nativeVoiceId && (!selectedVoice || selectedVoice === NATIVE_VOICE_OPTION)) {
+      setSelectedVoice(NATIVE_VOICE_OPTION)
+    } else if (!nativeVoiceId && selectedVoice === NATIVE_VOICE_OPTION) {
+      setSelectedVoice('')
+    }
+  }, [
+    selectedPerson,
+    selectedPerson?.selectionKey,
+    selectedPerson?.audio_man_id,
+    selectedPersonDetails,
+    selectedPersonDetails?.audio_man_id,
+    selectedVoice,
   ])
   
   // AI 生成文案处理函数
@@ -1978,7 +2040,10 @@ const [cRes, pRes, vRes] = [commonPersonsRes, customPersonsRes, voicesRes]
         
         let all = []
         if (cRes?.data?.code === 0) {
-          const commons = decoratePersonsForGeneration(cRes.data.data || [], 'common')
+          const commons = decoratePersonsForGeneration(
+            (cRes.data.data || []).filter((person) => !isCustomTrainingPerson(person)),
+            'common',
+          )
           all = [...all, ...commons]
 
           const duplicateLegacy = commons.filter((person) => person.hasDuplicateLegacyId)
@@ -2002,7 +2067,10 @@ const [cRes, pRes, vRes] = [commonPersonsRes, customPersonsRes, voicesRes]
           }
         }
         if (pRes?.data?.code === 0) {
-          const customs = decoratePersonsForGeneration(pRes.data.data || [], 'custom')
+          const customs = dedupePersonsForDisplay(
+            decoratePersonsForGeneration(pRes.data.data || [], 'custom'),
+            'custom',
+          )
           all = [...all, ...customs]
           console.log('[DigitalHumanStudio] 自定义数字人列表:', customs.map((person) => ({
             id: person.id,
@@ -2011,7 +2079,8 @@ const [cRes, pRes, vRes] = [commonPersonsRes, customPersonsRes, voicesRes]
             hasActions: Boolean(person.actions?.length),
           })))
         }
-        console.log('[DigitalHumanStudio] 合并后的数字人列表:', all.map((person) => ({
+         const displayPersons = dedupePersonsForDisplay(all, 'all')
+         console.log('[DigitalHumanStudio] 合并后的数字人列表:', displayPersons.map((person) => ({
           id: person.id,
           legacyId: person.legacyPersonId,
           generationPersonId: person.generation_person_id,
@@ -2020,7 +2089,7 @@ const [cRes, pRes, vRes] = [commonPersonsRes, customPersonsRes, voicesRes]
           name: person.name,
           type: person.type,
         })))
-        setPersons(all)
+         setPersons(displayPersons)
         if (vRes?.data?.code === 0) setVoices(vRes.data.data || [])
         
         // 加载项目列表 - 使用 VFS API
@@ -2128,6 +2197,15 @@ const [cRes, pRes, vRes] = [commonPersonsRes, customPersonsRes, voicesRes]
     if (!selectedPerson) return alert("请选择数字人")
     if (validScripts.length === 0) return alert("请输入至少一条文案")
     if (!selectedProject) return alert("请选择要保存到的项目")
+    const nativeVoiceId = personNativeVoiceId(selectedPerson, selectedPersonDetails)
+    const resolvedAudioManId = selectedVoice === NATIVE_VOICE_OPTION
+      ? sanitizeVoiceId(nativeVoiceId)
+      : sanitizeVoiceId(selectedVoice)
+    if (!resolvedAudioManId) {
+      return alert(nativeVoiceId
+        ? '请先选择配音角色，或选择“数字人原声”'
+        : '当前数字人尚未同步原生音色，请先选择公共配音角色')
+    }
 
     const selectedIdentity = resolvePersonIdentity(selectedPerson, {
       preferMediaIdentity: selectedPerson.type === 'common' || selectedPerson.hasDuplicateLegacyId,
@@ -2167,17 +2245,8 @@ const [cRes, pRes, vRes] = [commonPersonsRes, customPersonsRes, voicesRes]
     setPipelineTasks(initialTasks)
 
       try {
-        const resolvedAudioManId = sanitizeVoiceId(
-          selectedVoice || getPersonFallbackVoiceId(selectedPerson, [selectedPerson, selectedPersonDetails, ...voices].filter(Boolean))
-        )
         if (!resolvedAudioManId) {
-          console.warn('[DigitalHumanStudio] 当前数字人未检测到可用配音，尝试使用数字人原声继续创建任务', {
-            selectedVoice: sanitizeVoiceId(selectedVoice),
-            selectedPersonVoice: sanitizeVoiceId(getPersonAudioManId(selectedPerson)),
-            selectedPersonDetailVoice: sanitizeVoiceId(getPersonAudioManId(selectedPersonDetails)),
-            availableVoicesCount: voices.length,
-            personName: selectedPerson?.name,
-          })
+          throw new Error('请先选择配音角色，或选择“数字人原声”')
         }
       const vfs = getVFS()
       
@@ -2195,10 +2264,10 @@ const [cRes, pRes, vRes] = [commonPersonsRes, customPersonsRes, voicesRes]
       await vfs.createDirectory(savePath, true)
       console.log('[DigitalHumanStudio] 目录创建成功')
 
-      // 并发处理所有任务
+      // 限制并发，避免同时生成和下载多个大视频导致服务拥塞或 Electron 内存峰值。
       let failedCount = 0
-      console.log('[DigitalHumanStudio] 开始并发处理', initialTasks.length, '个任务')
-      await Promise.all(initialTasks.map(async (task, index) => {
+      console.log('[DigitalHumanStudio] 开始处理', initialTasks.length, '个任务，并发上限:', DIGITAL_HUMAN_PIPELINE_CONCURRENCY)
+      await runWithConcurrency(initialTasks, DIGITAL_HUMAN_PIPELINE_CONCURRENCY, async (task, index) => {
         const script = validScripts[index]
         console.log('[DigitalHumanStudio] 处理任务', index + 1, '/', initialTasks.length)
         
@@ -2215,6 +2284,7 @@ const [cRes, pRes, vRes] = [commonPersonsRes, customPersonsRes, voicesRes]
             person_id: selectedGenerationPersonId,
             figure_type: selectedPerson.figure_type || selectedPersonDetails?.figure_type || advancedSettings.figure_type || 'whole_body',
             hide_subtitle: advancedSettings.hide_subtitle !== false,
+            speed: advancedSettings.speed,
             extra: {
               business_task_id: task.id,
               source: 'rjcut-studio',
@@ -2357,7 +2427,7 @@ const [cRes, pRes, vRes] = [commonPersonsRes, customPersonsRes, voicesRes]
             t.id === task.id ? { ...t, stage: 'failed', error: err.message } : t
           ))
         }
-      }))
+      })
 
       if (failedCount > 0) {
         setStatusMsg(`生成结束：${failedCount} 个任务失败，请查看进度窗口详情`)
@@ -2390,20 +2460,11 @@ const [cRes, pRes, vRes] = [commonPersonsRes, customPersonsRes, voicesRes]
         persons={persons} 
         voices={voices}
         selectedPerson={selectedPerson} 
+        selectedPersonDetails={selectedPersonDetails}
         onSelectPerson={(person) => {
           setSelectedPerson(person)
+          setSelectedVoice(personNativeVoiceId(person) ? NATIVE_VOICE_OPTION : '')
           setSelectedPersonDetails(mergePersonDetails(person, {}))
-          const autoVoiceId = sanitizeVoiceId(
-            getPersonFallbackVoiceId(person, [person, ...voices].filter(Boolean))
-          )
-          if (!sanitizeVoiceId(selectedVoice) && autoVoiceId) {
-            console.log('[DigitalHumanStudio] 用户切换数字人，回填数字人原声:', {
-              personName: person?.name,
-              personId: person?.id,
-              voiceId: autoVoiceId,
-            })
-            setSelectedVoice(autoVoiceId)
-          }
           console.log('[DigitalHumanStudio] 用户选择数字人:', {
             name: person.name,
             legacyId: person.id,

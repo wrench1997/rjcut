@@ -65,6 +65,46 @@ function buildComposePlan(clips, mediaFiles, sceneFilesMap) {
   }
 }
 
+function buildNativeTimelinePlan(clips, mediaFiles, totalDurationMs) {
+  const visualClips = clips.filter((clip) => ['scene', 'video', 'human'].includes(clip.type))
+  const audioClips = clips.filter((clip) => clip.type === 'audio')
+  const boundaries = [...new Set([
+    0,
+    totalDurationMs,
+    ...visualClips.flatMap((clip) => [clip.start_ms, clip.start_ms + clip.duration_ms]),
+  ])].filter((value) => Number.isFinite(value) && value >= 0).sort((a, b) => a - b)
+  const priority = { scene: 0, video: 1, human: 2 }
+  const plan = []
+  for (let index = 0; index < boundaries.length - 1; index += 1) {
+    const start = boundaries[index]
+    const end = boundaries[index + 1]
+    if (end <= start) continue
+    const visual = visualClips
+      .filter((clip) => clip.start_ms <= start && clip.start_ms + clip.duration_ms >= end)
+      .sort((a, b) => (priority[a.type] ?? 99) - (priority[b.type] ?? 99))[0]
+    if (!visual) {
+      plan.push({ kind: 'gap', start_ms: start, duration_ms: end - start })
+      continue
+    }
+    const media = mediaFiles[visual.mediaId]
+    const audio = audioClips.find((clip) => clip.start_ms <= start && clip.start_ms + clip.duration_ms >= end)
+      || visualClips.find((clip) => clip.type === 'human' && clip.start_ms <= start && clip.start_ms + clip.duration_ms >= end)
+    const audioMedia = audio ? mediaFiles[audio.mediaId] : null
+    plan.push({
+      kind: 'media',
+      id: visual.id,
+      type: visual.type,
+      start_ms: start,
+      duration_ms: end - start,
+      offset_ms: (Number(visual.offset_ms) || 0) + start - visual.start_ms,
+      vfsPath: media?.vfsPath || visual.source_vfs_path || visual.scene_vfs_path,
+      audioVfsPath: audioMedia?.vfsPath || audio?.source_vfs_path || '',
+      audioOffsetMs: audio ? (Number(audio.offset_ms) || 0) + start - audio.start_ms : 0,
+    })
+  }
+  return plan.filter((clip) => clip.kind === 'gap' || clip.vfsPath)
+}
+
 /**
  * 导出面板 - 将剪辑完成的视频导出并保存到 VFS
  */
@@ -143,6 +183,75 @@ export default function ExportPanelVFS({
           .filter(Boolean)
       )]
       const primarySourceVideoVfsPath = sourceVideoVfsPaths[0] || ''
+
+      // EXE 主路径使用打包内置 FFmpeg，普通视频和数字人视频统一走真实导出。
+      // 旧 Web Worker 的普通视频分支只会生成占位文本，不能作为产品导出链路。
+      if (typeof window !== 'undefined' && window.electronAPI?.nativeTimelineExport) {
+        const projectRoot = primarySourceVideoVfsPath
+          ? `/${primarySourceVideoVfsPath.split('/').filter(Boolean)[0]}`
+          : '/默认项目'
+        const outputDir = `${projectRoot}/${PROJECT_FOLDERS.OUTPUT}`
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5)
+        const savePath = `${outputDir}/高级剪辑_${timestamp}.mp4`
+        const nativeClips = buildNativeTimelinePlan(clips, mediaFiles, totalDuration_ms)
+        if (!nativeClips.some((clip) => clip.kind === 'media')) throw new Error('时间轴没有可导出的视频画面')
+        await vfs.mkdir(outputDir, true)
+        setProgress(8)
+        const result = await window.electronAPI.nativeTimelineExport({
+          outputPath: savePath,
+          clips: nativeClips,
+          quality: exportSettings.quality === 'ultra' ? 'quality' : exportSettings.quality === 'low' ? 'performance' : 'balanced',
+          subtitle: subtitleConfig,
+          subtitleClips: clips.filter((clip) => clip.type === 'subtitle').map((clip) => {
+            const sourceTimings = Array.isArray(clip.char_timings) ? clip.char_timings : []
+            const sourceAnchor = Number(sourceTimings[0]?.start_ms ?? Number(sourceTimings[0]?.start || 0) * 1000) || 0
+            return {
+              ...clip,
+              char_timings: sourceTimings.map((character, index) => {
+                const sourceStart = Number(character.start_ms ?? Number(character.start || 0) * 1000)
+                const sourceEnd = Number(character.end_ms ?? Number(character.end || 0) * 1000)
+                const relocatedStart = clip.start_ms + Math.max(0, sourceStart - sourceAnchor)
+                return {
+                  ...character,
+                  index: index + (Number.isFinite(Number(clip.char_start)) ? Number(clip.char_start) : 0),
+                  start_ms: relocatedStart,
+                  end_ms: Math.min(clip.start_ms + clip.duration_ms, relocatedStart + Math.max(1, sourceEnd - sourceStart)),
+                }
+              }),
+            }
+          }),
+        })
+        if (!result?.size || result.size < 1024) throw new Error('导出文件为空或过小')
+
+        const projectJson = {
+          schema: 'rjcut.editor-project/v1',
+          saved_at: new Date().toISOString(),
+          output_video_vfs_path: savePath,
+          source_video_vfs_path: primarySourceVideoVfsPath,
+          canvas: { width, height, fps: exportSettings.fps },
+          duration_ms: totalDuration_ms,
+          clips: clips.map((clip) => ({
+            ...clip,
+            media_vfs_path: mediaFiles[clip.mediaId]?.vfsPath || clip.source_vfs_path || clip.scene_vfs_path || '',
+            media_name: mediaFiles[clip.mediaId]?.name || '',
+          })),
+          subtitle: subtitleConfig,
+          global_params: globalParams,
+        }
+        const stem = savePath.replace(/\.[^./\\]+$/u, '')
+        await vfs.writeFile(`${stem}.timeline.json`, new TextEncoder().encode(JSON.stringify(projectJson, null, 2)))
+        await vfs.writeFile(`${stem}.rjcut-global.json`, new TextEncoder().encode(JSON.stringify({
+          schema: 'rjcut.export-global/v1',
+          generated_at: new Date().toISOString(),
+          global_params: globalParams,
+          source_video_vfs_path: primarySourceVideoVfsPath,
+        }, null, 2)))
+        if (onExportComplete) await onExportComplete({ savePath, primarySourceVideoVfsPath, projectJson })
+        setStatus('complete')
+        setProgress(100)
+        alert(`视频和可继续编辑的工程 JSON 已保存：\n${savePath}\n${stem}.timeline.json`)
+        return
+      }
 
       // 获取所有需要的媒体文件
       const requiredMediaIds = [...new Set(clips.map(c => c.mediaId))]

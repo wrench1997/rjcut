@@ -9,6 +9,20 @@ import json
 GATEWAY_BASE_URL = os.getenv("GATEWAY_BASE_URL", "http://gateway:8888")
 
 
+def _upstream_headers_from_request(request=None) -> dict:
+    """从 FastAPI Request 中提取上游 GenVideos API Key 头，供调用 gateway 时透传。"""
+    if request is None:
+        return {}
+    headers = getattr(request, "headers", None)
+    if not headers:
+        return {}
+    for name in ("X-Genvideos-Api-Key", "X-Deepseek-Api-Key", "X-H3-Api-Key"):
+        value = headers.get(name)
+        if value and value.strip():
+            return {"X-Genvideos-Api-Key": value.strip()}
+    return {}
+
+
 def build_editable_script_from_result(result: dict):
     timeline = (result or {}).get("draft", {}).get("timeline") or {}
     transcription = (result or {}).get("draft", {}).get("transcription") or {}
@@ -319,6 +333,31 @@ def _extract_json_from_ai_text(ai_text: str) -> dict:
     if isinstance(parsed, dict):
         return parsed
 
+    # Recover the most important field from a truncated/malformed JSON object.
+    # Some OpenAI-compatible gateways cut the tail after spoken_text even though
+    # response_format=json_object was requested. The normalizer can rebuild the
+    # full segment structure from this text safely.
+    import re
+    for field_name in ("spoken_text", "text", "content", "script"):
+        match = re.search(
+            rf'"{field_name}"\s*:\s*"((?:\\.|[^"\\])*)"',
+            text,
+            re.S,
+        )
+        if not match:
+            continue
+        try:
+            recovered = json.loads(f'"{match.group(1)}"')
+        except Exception:
+            recovered = match.group(1).replace('\\n', '').replace('\\"', '"')
+        recovered = _strip_director_words(recovered)
+        if recovered:
+            return {
+                "spoken_text": recovered,
+                "segments": [],
+                "meta": {"recovered_from_malformed_json": True},
+            }
+
     # 最后降级：部分模型即使指定 json_object 仍可能只返回纯口播。
     # 后续 normalize 会依据 template_structure 重建完整 segments JSON。
     plain = _strip_director_words(text)
@@ -610,6 +649,49 @@ def _normalize_copywriting_script(raw: dict, template_structure: List[Dict]) -> 
     }
 
 
+def _copywriting_char_count(script: dict) -> int:
+    return len("".join(str(script.get("spoken_text") or "").split()))
+
+
+def _clamp_copywriting_script(script: dict, max_chars: int) -> dict:
+    """Shorten an overlong result without breaking segment/timeline structure."""
+    segments = [dict(item) for item in script.get("segments") or [] if isinstance(item, dict)]
+    texts = [str(item.get("text") or "") for item in segments]
+    total = sum(len("".join(text.split())) for text in texts)
+    if not segments or total <= max_chars:
+        return script
+
+    remaining = max_chars
+    for index, segment in enumerate(segments):
+        text = texts[index]
+        future_non_empty = sum(1 for value in texts[index + 1:] if value)
+        compact_length = len("".join(text.split()))
+        proportional = max(1, round(max_chars * compact_length / total)) if compact_length else 0
+        allowance = min(compact_length, proportional, max(0, remaining - future_non_empty))
+        if allowance <= 0:
+            segment["text"] = ""
+            continue
+        kept = []
+        visible = 0
+        for char in text:
+            if not char.isspace():
+                if visible >= allowance:
+                    break
+                visible += 1
+            kept.append(char)
+        segment["text"] = "".join(kept).rstrip("，、；： ")
+        remaining -= len("".join(segment["text"].split()))
+
+    spoken_text = "".join(item.get("text") or "" for item in segments)
+    meta = dict(script.get("meta") or {})
+    meta.update({
+        "length_clamped": True,
+        "target_max_chars": max_chars,
+        "output_chars": len("".join(spoken_text.split())),
+    })
+    return {**script, "spoken_text": spoken_text, "segments": segments, "meta": meta}
+
+
 async def ai_generate_script_via_gateway(
     product_name: str,
     selling_points: str,
@@ -622,6 +704,9 @@ async def ai_generate_script_via_gateway(
     farm_scale: str = "自家鹿场养殖",
     identification_points: str = "颜色、状态、溯源信息",
     call_to_action: str = "点击下方链接/评论区留言",
+    target_min_chars: int = 180,
+    target_max_chars: int = 260,
+    request=None,
 ) -> Dict[str, Any]:
     """生成纯口播 + 语义段落 JSON；不再把剪辑口令写入口播。"""
     tone_descriptions = {
@@ -650,6 +735,12 @@ async def ai_generate_script_via_gateway(
             "error_code": "PROMPT_VALIDATION_FAILED",
             "error": str(exc),
         }
+
+    try:
+        target_min_chars = max(80, int(target_min_chars))
+        target_max_chars = min(600, max(target_min_chars, int(target_max_chars)))
+    except (TypeError, ValueError):
+        target_min_chars, target_max_chars = 180, 260
 
     clean_template_structure = _sanitize_template_structure(template_structure)
     template_json = json.dumps(clean_template_structure, ensure_ascii=False)
@@ -729,40 +820,107 @@ transition_segments 只列出 is_transition_segment=true 的段落。"""
 6. 每个 scene 段必须明确输出 is_transition_segment=true、edit_action=replace_visual 和 transition 对象。
 7. human 段必须输出 is_transition_segment=false、edit_action=keep_digital_human。"""
 
+    user_prompt += f"\n8. spoken_text 全文必须控制在 {target_min_chars}～{target_max_chars} 个汉字及可见字符，优先短句，禁止写成长篇介绍。"
+
+    base_messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
     payload = {
-        "model": model_name or os.getenv("MODEL_NAME", "Qwen/Qwen3.5-397B-A17B-FP8"),
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        "temperature": 0.65,
-        "max_tokens": 10000,
+        "model": model_name or os.getenv("MODEL_NAME", "DeepSeek-V4-Flash-0731"),
+        "messages": base_messages,
+        "temperature": 0.4,
+        "max_tokens": 4000,
         "stream": False,
         "response_format": {"type": "json_object"},
-        "extra_body": {"enable_thinking": False, "thinking_enabled": False},
     }
 
-    try:
-        async with httpx.AsyncClient(timeout=160.0) as client:
-            response = await client.post(f"{GATEWAY_BASE_URL}/v1/chat/completions", json=payload)
-            response.raise_for_status()
-            result = response.json()
-            message = result["choices"][0]["message"]
-            ai_text = message.get("content") or message.get("reasoning", "")
-            parsed = _extract_json_from_ai_text(ai_text)
-            script = _normalize_copywriting_script(parsed, clean_template_structure)
-            return {
-                "success": True,
-                "script": script,
-                "segments": script["segments"],
-                "spoken_text": script["spoken_text"],
-                "usage": result.get("usage", {}),
-                "raw_text": ai_text,
-            }
-    except httpx.HTTPError as exc:
-        return {"success": False, "script": None, "segments": [], "error": f"Gateway 调用失败：{exc}"}
-    except Exception as exc:
-        return {"success": False, "script": None, "segments": [], "error": f"AI 生成失败：{exc}"}
+    last_error = None
+    last_ai_text = ""
+    last_result = {}
+    async with httpx.AsyncClient(timeout=160.0) as client:
+        for attempt in range(3):
+            attempt_payload = dict(payload)
+            attempt_payload["temperature"] = 0.4 if attempt == 0 else 0.15
+            attempt_payload["messages"] = list(base_messages)
+            if attempt == 1:
+                if last_ai_text:
+                    attempt_payload["messages"].append({
+                        "role": "assistant",
+                        "content": last_ai_text[-6000:],
+                    })
+                attempt_payload["messages"].append({
+                    "role": "user",
+                    "content": (
+                        "上一次输出无法使用。请重新输出一个完整、可被 JSON.parse 直接解析的 JSON 对象；"
+                        f"spoken_text 必须为 {target_min_chars}～{target_max_chars} 个可见字符，"
+                        "segments.text 拼接必须与 spoken_text 完全一致。不要输出 Markdown。"
+                    ),
+                })
+            elif attempt == 2:
+                # Last-resort contract: request plain speech only. The backend
+                # deterministically rebuilds the required segment JSON from it.
+                attempt_payload.pop("response_format", None)
+                attempt_payload["messages"] = [
+                    {
+                        "role": "system",
+                        "content": "你只输出一段可直接朗读的中文短视频口播纯文本，不输出 JSON、Markdown、标题或导演口令。",
+                    },
+                    {
+                        "role": "user",
+                        "content": (
+                            f"根据产品“{product_name or '当前产品'}”及卖点“{selling_points or '保守介绍来源和特点'}”"
+                            f"生成 {target_min_chars}～{target_max_chars} 字口播。"
+                            f"风格：{tone_descriptions.get(tone, tone)}。"
+                            f"目标人群：{target_audience or '普通短视频用户'}。"
+                            "只返回纯口播正文。"
+                        ),
+                    },
+                ]
+            try:
+                response = await client.post(
+                    f"{GATEWAY_BASE_URL}/v1/chat/completions",
+                    json=attempt_payload,
+                    headers=_upstream_headers_from_request(request),
+                )
+                response.raise_for_status()
+                last_result = response.json()
+                message = last_result["choices"][0]["message"]
+                last_ai_text = message.get("content") or message.get("reasoning", "")
+                parsed = _extract_json_from_ai_text(last_ai_text)
+                script = _normalize_copywriting_script(parsed, clean_template_structure)
+                char_count = _copywriting_char_count(script)
+                if target_min_chars <= char_count <= target_max_chars:
+                    return {
+                        "success": True,
+                        "script": script,
+                        "segments": script["segments"],
+                        "spoken_text": script["spoken_text"],
+                        "usage": last_result.get("usage", {}),
+                        "raw_text": last_ai_text,
+                    }
+                last_error = ValueError(
+                    f"AI 文案长度为 {char_count} 字，不在 {target_min_chars}～{target_max_chars} 字范围内"
+                )
+                if attempt == 2:
+                    if char_count > target_max_chars:
+                        script = _clamp_copywriting_script(script, target_max_chars)
+                    return {
+                        "success": True,
+                        "script": script,
+                        "segments": script["segments"],
+                        "spoken_text": script["spoken_text"],
+                        "usage": last_result.get("usage", {}),
+                        "raw_text": last_ai_text,
+                    }
+            except Exception as exc:
+                last_error = exc
+
+    if isinstance(last_error, httpx.HTTPError):
+        error = f"Gateway 调用失败（已重试）：{last_error}"
+    else:
+        error = f"AI 生成失败（已完成 JSON 修复及纯文本降级重试）：{last_error or '未知错误'}"
+    return {"success": False, "script": None, "segments": [], "error": error}
 
 def extract_json_field(text, field_name, allow_partial=False):
     """
@@ -1081,6 +1239,7 @@ async def ai_recommend_templates_via_gateway(
     category: str = "",
     templates: List[Dict] = None,  # 前端传来的模板库
     model_name: str = None,
+    request=None,
 ) -> Dict[str, Any]:
     """
     通过 Gateway 调用 vLLM AI 推荐模板
@@ -1156,7 +1315,7 @@ async def ai_recommend_templates_via_gateway(
 请分析产品特性，从模板库中选择最匹配的 2-4 个模板，并给出推荐理由。"""
 
     payload = {
-        "model": model_name or os.getenv("MODEL_NAME", "Qwen/Qwen3.5-397B-A17B-FP8"),
+        "model": model_name or os.getenv("MODEL_NAME", "DeepSeek-V4-Flash-0731"),
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
@@ -1174,7 +1333,8 @@ async def ai_recommend_templates_via_gateway(
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(
                 f"{GATEWAY_BASE_URL}/v1/chat/completions",
-                json=payload
+                json=payload,
+                headers=_upstream_headers_from_request(request),
             )
             response.raise_for_status()
             result = response.json()
@@ -1252,6 +1412,7 @@ async def ai_analyze_videos_via_gateway(
     video_files: List[Dict],
     template_slots: List[Dict],
     model_name: str = None,
+    request=None,
 ) -> Dict[str, Any]:
     """
     通过 Gateway 调用 vLLM AI 分析视频素材，推荐到素材位
@@ -1318,7 +1479,7 @@ async def ai_analyze_videos_via_gateway(
 请为每个素材位推荐最匹配的视频文件，并说明匹配理由。"""
 
     payload = {
-        "model": model_name or os.getenv("MODEL_NAME", "Qwen/Qwen3.5-397B-A17B-FP8"),
+        "model": model_name or os.getenv("MODEL_NAME", "DeepSeek-V4-Flash-0731"),
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
@@ -1327,11 +1488,6 @@ async def ai_analyze_videos_via_gateway(
         "max_tokens": 5000,  # 减少 max_tokens，加快响应
         "stream": False,
         "response_format": {"type": "json_object"},
-        # 关闭思考模式，加快响应速度
-        "extra_body": {
-            "enable_thinking": False,
-            "thinking_enabled": False,
-        },
     }
 
     try:
@@ -1341,7 +1497,8 @@ async def ai_analyze_videos_via_gateway(
             
             response = await client.post(
                 f"{GATEWAY_BASE_URL}/v1/chat/completions",
-                json=payload
+                json=payload,
+                headers=_upstream_headers_from_request(request),
             )
             print(f"[AI 素材分析] Gateway 响应状态码：{response.status_code}")
             response.raise_for_status()
@@ -1398,6 +1555,7 @@ async def ai_generate_template_via_gateway(
     target_audience: str = "",
     file_names: List[str] = None,  # 新增：文件名参考列表
     model_name: str = None,
+    request=None,
 ) -> Dict[str, Any]:
     """
     通过 Gateway 调用 vLLM AI 生成模板
@@ -1496,7 +1654,7 @@ ending: "老妹家自家鹿场养了 1000 头梅花鹿，无论是鹿茸血还�
 5. 开场要抓人眼球，结尾要引导购买，中间场景要层层递进建立信任"""
 
     payload = {
-        "model": model_name or os.getenv("MODEL_NAME", "Qwen/Qwen3.5-397B-A17B-FP8"),
+        "model": model_name or os.getenv("MODEL_NAME", "DeepSeek-V4-Flash-0731"),
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
@@ -1505,18 +1663,14 @@ ending: "老妹家自家鹿场养了 1000 头梅花鹿，无论是鹿茸血还�
         "max_tokens": 10000,  # 增加 token 限制，确保 JSON 完整输出
         "stream": False,
         "response_format": {"type": "json_object"},
-        # 关闭思考模式，因为我们需要 JSON 输出而不是思考过程
-        "extra_body": {
-            "enable_thinking": False,
-            "thinking_enabled": False,
-        },
     }
 
     try:
         async with httpx.AsyncClient(timeout=160.0) as client:
             response = await client.post(
                 f"{GATEWAY_BASE_URL}/v1/chat/completions",
-                json=payload
+                json=payload,
+                headers=_upstream_headers_from_request(request),
             )
             print(f"[DEBUG] Gateway 响应状态码：{response.status_code}")
             print(f"[DEBUG] Gateway 响应内容：{response.text[:500]}")

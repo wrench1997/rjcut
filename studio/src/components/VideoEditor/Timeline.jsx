@@ -141,7 +141,18 @@ export default function Timeline() {
       if (snapped) newStartMs = snappedTime
     }
     
-    updateClip(draggedClip.id, { start_ms: newStartMs })
+    const relativeY = e.clientY - rect.top - HEADER_HEIGHT - 8
+    const targetTrackId = trackIds[Math.floor(relativeY / TRACK_HEIGHT)]
+    const targetType = targetTrackId?.split('_')[0]
+    const compatibleTrack = draggedClip.type === 'audio'
+      ? targetType === 'audio'
+      : draggedClip.type === 'subtitle'
+        ? targetType === 'subtitle'
+        : targetType && !['audio', 'subtitle'].includes(targetType)
+    const targetTrack = compatibleTrack && !tracks?.[targetTrackId]?.locked
+      ? targetTrackId
+      : draggedClip.track
+    updateClip(draggedClip.id, { start_ms: newStartMs, track: targetTrack })
   }
 
   const handleMouseUp = () => {
@@ -247,11 +258,17 @@ export default function Timeline() {
           removeClip(selectedClipId)
         }
       }
+      if (e.key.toLowerCase() === 's' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        if (selectedClipId) {
+          e.preventDefault()
+          handleSplitClip()
+        }
+      }
     }
     
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [handleUndo, handleRedo, handleCopy, handlePaste, selectedClipId, removeClip])
+  }, [handleUndo, handleRedo, handleCopy, handlePaste, handleSplitClip, selectedClipId, removeClip])
 
   // 全局鼠标事件
   useEffect(() => {
@@ -411,7 +428,7 @@ export default function Timeline() {
               disabled={!clipboard}
             />
             <div className="w-px h-5 bg-slate-700 mx-1" />
-            <ToolButton icon={Scissors} onClick={handleSplitClip} label="分割" />
+            <ToolButton icon={Scissors} onClick={handleSplitClip} label="分割 (S)" />
             <ToolButton 
               icon={GripHorizontal} 
               onClick={() => rippleRemove(selectedClipId)} 

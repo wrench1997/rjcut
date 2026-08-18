@@ -355,7 +355,15 @@ export async function loadSidecarForVideo(vfs, videoPath) {
 }
 
 function splitSceneSegment(segment, files) {
-  const validFiles = (files || []).filter((file) => file?.path)
+  const seenPaths = new Set()
+  const validFiles = (files || []).filter((file) => {
+    const path = String(file?.path || '').trim()
+    if (!path) return false
+    const key = path.replace(/\\/gu, '/').toLowerCase()
+    if (seenPaths.has(key)) return false
+    seenPaths.add(key)
+    return true
+  })
   if (!validFiles.length) return [{ ...segment, type: 'human', scene_file: null, scene_vfs_path: null }]
   const total = segment.end_ms - segment.start_ms
   return validFiles.map((file, index) => {
@@ -382,6 +390,66 @@ function splitSceneSegment(segment, files) {
         && Number(file.durationSeconds) > 0
         && Number(file.durationSeconds) * 1000 + 100 < endMs - startMs,
     }
+  })
+}
+
+function normalizeMaterialPath(value) {
+  return String(value || '').trim().replace(/\\/gu, '/').toLowerCase()
+}
+
+export function validateExclusiveSlotBindings(template, scene) {
+  const errors = []
+  const owners = new Map()
+  const slots = [...(template?.slots || [])].sort(
+    (left, right) => Number(left?.order || 0) - Number(right?.order || 0),
+  )
+
+  slots.forEach((slot) => {
+    const files = scene?.bindings?.[slot.id]?.files || []
+    const localPaths = new Set()
+    files.forEach((file) => {
+      const key = normalizeMaterialPath(file?.path)
+      if (!key || localPaths.has(key)) return
+      localPaths.add(key)
+      const previous = owners.get(key)
+      if (previous && previous.slotId !== slot.id) {
+        errors.push(
+          `素材“${file?.name || file?.path}”同时属于“${previous.title}”和“${slot.title || slot.id}”，` +
+          '请只保留在一个素材位中。',
+        )
+      } else {
+        owners.set(key, { slotId: slot.id, title: slot.title || slot.id })
+      }
+    })
+  })
+  return errors
+}
+
+function splitSegmentAcrossSlots(base, slots) {
+  const total = Math.max(1, Number(base.end_ms) - Number(base.start_ms))
+  const totalFiles = slots.reduce((sum, item) => sum + Math.max(1, item.files.length), 0)
+  let cursor = Number(base.start_ms)
+
+  return slots.flatMap((item, index) => {
+    const isLast = index === slots.length - 1
+    const share = Math.max(1, item.files.length) / Math.max(1, totalFiles)
+    const endMs = isLast ? Number(base.end_ms) : Math.round(cursor + total * share)
+    const slotSegment = {
+      ...base,
+      id: `${base.id}__${item.slot.id}`,
+      slot_id: item.slot.id,
+      source_slot_id: base.slot_id || null,
+      slot_order: item.slot.order,
+      start_ms: cursor,
+      end_ms: endMs,
+      start: cursor / 1000,
+      end: endMs / 1000,
+      duration_ms: endMs - cursor,
+      duration: (endMs - cursor) / 1000,
+      transition: buildTransitionDescriptor('scene', item.slot.id, base.transition),
+    }
+    cursor = endMs
+    return splitSceneSegment(slotSegment, item.files)
   })
 }
 
@@ -439,8 +507,21 @@ export function buildBoundLocalTimeline(project, template, scene) {
     throw new Error('数字人项目 JSON 无效')
   }
   const baseSegments = project.timeline?.segments || mapPlanToTimeline(project.copywriting, project.char_timings)
-  const sceneSlots = template?.slots || []
-  let sequentialSceneIndex = 0
+  const bindingErrors = validateExclusiveSlotBindings(template, scene)
+  if (bindingErrors.length) throw new Error(bindingErrors.join('\n'))
+
+  const sceneSlots = [...(template?.slots || [])]
+    .sort((left, right) => Number(left?.order || 0) - Number(right?.order || 0))
+    .map((slot) => ({
+      slot,
+      files: (scene?.bindings?.[slot.id]?.files || []).filter((file) => file?.path),
+    }))
+    .filter((item) => item.files.length > 0)
+  const sceneBases = baseSegments.filter(
+    (base) => base.visual_mode === 'scene' || base.type === 'scene',
+  )
+  let sceneBaseIndex = 0
+  let slotCursor = 0
   const outputSegments = []
 
   baseSegments.forEach((base) => {
@@ -450,11 +531,27 @@ export function buildBoundLocalTimeline(project, template, scene) {
       return
     }
 
-    const fallbackSlot = sceneSlots[sequentialSceneIndex]
-    const slotId = base.slot_id || fallbackSlot?.id
-    sequentialSceneIndex += 1
-    const binding = scene?.bindings?.[slotId]
-    outputSegments.push(...splitSceneSegment(base, binding?.files || []))
+    const remainingBases = sceneBases.length - sceneBaseIndex
+    const remainingSlots = sceneSlots.length - slotCursor
+    const takeCount = remainingSlots > 0
+      ? Math.ceil(remainingSlots / Math.max(1, remainingBases))
+      : 0
+    const assignedSlots = sceneSlots.slice(slotCursor, slotCursor + takeCount)
+    sceneBaseIndex += 1
+    slotCursor += assignedSlots.length
+
+    if (!assignedSlots.length) {
+      outputSegments.push({
+        ...base,
+        type: 'human',
+        scene_file: null,
+        scene_vfs_path: null,
+        source_slot_id: base.slot_id || null,
+        slot_id: null,
+      })
+      return
+    }
+    outputSegments.push(...splitSegmentAcrossSlots(base, assignedSlots))
   })
 
   return {

@@ -2,11 +2,12 @@
 import uuid
 import logging
 import os
+import tempfile
 import time
 import urllib.parse
 import ipaddress
 from datetime import datetime, timezone, timedelta
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from rq import Queue
@@ -27,11 +28,63 @@ router = APIRouter(prefix="/v1/dh", tags=["Digital Human"])
 
 # 🔴 单例模式：缓存 API 客户端，避免重复获取 access_token
 _chanjing_api_instance = None
+# 按请求凭据缓存的客户端（key: (app_id, secret_key)）
+_chanjing_api_request_instances = {}
 
-def get_chanjing_api():
-    """获取蝉镜 API 客户端（使用 V2 增强版，传统模式）- 单例模式"""
+
+def _chanjing_headers_from_request(request=None) -> dict:
+    """从 FastAPI Request 中提取蝉镜凭据头。"""
+    if request is None:
+        return {}
+    headers = getattr(request, "headers", None)
+    if not headers:
+        return {}
+    app_id = headers.get("X-Chanjing-App-Id") or headers.get("x-chanjing-app-id")
+    secret_key = headers.get("X-Chanjing-Secret-Key") or headers.get("x-chanjing-secret-key")
+    if app_id and secret_key and app_id.strip() and secret_key.strip():
+        return {
+            "app_id": app_id.strip(),
+            "secret_key": secret_key.strip(),
+        }
+    return {}
+
+
+def get_chanjing_api(request=None):
+    """获取蝉镜 API 客户端（使用 V2 增强版，传统模式）
+
+    - 如果 request 中带有 X-Chanjing-App-Id / X-Chanjing-Secret-Key，则按请求凭据创建独立客户端（带缓存）
+    - 否则回退到环境变量配置的单例客户端
+    """
     global _chanjing_api_instance
-    
+
+    # 优先使用请求头中的凭据
+    cred = _chanjing_headers_from_request(request)
+    if cred:
+        cache_key = (cred["app_id"], cred["secret_key"])
+        if cache_key not in _chanjing_api_request_instances:
+            settings = get_settings()
+            base_url = _require_public_url(
+                settings.CHANJING_BASE_URL,
+                "CHANJING_BASE_URL",
+                allow_private=settings.ALLOW_PRIVATE_CHANJING,
+            )
+            _chanjing_api_request_instances[cache_key] = create_chanjing_api_v2(
+                app_id=cred["app_id"],
+                secret_key=cred["secret_key"],
+                config={
+                    "timeout": 60,
+                    "max_retries": 3,
+                    "enable_cache": True,
+                    "enable_stats": True,
+                    "auto_auth": False,
+                    "base_url": base_url,
+                }
+            )
+            logger = logging.getLogger("chanjing")
+            logger.info(f"✅ 蝉镜 API 客户端已初始化（按请求凭据），app_id={cred['app_id']}")
+        return _chanjing_api_request_instances[cache_key]
+
+    # 回退到环境变量单例
     if _chanjing_api_instance is None:
         settings = get_settings()
         base_url = _require_public_url(
@@ -157,6 +210,35 @@ def _extract_audio_man_id(payload):
     return ''
 
 
+def _canonical_custom_person_id(value) -> str:
+    """Normalize public-list aliases such as dp_custom_xxx to custom_xxx."""
+    person_id = str(value or '').strip()
+    if person_id.startswith('dp_custom_'):
+        return person_id[3:]
+    return person_id
+
+
+def _custom_person_native_audio_id(value) -> str:
+    """MuseTalk resolves audio_custom_xxx to the trained reference_audio.wav."""
+    person_id = _canonical_custom_person_id(value)
+    return f"audio_{person_id}" if person_id.startswith('custom_') else ''
+
+
+def _is_custom_person_payload(payload) -> bool:
+    """Keep trained private assets out of the platform/common catalogue."""
+    if not isinstance(payload, dict):
+        return False
+    if _canonical_custom_person_id(payload.get('id')).startswith('custom_'):
+        return True
+    paths = []
+    for key in ('cover_url', 'preview_video_url', 'pic_url', 'preview_url', 'video_url'):
+        paths.append(payload.get(key))
+    for figure in payload.get('figures') or []:
+        if isinstance(figure, dict):
+            paths.extend(figure.get(key) for key in ('cover', 'preview_video_url', 'video_url'))
+    return any('/api_tasks/training/custom_' in str(path or '').replace('\\', '/') for path in paths)
+
+
 def _to_public_media_url(path: str) -> str:
     """将内部可见路径转换为前端可通过后端 /dh 路由访问的公共 URL。"""
     if not path:
@@ -202,12 +284,12 @@ def _upstream_error_response(operation: str, exc: Exception, logger):
 
 
 @router.get("/health")
-def digital_human_health(_: Merchant = Depends(verify_api_key)):
+def digital_human_health(request: Request, _: Merchant = Depends(verify_api_key)):
     """探测数字人上游和 token 链路，供部署探针或人工排障使用。"""
     logger = logging.getLogger("uvicorn.error")
     started_at = time.perf_counter()
     try:
-        api = get_chanjing_api()
+        api = get_chanjing_api(request)
         result = api.list_common_digital_persons(page=1, size=1, use_cache=False)
         latency_ms = round((time.perf_counter() - started_at) * 1000, 2)
         upstream_code = result.get("code") if isinstance(result, dict) else None
@@ -246,7 +328,7 @@ def digital_human_health(_: Merchant = Depends(verify_api_key)):
 # ----- 1. 获取基础资源接口 (透传蝉镜API) -----
 
 @router.get("/persons/common")
-def list_common_persons(merchant: Merchant = Depends(verify_api_key)):
+def list_common_persons(request: Request, merchant: Merchant = Depends(verify_api_key)):
     """获取公共数字人列表（包含所有可选形象类型）"""
     import logging
     import json
@@ -255,7 +337,7 @@ def list_common_persons(merchant: Merchant = Depends(verify_api_key)):
     
     logger = logging.getLogger("uvicorn.error")
     try:
-        api = get_chanjing_api()
+        api = get_chanjing_api(request)
         res = api.list_common_digital_persons(page=1, size=100, use_cache=True)
         
         # 🔍 详细打印蝉镜 API 返回数据
@@ -286,7 +368,13 @@ def list_common_persons(merchant: Merchant = Depends(verify_api_key)):
         return _upstream_error_response("获取公共数字人", e, logger)
     
     persons = res.get("data", {}).get("list", [])
-    logger.info(f"🔍 提取到公共数字人数量：{len(persons)}")
+    original_count = len(persons)
+    persons = [person for person in persons if not _is_custom_person_payload(person)]
+    logger.info(
+        "🔍 提取到平台数字人数量：%s（已排除自定义训练资产 %s 个）",
+        len(persons),
+        original_count - len(persons),
+    )
     if persons:
         logger.info(f"🔍 第一个数字人示例：{json.dumps(persons[0], ensure_ascii=False)[:300]}")
     
@@ -382,13 +470,14 @@ def list_common_persons(merchant: Merchant = Depends(verify_api_key)):
 
 @router.get("/persons/common/{person_id}")
 def get_common_person_detail(
+    request: Request,
     person_id: str,
     _: Merchant = Depends(verify_api_key)
 ):
     """获取单个公共数字人的详细信息（包含可用动作/形象）"""
     import logging
     logger = logging.getLogger("uvicorn.error")
-    api = get_chanjing_api()
+    api = get_chanjing_api(request)
     
     # 蝉镜 API 没有直接的公共数字人详情接口，需要从列表中筛选
     # 或者调用 list_common_digital_persons 并找到对应的 person
@@ -402,7 +491,7 @@ def get_common_person_detail(
     # 找到匹配的 person_id
     target_person = None
     for person in persons:
-        if person.get("id") == person_id:
+        if person.get("id") == person_id and not _is_custom_person_payload(person):
             target_person = person
             break
     
@@ -474,6 +563,7 @@ def get_common_person_detail(
 
 @router.get("/persons/custom")
 def list_custom_persons(
+    request: Request,
     merchant: Merchant = Depends(verify_api_key),
     db: Session = Depends(get_db)
 ):
@@ -514,7 +604,7 @@ def list_custom_persons(
         if not cover_url:
             logger.info(f"  *** 数据库无封面，尝试从蝉镜 API 获取详情...")
             try:
-                api = get_chanjing_api()
+                api = get_chanjing_api(request)
                 # 🐌 使用缓存降低并发，但封面获取场景可以不用缓存（因为只在没有封面时调用）
                 detail_resp = api.get_customised_person_status(p.chanjing_person_id, use_cache=False)
                 logger.info(f"  *** 蝉镜 API 返回：code={detail_resp.get('code')}, data={detail_resp.get('data', {})}")
@@ -552,7 +642,7 @@ def list_custom_persons(
 
         if not audio_man_id and not detail_fetched:
             try:
-                api = get_chanjing_api()
+                api = get_chanjing_api(request)
                 detail_resp = api.get_customised_person_status(p.chanjing_person_id, use_cache=True)
                 logger.info(f"  🎤 补充请求详情：code={detail_resp.get('code')}, data={detail_resp.get('data', {})}")
                 if ChanjingStatusCode.is_success(detail_resp.get('code')):
@@ -569,6 +659,20 @@ def list_custom_persons(
                             db.rollback()
             except Exception as e:
                 logger.warning(f"  ⚠️ 补齐数字人音色失败：{e}")
+
+        # MuseTalk 定制训练会固定生成 reference_audio.wav。旧记录没有保存
+        # audio_man_id 时仍可通过 audio_custom_xxx 稳定解析到该原声。
+        if not audio_man_id:
+            audio_man_id = _custom_person_native_audio_id(p.chanjing_person_id)
+            if audio_man_id:
+                try:
+                    p.audio_man_id = audio_man_id
+                    db.add(p)
+                    db.commit()
+                    logger.info("  ✅ 已按训练资产补齐数字人原声：%s", audio_man_id)
+                except Exception as update_err:
+                    logger.warning("  ⚠️ 原声音色回填失败：%s", update_err)
+                    db.rollback()
         
         if cover_url:
             # 🔗 检查是否是本地路径或 HTTP URL（蝉镜 API 返回的）
@@ -623,6 +727,7 @@ def list_custom_persons(
 
 @router.get("/persons/custom/{person_id}")
 def get_custom_person_detail(
+    request: Request,
     person_id: str,
     merchant: Merchant = Depends(verify_api_key),
     db: Session = Depends(get_db)
@@ -630,7 +735,7 @@ def get_custom_person_detail(
     """从蝉镜 API 拉取单个自定义数字人的详细信息"""
     import logging
     logger = logging.getLogger("uvicorn.error")
-    api = get_chanjing_api()
+    api = get_chanjing_api(request)
 
     # 先取本地记录，用于上游异常时的降级返回
     local_person = (
@@ -663,7 +768,7 @@ def get_custom_person_detail(
             "status": person.status,
             "status_text": _get_person_status_text(person.status),
             "progress": 0,
-            "audio_man_id": person.audio_man_id or '',
+            "audio_man_id": person.audio_man_id or _custom_person_native_audio_id(person_id),
             "cover_url": cover_url,
             "video_url": None,
             "figure_type": person.figure_type or '',
@@ -720,7 +825,11 @@ def get_custom_person_detail(
         local_person.status = local_status
         # 🎬 不要覆盖本地封面！本地存储的是从源视频第一帧提取的封面，比蝉镜的默认头像更有意义
         # local_person.cover_url = data.get('cover_url')
-        local_person.audio_man_id = _extract_audio_man_id(data)  # 🆕 同步声音 ID
+        local_person.audio_man_id = (
+            _extract_audio_man_id(data)
+            or local_person.audio_man_id
+            or _custom_person_native_audio_id(person_id)
+        )
         local_person.updated_at = datetime.now(timezone.utc)
         db.add(local_person)
         db.commit()
@@ -750,7 +859,11 @@ def get_custom_person_detail(
         "status": data.get('status', 0),
         "status_text": _get_person_status_text(data.get('status', 0)),
         "progress": data.get('progress', 0),
-        "audio_man_id": _extract_audio_man_id(data),
+        "audio_man_id": (
+            _extract_audio_man_id(data)
+            or (local_person.audio_man_id if local_person else '')
+            or _custom_person_native_audio_id(person_id)
+        ),
         "cover_url": cover_url,
         "video_url": data.get('video_url'),  # 训练完成的示例视频
         "figure_type": data.get('type', ''),
@@ -764,13 +877,14 @@ def get_custom_person_detail(
 
 @router.post("/persons/custom/sync")
 def sync_custom_persons(
+    request: Request,
     merchant: Merchant = Depends(verify_api_key),
     db: Session = Depends(get_db)
 ):
     """从蝉镜平台同步所有自定义数字人信息到本地数据库"""
     import logging
     logger = logging.getLogger("uvicorn.error")
-    api = get_chanjing_api()
+    api = get_chanjing_api(request)
     
     # 从蝉镜 API 获取所有自定义数字人（使用缓存降低并发）
     page = 1
@@ -914,6 +1028,7 @@ def sync_custom_persons(
                     audio_man_id = _extract_audio_man_id(detail_resp.get('data', {}))
             except Exception:
                 audio_man_id = ''
+        audio_man_id = audio_man_id or _custom_person_native_audio_id(person_id)
         
         # 映射蝉镜状态到本地状态 (根据 chanjing_api.py：1=制作中，2=成功，4=失败)
         local_status = 30 if chanjing_status == 2 else (40 if chanjing_status in (4, 40, -1) else 10)
@@ -934,7 +1049,7 @@ def sync_custom_persons(
             # 🎬 保留本地封面！如果本地已有从源视频第一帧提取的封面，不要覆盖
             if not existing.cover_url:
                 existing.cover_url = cover_url  # 保存原始路径
-            existing.audio_man_id = audio_man_id  # 🆕 同步声音 ID
+            existing.audio_man_id = audio_man_id or existing.audio_man_id  # 🆕 同步声音 ID
             existing.figure_type = figure_type  # 🆕 同步形象类型
             existing.updated_at = datetime.now(timezone.utc)
             db.add(existing)
@@ -971,13 +1086,136 @@ def _get_person_status_text(status: int) -> str:
     }
     return status_map.get(status, f"未知状态 ({status})")
 
+
+def _extract_custom_audio_id(payload) -> str:
+    """兼容蝉镜不同版本对定制声音 ID 的返回结构。"""
+    if isinstance(payload, str):
+        return payload.strip()
+    if not isinstance(payload, dict):
+        return ""
+    return (
+        _first_non_empty(payload.get("id"), "")
+        or _first_non_empty(payload.get("audio_id"), "")
+        or _first_non_empty(payload.get("audio_file_id"), "")
+        or _first_non_empty(payload.get("audio_man_id"), "")
+        or _extract_custom_audio_id(payload.get("data"))
+    )
+
+
+@router.post("/voices/customize")
+async def create_custom_audio(
+    request: Request,
+    file: UploadFile = File(...),
+    name: str = Form(...),
+    language: str = Form("cn"),
+    text: str = Form(""),
+    denoise_flag: bool = Form(True),
+    merchant: Merchant = Depends(verify_api_key),
+):
+    """上传声音样本并创建定制声音，前端只需使用系统 API 地址。"""
+    logger = logging.getLogger("uvicorn.error")
+    filename = file.filename or "custom-voice.bin"
+    suffix = os.path.splitext(filename)[1].lower()
+    allowed_suffixes = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".wma"}
+    if not (file.content_type or "").startswith("audio/") and suffix not in allowed_suffixes:
+        return fail(40001, "请选择 MP3、WAV、M4A、AAC、FLAC、OGG 或 WMA 音频")
+    if not name.strip():
+        return fail(40002, "声音名称不能为空")
+
+    settings = get_settings()
+    max_file_size = int(getattr(settings, "FILE_MAX_SIZE_MB", 500) * 1024 * 1024)
+    temp_path = ""
+    uploaded_file_id = ""
+    try:
+        with tempfile.NamedTemporaryFile(prefix="rjcut_voice_", suffix=suffix or ".audio", delete=False) as temp_file:
+            temp_path = temp_file.name
+            total_size = 0
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                total_size += len(chunk)
+                if total_size > max_file_size:
+                    return fail(41300, f"音频文件过大，限制为 {getattr(settings, 'FILE_MAX_SIZE_MB', 500)}MB")
+                temp_file.write(chunk)
+
+        if total_size <= 0:
+            return fail(40003, "音频文件不能为空")
+
+        api = get_chanjing_api(request)
+        uploaded_file_id = api.upload_file(temp_path, service="customised_audio")
+        file_detail_response = api.get_file_detail(uploaded_file_id)
+        file_detail = file_detail_response.get("data") if isinstance(file_detail_response, dict) else None
+        if isinstance(file_detail, str):
+            audio_url = file_detail.strip()
+        elif isinstance(file_detail, dict):
+            audio_url = (
+                _first_non_empty(file_detail.get("file_path"), "")
+                or _first_non_empty(file_detail.get("url"), "")
+                or _first_non_empty(file_detail.get("path"), "")
+            )
+        else:
+            audio_url = ""
+        if not audio_url:
+            raise RuntimeError(f"蝉镜文件详情缺少 file_path：{file_detail_response}")
+
+        create_response = api.create_customised_audio(
+            name=name.strip(),
+            url=audio_url,
+            language=(language or "cn").strip() or "cn",
+            text=(text or "").strip(),
+            denoise_flag=denoise_flag,
+        )
+        audio_id = _extract_custom_audio_id(create_response.get("data") if isinstance(create_response, dict) else create_response)
+        if not audio_id:
+            raise RuntimeError(f"蝉镜创建声音响应缺少声音 ID：{create_response}")
+
+        logger.info("定制声音创建成功 audio_id=%s source_file_id=%s merchant_id=%s", audio_id, uploaded_file_id, merchant.id)
+        return ok({
+            "audio_file_id": audio_id,
+            "audio_id": audio_id,
+            "source_file_id": uploaded_file_id,
+            "status": "processing",
+        })
+    except Exception as exc:
+        if uploaded_file_id:
+            try:
+                get_chanjing_api(request).delete_file(uploaded_file_id)
+            except Exception:
+                logger.warning("定制声音失败后的源文件清理失败 file_id=%s", uploaded_file_id, exc_info=True)
+        return _upstream_error_response("创建定制声音", exc, logger)
+    finally:
+        await file.close()
+        if temp_path:
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                logger.warning("临时声音文件清理失败 path=%s", temp_path, exc_info=True)
+
+
+@router.get("/voices/{audio_id}")
+def get_custom_audio_status(
+    request: Request,
+    audio_id: str,
+    _: Merchant = Depends(verify_api_key),
+):
+    """查询定制声音处理状态，训练前由前端轮询此接口。"""
+    logger = logging.getLogger("uvicorn.error")
+    try:
+        response = get_chanjing_api(request).get_customised_audio(audio_id.strip())
+        if not ChanjingStatusCode.is_success(response.get("code")):
+            return fail(50201, response.get("msg") or response.get("message") or "获取声音状态失败")
+        return ok(response.get("data"))
+    except Exception as exc:
+        return _upstream_error_response("获取定制声音状态", exc, logger)
+
 @router.get("/voices")
-def list_voices(_: Merchant = Depends(verify_api_key)):
+def list_voices(request: Request, _: Merchant = Depends(verify_api_key)):
     import logging
     import json
     logger = logging.getLogger("uvicorn.error")
     try:
-        api = get_chanjing_api()
+        api = get_chanjing_api(request)
         res = api.list_common_audio_mans(page=1, size=100, use_cache=True)
         
         # 🔍 详细打印蝉镜 API 返回数据
@@ -1056,6 +1294,15 @@ def create_dh_custom_person_task(
     merchant: Merchant = Depends(verify_api_key),
     db: Session = Depends(get_db),
 ):
+    payload = req.model_dump()
+    payload["audio_file_id"] = req.audio_file_id.strip() if req.audio_source == "my" else ""
+    payload["clone_preset_audio_id"] = req.clone_preset_audio_id.strip() if req.audio_source == "preset" else ""
+
+    if req.audio_source == "preset" and not payload["clone_preset_audio_id"]:
+        return fail(40001, "使用公共配音时必须选择 clone_preset_audio_id")
+    if req.audio_source == "my" and not payload["audio_file_id"]:
+        return fail(40001, "使用用户上传声音时必须提供 audio_file_id")
+
     trace_id = "trace_" + uuid.uuid4().hex[:16]
     task_id = "task_dhc_" + uuid.uuid4().hex[:16]
 
@@ -1069,7 +1316,7 @@ def create_dh_custom_person_task(
         client_ref_id=req.client_ref_id,
         task_type="dh_custom_person", 
         status=TaskStatus.queued,
-        payload=req.model_dump(),
+        payload=payload,
         timeout_seconds=14400, # 训练时间可能较长，设为 4 小时超时
         stage="queued",
     )
@@ -1083,7 +1330,7 @@ def create_dh_custom_person_task(
     job = queue.enqueue(
         "task_runner.run_dh_create_person_task",
         task_id=task_id,
-        payload=req.model_dump(),
+        payload=payload,
         trace_id=trace_id,
         merchant_id=merchant.id,
         job_timeout=14400 + 60,
@@ -1098,6 +1345,7 @@ def create_dh_custom_person_task(
 
 @router.post("/tasks/{task_id}/delete")
 def delete_dh_video_task(
+    request: Request,
     task_id: str,
     merchant: Merchant = Depends(verify_api_key),
     db: Session = Depends(get_db)
@@ -1106,7 +1354,7 @@ def delete_dh_video_task(
     
     调用蝉镜 API 删除视频，同时更新本地数据库状态
     """
-    api = get_chanjing_api()
+    api = get_chanjing_api(request)
     
     # 先查询本地任务是否存在
     task = db.query(Task).filter(
@@ -1143,6 +1391,7 @@ def delete_dh_video_task(
 
 @router.post("/persons/custom/{person_id}/delete")
 def delete_custom_person(
+    request: Request,
     person_id: str,
     merchant: Merchant = Depends(verify_api_key),
     db: Session = Depends(get_db)
@@ -1151,7 +1400,7 @@ def delete_custom_person(
     
     调用蝉镜 API 删除数字人，同时删除本地数据库记录
     """
-    api = get_chanjing_api()
+    api = get_chanjing_api(request)
     
     # 先检查本地是否存在该数字人
     local_person = (
@@ -1184,6 +1433,7 @@ def delete_custom_person(
 
 @router.post("/voices/{audio_id}/delete")
 def delete_custom_audio(
+    request: Request,
     audio_id: str,
     merchant: Merchant = Depends(verify_api_key)
 ):
@@ -1191,7 +1441,7 @@ def delete_custom_audio(
     
     调用蝉镜 API 删除定制声音
     """
-    api = get_chanjing_api()
+    api = get_chanjing_api(request)
     
     resp = api.delete_customised_audio(audio_id)
     
@@ -1206,6 +1456,7 @@ def delete_custom_audio(
 
 @router.post("/files/{file_id}/delete")
 def delete_file(
+    request: Request,
     file_id: str,
     merchant: Merchant = Depends(verify_api_key)
 ):
@@ -1213,7 +1464,7 @@ def delete_file(
     
     调用蝉镜 API 删除已上传的文件
     """
-    api = get_chanjing_api()
+    api = get_chanjing_api(request)
     
     resp = api.delete_file(file_id)
     

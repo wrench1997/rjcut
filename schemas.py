@@ -173,6 +173,20 @@ class TaskCancelRequest(BaseModel):
     reason: Optional[str] = None
 
 
+class TextToVideoRequest(BaseModel):
+    """MiniMax H3 AI 视频生成任务（文生视频或图生视频）。"""
+    prompt: str = Field(..., min_length=1, max_length=4000)
+    generation_mode: str = Field("text_to_video", pattern=r"^(text_to_video|image_to_video)$")
+    first_frame_oss_key: Optional[str] = Field(None, max_length=1024)
+    last_frame_oss_key: Optional[str] = Field(None, max_length=1024)
+    aspect_ratio: str = Field("9:16", pattern=r"^(auto|[1-9]\d*:[1-9]\d*)$")
+    seconds: int = Field(4, ge=4, le=15)
+    num_inference_steps: int = Field(50, ge=2, le=50)
+    seed: int = Field(42, ge=0, le=2147483647)
+    client_ref_id: Optional[str] = None
+    timeout_seconds: int = Field(7200, ge=300, le=7200)
+
+
 class CreateMerchantRequest(BaseModel):
     name: str
     email: Optional[str] = None
@@ -253,6 +267,9 @@ class DhGenerateVideoRequest(BaseModel):
 class DhCreateCustomPersonRequest(BaseModel):
     name: str
     source_video_oss_key: str
+    audio_source: Literal["video", "preset", "my"] = "video"
+    audio_file_id: str = ""
+    clone_preset_audio_id: str = ""
     train_type: str = "both"
     language: str = "cn"
     error_skip: bool = False
