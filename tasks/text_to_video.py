@@ -224,6 +224,7 @@ def run_text_to_video_task(task_id: str, payload: dict, trace_id: str, merchant_
                     "role": "keyframe",
                     "frame_index": -1,
                 })
+        is_image_to_video = bool(conditions)
         size_aspect_ratio = aspect_ratio
         source_aspect_ratio = None
         if aspect_ratio == "auto":
@@ -239,20 +240,21 @@ def run_text_to_video_task(task_id: str, payload: dict, trace_id: str, merchant_
         upstream_payload = {
             "model": "MiniMax/MiniMax-H3",
             "prompt": payload["prompt"],
-            "size": _resolve_size(size_aspect_ratio),
             "seconds": seconds,
             "num_inference_steps": int(payload.get("num_inference_steps", 50)),
             "seed": int(payload.get("seed", 42)),
-            "task": "fl2va" if conditions else "t2va",
+            "task": "fl2va" if is_image_to_video else "t2va",
             "conditions": conditions,
             "target": {
                 "short_edge": 768,
-                "aspect_ratio": size_aspect_ratio,
+                "aspect_ratio": "auto" if is_image_to_video else size_aspect_ratio,
                 "duration_seconds": float(seconds),
             },
             "flow_shift": 12.0,
             "audio_flow_shift": 3.0,
         }
+        if not is_image_to_video:
+            upstream_payload["size"] = _resolve_size(size_aspect_ratio)
         total_steps = int(upstream_payload["num_inference_steps"])
         response = requests.post(f"{base_url}/v1/videos", json=upstream_payload, timeout=60, headers=_auth_headers(h3_key))
         response.raise_for_status()
