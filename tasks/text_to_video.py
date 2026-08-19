@@ -38,7 +38,7 @@ SUPPORTED_IMAGE_SIGNATURES = (
     (b"\xff\xd8\xff", "image/jpeg", ".jpg"),
     (b"\x89PNG\r\n\x1a\n", "image/png", ".png"),
 )
-MAX_FRAME_PIXELS = 40_000_000
+MAX_FRAME_PIXELS = 80_000_000
 
 
 def _resilient_get_session() -> requests.Session:
