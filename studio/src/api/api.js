@@ -175,10 +175,16 @@ export const relayUpload = async (
   formData.append('file', file, filename);
   formData.append('purpose', purpose);
 
+  const upstream = getUpstreamKeys();
+  const upstreamHeaders = {};
+  if (upstream.genvideos) upstreamHeaders['X-Genvideos-Api-Key'] = upstream.genvideos;
+  if (upstream.chanjing_app_id) upstreamHeaders['X-Chanjing-App-Id'] = upstream.chanjing_app_id;
+  if (upstream.chanjing_secret) upstreamHeaders['X-Chanjing-Secret-Key'] = upstream.chanjing_secret;
   const response = await fetch(`${baseUrl}/v1/uploads/relay`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey || getApiKey()}`,
+      ...upstreamHeaders,
     },
     body: formData,
     signal,
@@ -211,10 +217,16 @@ export const createCustomVoice = async ({
   formData.append('text', text);
   formData.append('denoise_flag', String(Boolean(denoiseFlag)));
 
+  const upstream = getUpstreamKeys();
+  const upstreamHeaders = {};
+  if (upstream.genvideos) upstreamHeaders['X-Genvideos-Api-Key'] = upstream.genvideos;
+  if (upstream.chanjing_app_id) upstreamHeaders['X-Chanjing-App-Id'] = upstream.chanjing_app_id;
+  if (upstream.chanjing_secret) upstreamHeaders['X-Chanjing-Secret-Key'] = upstream.chanjing_secret;
   const response = await fetch(`${baseUrl}/v1/dh/voices/customize`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey || getApiKey()}`,
+      ...upstreamHeaders,
     },
     body: formData,
     signal,

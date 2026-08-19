@@ -8,6 +8,7 @@ const DEFAULT_DIGITAL_HUMAN_BASE_URL = `${API_BASE_URL}/dh`
 // 蝉镜源服务地址，用于把返回体里的绝对地址改写到 /dh 代理。
 const CHANJING_ORIGIN = process.env.NEXT_PUBLIC_CHANJING_ORIGIN || ''
 const DEFAULT_DIGITAL_HUMAN_TIMEOUT_SECONDS = 1800
+import { getUpstreamKeys } from '../../api/api'
 
 export function getDigitalHumanBaseUrl() {
   if (typeof localStorage === 'undefined') return DEFAULT_DIGITAL_HUMAN_BASE_URL
@@ -89,8 +90,13 @@ async function requestJson(url, { timeoutMs = 30 * 1000, ...options } = {}) {
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   let response
   let text
+  const upstream = getUpstreamKeys()
+  const upstreamHeaders = {}
+  if (upstream.genvideos) upstreamHeaders['X-Genvideos-Api-Key'] = upstream.genvideos
+  if (upstream.chanjing_app_id) upstreamHeaders['X-Chanjing-App-Id'] = upstream.chanjing_app_id
+  if (upstream.chanjing_secret) upstreamHeaders['X-Chanjing-Secret-Key'] = upstream.chanjing_secret
   try {
-    response = await fetch(url, { ...options, signal: controller.signal })
+    response = await fetch(url, { ...options, headers: { ...(options.headers || {}), ...upstreamHeaders }, signal: controller.signal })
     text = await response.text()
   } catch (error) {
     if (error?.name === 'AbortError') {

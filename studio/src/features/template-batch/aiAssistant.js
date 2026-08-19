@@ -4,7 +4,7 @@
  * 提供 AI 推荐模板、AI 生成文案、AI 素材建议等功能
  */
 
-import { getApiKey, getBaseUrl } from '../../api/api'
+import { getApiKey, getBaseUrl, getUpstreamKeys } from '../../api/api'
 
 /**
  * 默认模板定义
@@ -122,11 +122,13 @@ export async function aiRecommendTemplates(productKeyword, category = '', templa
   console.log('[AI 推荐模板] 请求 URL:', `${apiBaseUrl}/v1/ai/recommend-templates`)
   console.log('[AI 推荐模板] 请求体:', requestBody)
   
+  const upstream = getUpstreamKeys()
   const response = await fetch(`${apiBaseUrl}/v1/ai/recommend-templates`, {
     method: 'POST',
     headers: { 
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${apiKey}`,
+      ...(upstream.genvideos ? { 'X-Genvideos-Api-Key': upstream.genvideos } : {}),
     },
     body: JSON.stringify(requestBody),
   })
@@ -249,11 +251,13 @@ export async function aiGenerateScript({
     console.log('[AI 生成文案] 请求 URL:', `${baseUrl}/v1/ai/generate-script`)
     console.log('[AI 生成文案] 请求体:', requestBody)
     
+    const upstream = getUpstreamKeys()
     const response = await fetch(`${baseUrl}/v1/ai/generate-script`, {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`,
+        ...(upstream.genvideos ? { 'X-Genvideos-Api-Key': upstream.genvideos } : {}),
       },
       body: JSON.stringify(requestBody),
     })
@@ -348,11 +352,13 @@ export async function aiGenerateTemplate({
     console.log('[AI 生成模板] 请求 URL:', `${baseUrl}/v1/ai/generate-template`)
     console.log('[AI 生成模板] 请求体:', requestBody)
     
+    const upstream = getUpstreamKeys()
     const response = await fetch(`${baseUrl}/v1/ai/generate-template`, {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`,
+        ...(upstream.genvideos ? { 'X-Genvideos-Api-Key': upstream.genvideos } : {}),
       },
       body: JSON.stringify(requestBody),
     })
@@ -462,11 +468,13 @@ export async function aiSuggestSlotFiles(files, slots, vfs = null) {
   console.log('[AI 素材分析] 请求 URL:', `${apiBaseUrl}/v1/ai/analyze-videos`)
   console.log('[AI 素材分析] 请求体:', requestBody)
   
+  const upstream = getUpstreamKeys()
   const response = await fetch(`${apiBaseUrl}/v1/ai/analyze-videos`, {
     method: 'POST',
     headers: { 
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${apiKey}`,
+      ...(upstream.genvideos ? { 'X-Genvideos-Api-Key': upstream.genvideos } : {}),
     },
     body: JSON.stringify(requestBody),
   })

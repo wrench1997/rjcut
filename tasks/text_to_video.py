@@ -226,12 +226,16 @@ def run_text_to_video_task(task_id: str, payload: dict, trace_id: str, merchant_
                 })
         size_aspect_ratio = aspect_ratio
         source_aspect_ratio = None
-        if aspect_ratio == "auto" and first_frame_size:
-            divisor = math.gcd(first_frame_size[0], first_frame_size[1])
-            source_aspect_ratio = (
-                f"{first_frame_size[0] // divisor}:{first_frame_size[1] // divisor}"
-            )
-            size_aspect_ratio = source_aspect_ratio
+        if aspect_ratio == "auto":
+            if first_frame_size:
+                divisor = math.gcd(first_frame_size[0], first_frame_size[1])
+                source_aspect_ratio = (
+                    f"{first_frame_size[0] // divisor}:{first_frame_size[1] // divisor}"
+                )
+                size_aspect_ratio = source_aspect_ratio
+            else:
+                # 纯文生视频且未指定比例时，默认 16:9 横屏
+                size_aspect_ratio = "16:9"
         upstream_payload = {
             "model": "MiniMax/MiniMax-H3",
             "prompt": payload["prompt"],
@@ -243,7 +247,7 @@ def run_text_to_video_task(task_id: str, payload: dict, trace_id: str, merchant_
             "conditions": conditions,
             "target": {
                 "short_edge": 768,
-                "aspect_ratio": aspect_ratio,
+                "aspect_ratio": size_aspect_ratio,
                 "duration_seconds": float(seconds),
             },
             "flow_shift": 12.0,

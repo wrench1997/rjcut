@@ -25,12 +25,16 @@ const DEFAULT_API_KEY = 'rjk_oG3u1bRu10myprstb5o2AYVW6v9HipNT33ALuJTmFxaqemUC'
 
 const apiRequest = async (endpoint, options = {}, apiKey = DEFAULT_API_KEY, baseUrl = DEFAULT_API_BASE_URL) => {
   const url = `${baseUrl}${endpoint}`
+  const upstream = getUpstreamKeys()
   const config = {
     ...options,
     headers: {
       ...options.headers,
       'Authorization': `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
+      ...(upstream.genvideos ? { 'X-Genvideos-Api-Key': upstream.genvideos } : {}),
+      ...(upstream.chanjing_app_id ? { 'X-Chanjing-App-Id': upstream.chanjing_app_id } : {}),
+      ...(upstream.chanjing_secret ? { 'X-Chanjing-Secret-Key': upstream.chanjing_secret } : {}),
     },
   }
   const response = await fetch(url, config)

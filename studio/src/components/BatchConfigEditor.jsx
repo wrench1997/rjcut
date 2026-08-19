@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { X, AlertTriangle, Info, CheckCircle, Trash2, FolderOpen, ArrowUp, Lightbulb, Search, Eye, Settings, Wrench, Check, XCircle, Folder, Film, FileText, Music, Book, Clapperboard, Send, Download, RefreshCw } from 'lucide-react'
-import { relayUpload } from '../api/api'
+import { getUpstreamKeys, relayUpload } from '../api/api'
 
 // =====================================================
 // 验证级别标签组件
@@ -1390,11 +1390,15 @@ function BatchConfigValidator({ config, onChange, vfs, className, apiBaseUrl, ap
     }
     
     // 6. 提交草稿任务
+    const upstream = getUpstreamKeys()
     const draftRes = await fetch(`${apiBaseUrl}/v1/tasks/agent-draft`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
+        ...(upstream.genvideos ? { 'X-Genvideos-Api-Key': upstream.genvideos } : {}),
+        ...(upstream.chanjing_app_id ? { 'X-Chanjing-App-Id': upstream.chanjing_app_id } : {}),
+        ...(upstream.chanjing_secret ? { 'X-Chanjing-Secret-Key': upstream.chanjing_secret } : {}),
       },
       body: JSON.stringify(draftRequest),
     })
@@ -1447,6 +1451,9 @@ function BatchConfigValidator({ config, onChange, vfs, className, apiBaseUrl, ap
         headers: {
           'Authorization': `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
+          ...(upstream.genvideos ? { 'X-Genvideos-Api-Key': upstream.genvideos } : {}),
+          ...(upstream.chanjing_app_id ? { 'X-Chanjing-App-Id': upstream.chanjing_app_id } : {}),
+          ...(upstream.chanjing_secret ? { 'X-Chanjing-Secret-Key': upstream.chanjing_secret } : {}),
         },
         body: JSON.stringify(composeRequest),
       })
@@ -1480,9 +1487,13 @@ function BatchConfigValidator({ config, onChange, vfs, className, apiBaseUrl, ap
     setSubmitResults(null)
     
     try {
+      const upstream = getUpstreamKeys()
       const merchantRes = await fetch(`${apiBaseUrl}/v1/merchant/info`, {
         headers: {
           'Authorization': `Bearer ${apiKey}`,
+          ...(upstream.genvideos ? { 'X-Genvideos-Api-Key': upstream.genvideos } : {}),
+          ...(upstream.chanjing_app_id ? { 'X-Chanjing-App-Id': upstream.chanjing_app_id } : {}),
+          ...(upstream.chanjing_secret ? { 'X-Chanjing-Secret-Key': upstream.chanjing_secret } : {}),
         },
       })
       

@@ -2,16 +2,18 @@
  * Python 后端版 AI 文案客户端。
  * 接口对应：/v1/ai-copywriting/*
  */
-import { getApiKey, getBaseUrl } from '../../api/api'
+import { getApiKey, getBaseUrl, getUpstreamKeys } from '../../api/api'
 
 const getApiBaseUrl = getBaseUrl
 
 async function postJson(path, body) {
+  const upstream = getUpstreamKeys()
   const response = await fetch(`${getApiBaseUrl()}${path}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${getApiKey()}`,
+      ...(upstream.genvideos ? { 'X-Genvideos-Api-Key': upstream.genvideos } : {}),
     },
     body: JSON.stringify(body),
   })
@@ -27,8 +29,12 @@ async function postJson(path, body) {
 }
 
 export async function getAiCopywritingPresets() {
+  const upstream = getUpstreamKeys()
   const response = await fetch(`${getApiBaseUrl()}/v1/ai-copywriting/presets`, {
-    headers: { 'Authorization': `Bearer ${getApiKey()}` },
+    headers: {
+      'Authorization': `Bearer ${getApiKey()}`,
+      ...(upstream.genvideos ? { 'X-Genvideos-Api-Key': upstream.genvideos } : {}),
+    },
   })
   const result = await response.json().catch(() => ({}))
   if (!response.ok || (result.code !== undefined && result.code !== 0 && result.code !== 200)) {

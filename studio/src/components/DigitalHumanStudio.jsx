@@ -1707,6 +1707,8 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
   const [statusMsg, setStatusMsg] = useState('')
   const [pipelineTasks, setPipelineTasks] = useState([])
   const resumedTaskIdsRef = useRef(new Set())
+  // 保存初始预选数字人，避免 preselectedPerson 从有值变为 null 时重复加载数据
+  const initialPreselectedPersonRef = useRef(preselectedPerson)
   const [showProgress, setShowProgress] = useState(false)
   const [minimizedProgress, setMinimizedProgress] = useState(false)
   const [generatedVideos, setGeneratedVideos] = useState([]) // 存储已生成的视频路径
@@ -1786,7 +1788,9 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
     setIsGeneratingScript(true)
     try {
       if (!template) throw new Error('未选择模板，请先选择一个模板')
-      const copywritingPlan = normalizeCopywritingPlan(await aiGenerateScript({
+      // AI 请求添加 60 秒超时，避免后端长时间无响应导致遮罩一直显示、输入框无法输入。
+      const AI_TIMEOUT_MS = 60 * 1000
+      const aiPromise = aiGenerateScript({
         customPrompt,
         templateId: template.id,
         segments: template.segments || [],
@@ -1798,7 +1802,11 @@ export default function DigitalHumanStudio({ apiKey, apiBaseUrl, preselectedPers
         farmScale: productInfo.farm_scale,
         identificationPoints: productInfo.identification_points,
         callToAction: productInfo.call_to_action,
-      }))
+      })
+      const copywritingPlan = normalizeCopywritingPlan(await Promise.race([
+        aiPromise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('AI 请求超时（60 秒），请稍后重试')), AI_TIMEOUT_MS)),
+      ]))
 
       if (!copywritingPlan.spoken_text) throw new Error('AI 没有返回可朗读的 spoken_text')
       const sceneCount = copywritingPlan.segments.filter((item) => item.visual_mode === 'scene').length
@@ -2158,10 +2166,11 @@ const [cRes, pRes, vRes] = [commonPersonsRes, customPersonsRes, voicesRes]
         }
         
         // 如果有预选数字人，自动选择（优先使用传入的 preselectedPerson）
-        if (preselectedPerson) {
-          console.log('[DigitalHumanStudio] 收到预选数字人:', preselectedPerson.name, preselectedPerson.id)
+        const initialPreselectedPerson = initialPreselectedPersonRef.current
+        if (initialPreselectedPerson) {
+          console.log('[DigitalHumanStudio] 收到预选数字人:', initialPreselectedPerson.name, initialPreselectedPerson.id)
           // 优先按 selectionKey / generation_person_id 匹配，避免重复旧 ID 选中错误卡片。
-          const person = findMatchingPerson(all, preselectedPerson)
+          const person = findMatchingPerson(all, initialPreselectedPerson)
           if (person) {
             console.log('[DigitalHumanStudio] 找到匹配的数字人，自动选择:', person.name)
             setSelectedPerson(person)
@@ -2169,8 +2178,8 @@ const [cRes, pRes, vRes] = [commonPersonsRes, customPersonsRes, voicesRes]
           } else {
             // 如果没找到，直接使用 preselectedPerson 数据
             console.log('[DigitalHumanStudio] 未在列表中找到，直接使用 preselectedPerson')
-            setSelectedPerson(preselectedPerson)
-            loadPersonDetails(preselectedPerson)
+            setSelectedPerson(initialPreselectedPerson)
+            loadPersonDetails(initialPreselectedPerson)
           }
 // 通知父组件预选数字人已被使用
           if (onPreselectedPersonUsed) {
@@ -2189,7 +2198,9 @@ const [cRes, pRes, vRes] = [commonPersonsRes, customPersonsRes, voicesRes]
     }
     
     loadData()
-  }, [preselectedPerson])
+    // 只在组件挂载时加载一次数据。preselectedPerson 变化（从有值变为 null）不应触发重新加载。
+    // 否则会导致大量 API 请求和组件重新渲染，可能阻塞主线程导致输入框短暂无法响应。
+  }, [])
 
   // 核心：生成数字人视频并保存到 VFS
   const startPipeline = async () => {

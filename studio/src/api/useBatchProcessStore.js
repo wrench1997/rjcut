@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { getVFS } from '../utils/vfsClient'
-import { getBaseUrl, relayUpload } from './api'
+import { getBaseUrl, getUpstreamKeys, relayUpload } from './api'
 
 const useBatchProcessStore = create((set, get) => ({
   tasks: [],
@@ -166,8 +166,14 @@ await vfs.init()
       if (abortSignal.aborted) throw new Error('Aborted')
 
       // 获取商户 ID（用于场景 URL）
+      const upstream = getUpstreamKeys()
       const merchantRes = await fetch(`${apiBaseUrl}/v1/merchant/info`, {
-        headers: { 'Authorization': `Bearer ${apiKey}` }
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          ...(upstream.genvideos ? { 'X-Genvideos-Api-Key': upstream.genvideos } : {}),
+          ...(upstream.chanjing_app_id ? { 'X-Chanjing-App-Id': upstream.chanjing_app_id } : {}),
+          ...(upstream.chanjing_secret ? { 'X-Chanjing-Secret-Key': upstream.chanjing_secret } : {}),
+        }
       })
       if (!merchantRes.ok) throw new Error('获取商户信息失败')
       const merchantData = await merchantRes.json()
@@ -207,7 +213,10 @@ await vfs.init()
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          ...(upstream.genvideos ? { 'X-Genvideos-Api-Key': upstream.genvideos } : {}),
+          ...(upstream.chanjing_app_id ? { 'X-Chanjing-App-Id': upstream.chanjing_app_id } : {}),
+          ...(upstream.chanjing_secret ? { 'X-Chanjing-Secret-Key': upstream.chanjing_secret } : {}),
         },
         body: JSON.stringify(draftReq)
       })
@@ -311,7 +320,10 @@ await vfs.init()
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${apiKey}`,
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            ...(upstream.genvideos ? { 'X-Genvideos-Api-Key': upstream.genvideos } : {}),
+            ...(upstream.chanjing_app_id ? { 'X-Chanjing-App-Id': upstream.chanjing_app_id } : {}),
+            ...(upstream.chanjing_secret ? { 'X-Chanjing-Secret-Key': upstream.chanjing_secret } : {}),
           },
           body: JSON.stringify(composeReq)
         })
@@ -353,8 +365,14 @@ await vfs.init()
   // 轮询查询后端任务执行状态
   pollTask: async (taskId, apiKey, abortSignal, onProgress, apiBaseUrl = getBaseUrl()) => {
     while (!abortSignal.aborted) {
+      const upstream = getUpstreamKeys()
       const res = await fetch(`${apiBaseUrl}/v1/tasks/${taskId}`, {
-        headers: { 'Authorization': `Bearer ${apiKey}` }
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          ...(upstream.genvideos ? { 'X-Genvideos-Api-Key': upstream.genvideos } : {}),
+          ...(upstream.chanjing_app_id ? { 'X-Chanjing-App-Id': upstream.chanjing_app_id } : {}),
+          ...(upstream.chanjing_secret ? { 'X-Chanjing-Secret-Key': upstream.chanjing_secret } : {}),
+        }
       })
       
       if (!res.ok) throw new Error('查询任务状态失败')
